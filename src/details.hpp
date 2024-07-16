@@ -3,7 +3,9 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-struct VkDetails {
-	VkInstance inst;
-	VkDebugUtilsMessengerEXT dbgMessenger;
+#include "device.hpp"
+
+struct details {
+    GLFWwindow* window;
+    std::shared_ptr<Device> device;
 };

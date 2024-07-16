@@ -11,4 +11,4 @@ find_package(fmt REQUIRED)
 
 
 link_libraries(Vulkan::Vulkan glfw fmt::fmt)
-add_executable (vulkhan "src/main.cpp" "src/init.cpp")
+add_executable (vulkhan "src/main.cpp" "src/pipeline.cpp" "src/device.cpp")
