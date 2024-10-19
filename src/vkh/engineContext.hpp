@@ -1,0 +1,39 @@
+#pragma once
+
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
+
+#include "ecs.hpp"
+
+#include <memory>
+
+namespace vkh {
+	struct EngineContext {
+		struct {
+			int width = 800;
+			int height = 600;
+			bool framebufferResized = false;
+			bool fullscreen = false;
+			VkExtent2D getExtent() { return { static_cast<uint32_t>(width), static_cast<uint32_t>(height) }; };
+			operator GLFWwindow* () { return glfwWindow; };
+			GLFWwindow* glfwWindow;
+		} window;
+		struct {
+			VkInstance instance;
+#ifdef NDEBUG
+			const bool enableValidationLayers = false;
+#else
+			const bool enableValidationLayers = true;
+#endif
+			VkDebugUtilsMessengerEXT debugMessenger;
+			VkSurfaceKHR surface;
+			VkPhysicalDevice physicalDevice;
+			VkPhysicalDeviceProperties physicalDeviceProperties;
+			VkDevice device;
+			VkQueue graphicsQueue;
+			VkQueue presentQueue;
+			VkCommandPool commandPool;
+		} vulkan;
+		ECSManager ecs;
+	};
+}
