@@ -12,8 +12,8 @@ namespace vkh {
 		void init(EngineContext& context);
 		void cleanup(EngineContext& context);
 
-		VkRenderPass getSwapChainRenderPass();
-		float getAspectRatio();
+		VkRenderPass getSwapChainRenderPass(EngineContext& context);
+		float getAspectRatio(EngineContext& context);
 		bool isFrameInProgress();
 
 		VkCommandBuffer getCurrentCommandBuffer();
@@ -22,7 +22,7 @@ namespace vkh {
 
 		VkCommandBuffer beginFrame(EngineContext& context);
 		void endFrame(EngineContext& context);
-		void beginSwapChainRenderPass(VkCommandBuffer commandBuffer);
+		void beginSwapChainRenderPass(EngineContext& context, VkCommandBuffer commandBuffer);
 		void endSwapChainRenderPass(VkCommandBuffer commandBuffer);
 	}
 }
