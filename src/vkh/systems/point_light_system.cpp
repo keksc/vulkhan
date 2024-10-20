@@ -58,7 +58,7 @@ namespace vkh {
 		LvePipeline::enableAlphaBlending(pipelineConfig);
 		pipelineConfig.attributeDescriptions.clear();
 		pipelineConfig.bindingDescriptions.clear();
-		pipelineConfig.renderPass = renderer::getSwapChainRenderPass();
+		pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
 		pipelineConfig.pipelineLayout = pipelineLayout;
 		lvePipeline = std::make_unique<LvePipeline>(
 			context,
