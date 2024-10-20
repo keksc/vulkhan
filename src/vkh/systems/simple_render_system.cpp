@@ -53,7 +53,7 @@ namespace vkh {
 		assert(pipelineLayout != nullptr && "Cannot create pipeline before pipeline layout");
 
 		PipelineConfigInfo pipelineConfig{};
-		pipelineConfig.renderPass = renderer::getSwapChainRenderPass();
+		pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
 		pipelineConfig.pipelineLayout = pipelineLayout;
 		lvePipeline = std::make_unique<LvePipeline>(
 			context,
