@@ -5,7 +5,6 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
-#include "../ecs.hpp"
 #include "../renderer.hpp"
 
 #include <array>
@@ -70,9 +69,8 @@ namespace vkh {
 	void PointLightSystem::update(FrameInfo& frameInfo, GlobalUbo& ubo) {
 		auto rotateLight = glm::rotate(glm::mat4(1.f), 0.5f * frameInfo.frameTime, { 0.f, -1.f, 0.f });
 		int lightIndex = 0;
-		for (auto& entity : entities) {
-			auto& transform = context.ecs.getComponent<Transform>(entity);
-			auto& pointLight = context.ecs.getComponent<PointLight>(entity);
+		for (auto& pointLight : context.pointLights) {
+			auto& transform = pointLight.transform;
 
 			assert(lightIndex < MAX_LIGHTS && "Point lights exceed maximum specified");
 
@@ -90,14 +88,14 @@ namespace vkh {
 
 	void PointLightSystem::render(FrameInfo& frameInfo) {
 		// sort lights
-		std::map<float, Entity> sorted;
-		for (auto entity : entities) {
-			auto& transform = context.ecs.getComponent<Transform>(entity);
+		std::map<float, PointLight> sorted;
+		for (auto pointLight : context.pointLights) {
+			auto& transform = pointLight.transform;
 
 			// calculate distance
 			auto offset = frameInfo.camera.getPosition() - transform.translation;
 			float disSquared = glm::dot(offset, offset);
-			sorted[disSquared] = entity;
+			sorted[disSquared] = pointLight;
 		}
 
 		lvePipeline->bind(frameInfo.commandBuffer);
@@ -115,9 +113,8 @@ namespace vkh {
 		// iterate through sorted lights in reverse order
 		for (auto it = sorted.rbegin(); it != sorted.rend(); ++it) {
 			// use game obj id to find light object
-			auto& entity = it->second;
-			auto& transform = context.ecs.getComponent<Transform>(entity);
-			auto& pointLight = context.ecs.getComponent<PointLight>(entity);
+			auto& pointLight = it->second;
+			auto& transform = pointLight.transform;;
 
 			PointLightPushConstants push{};
 			push.position = glm::vec4(transform.translation, 1.f);

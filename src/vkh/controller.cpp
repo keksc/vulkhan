@@ -69,22 +69,21 @@ Controller::Controller(EngineContext &context) : context{context} {
   glfwSetScrollCallback(context.window, scroll_callback);
 }
 
-void Controller::moveInPlaneXZ(EngineContext &context, float dt,
-                               Entity viewerEntity) {
+void Controller::moveInPlaneXZ(EngineContext &context, float dt) {
   auto &cameraRotation =
-      context.ecs.getComponent<Transform>(viewerEntity).rotation;
+      context.camera.rotation;
   glm::vec3 rotate{-mousePos.y, mousePos.x, 0.f};
   cameraRotation = rotate * 0.0007f;
 
   if (scroll) {
-    context.ecs.getComponent<Transform>(2).translation.y -= scroll * 0.02;
+    context.camera.translation.y -= scroll * 0.02;
     scroll = 0;
   }
 
   cameraRotation.y = glm::mod(cameraRotation.y, glm::two_pi<float>());
   cameraRotation.x = glm::clamp(cameraRotation.x, -1.5f, 1.5f);
 
-  float yaw = context.ecs.getComponent<Transform>(viewerEntity).rotation.y;
+  float yaw = context.camera.rotation.y;
   const glm::vec3 forwardDir{sin(yaw), 0.f, cos(yaw)};
   const glm::vec3 rightDir{forwardDir.z, 0.f, -forwardDir.x};
   const glm::vec3 upDir{0.f, -1.f, 0.f};
@@ -104,7 +103,7 @@ void Controller::moveInPlaneXZ(EngineContext &context, float dt,
     moveDir -= upDir;
 
   if (glm::dot(moveDir, moveDir) > std::numeric_limits<float>::epsilon()) {
-    context.ecs.getComponent<Transform>(viewerEntity).translation +=
+    context.camera.translation +=
         moveSpeed * dt * glm::normalize(moveDir);
   }
 }
