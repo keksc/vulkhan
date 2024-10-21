@@ -5,14 +5,13 @@
 #include "../frameInfo.hpp"
 #include "../gameObject.hpp"
 #include "../pipeline.hpp"
-#include "../ecs.hpp"
 
 // std
 #include <memory>
 #include <vector>
 
 namespace vkh {
-	class SimpleRenderSystem : public System {
+	class SimpleRenderSystem {
 	public:
 		SimpleRenderSystem(EngineContext& context, VkDescriptorSetLayout globalSetLayout);
 		~SimpleRenderSystem();

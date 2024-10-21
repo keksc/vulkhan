@@ -1,10 +1,10 @@
 #pragma once
 
 #include "gameObject.hpp"
-#include "ecs.hpp"
+#include "engineContext.hpp"
 
 namespace vkh {
-	class Controller : public System {
+	class Controller {
 	public:
 		struct KeyStatuses {
 			bool moveLeft = false;
@@ -17,7 +17,7 @@ namespace vkh {
 		};
 
 		Controller(EngineContext& context);
-		void moveInPlaneXZ(EngineContext& context, float dt, Entity viewerEntity);
+		void moveInPlaneXZ(EngineContext& context, float dt);
 
 		float moveSpeed{ 3.f };
 		float lookSpeed{ 1.5f };

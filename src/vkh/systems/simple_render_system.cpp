@@ -75,9 +75,9 @@ namespace vkh {
 			&frameInfo.globalDescriptorSet,
 			0, nullptr);
 
-		for (auto entity : entities) {
-			auto& transform = context.ecs.getComponent<Transform>(entity);
-			auto& model = context.ecs.getComponent<std::shared_ptr<LveModel>>(entity);
+		for (auto entity : context.entities) {
+			auto& transform = entity.transform;
+			auto model = entity.model;
 			SimplePushConstantData push{};
 			push.modelMatrix = transform.mat4();
 			push.normalMatrix = transform.normalMatrix();
