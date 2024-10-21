@@ -8,6 +8,7 @@ namespace vkh {
     public:
         LveBuffer(
             EngineContext& context,
+            std::string name,
             VkDeviceSize instanceSize,
             uint32_t instanceCount,
             VkBufferUsageFlags usageFlags,
@@ -44,6 +45,8 @@ namespace vkh {
         static VkDeviceSize getAlignment(VkDeviceSize instanceSize, VkDeviceSize minOffsetAlignment);
 
         EngineContext& context;
+        std::string name;
+
         void* mapped = nullptr;
         VkBuffer buffer = VK_NULL_HANDLE;
         VkDeviceMemory memory = VK_NULL_HANDLE;

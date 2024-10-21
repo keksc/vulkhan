@@ -3,9 +3,9 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
-#include "ecs.hpp"
+#include <vector>
 
-#include <memory>
+#include "gameObject.hpp"
 
 namespace vkh {
 struct EngineContext {
@@ -53,6 +53,8 @@ struct EngineContext {
     std::vector<VkFence> inFlightFences;
     std::vector<VkFence> imagesInFlight;
   } vulkan;
-  ECSManager ecs;
+  std::vector<Entity> entities;
+  std::vector<PointLight> pointLights;
+  Transform camera;
 };
 } // namespace vkh
