@@ -5,13 +5,12 @@
 #include "../frameInfo.hpp"
 #include "../gameObject.hpp"
 #include "../pipeline.hpp"
-#include "../ecs.hpp"
 
 #include <memory>
 #include <vector>
 
 namespace vkh {
-	class PointLightSystem : public System {
+	class PointLightSystem {
 	public:
 		PointLightSystem(EngineContext& context, VkDescriptorSetLayout globalSetLayout);
 		~PointLightSystem();
