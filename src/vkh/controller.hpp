@@ -1,7 +1,7 @@
 #pragma once
 
-#include "gameObject.hpp"
 #include "engineContext.hpp"
+#include "camera.hpp"
 
 namespace vkh {
 	class Controller {
