@@ -73,7 +73,7 @@ void Controller::moveInPlaneXZ(EngineContext &context, float dt) {
   cameraRotation = rotate * 0.0007f;
 
   if (scroll) {
-    context.camera.translation.y -= scroll * 0.02;
+    context.camera.position.y -= scroll * 0.02;
     scroll = 0;
   }
 
@@ -100,7 +100,7 @@ void Controller::moveInPlaneXZ(EngineContext &context, float dt) {
     moveDir -= upDir;
 
   if (glm::dot(moveDir, moveDir) > std::numeric_limits<float>::epsilon()) {
-    context.camera.translation +=
+    context.camera.position +=
         moveSpeed * dt * glm::normalize(moveDir);
   }
 }

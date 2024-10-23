@@ -5,7 +5,22 @@
 
 #include <vector>
 
+#include "camera.hpp"
 #include "gameObject.hpp"
+
+const int MAX_LIGHTS = 10;
+
+struct GlobalUbo {
+  glm::mat4 projection{1.f};
+  glm::mat4 view{1.f};
+  glm::mat4 inverseView{1.f};
+  glm::vec4 ambientLightColor{1.f, 1.f, 1.f, .02f}; // w is intensity
+  struct {
+    glm::vec4 position{}; // ignore w
+    glm::vec4 color{};    // w is intensity
+  } pointLights[MAX_LIGHTS];
+  int numLights;
+};
 
 namespace vkh {
 struct EngineContext {
@@ -38,7 +53,7 @@ struct EngineContext {
 
     VkSwapchainKHR swapChain;
     VkFormat swapChainImageFormat;
-    //VkSwapchainKHR oldSwapChain;
+    // VkSwapchainKHR oldSwapChain;
     std::vector<VkImage> swapChainImages;
     VkExtent2D swapChainExtent;
     std::vector<VkImageView> swapChainImageViews;
@@ -55,6 +70,12 @@ struct EngineContext {
   } vulkan;
   std::vector<Entity> entities;
   std::vector<PointLight> pointLights;
-  Transform camera;
+  Camera camera;
+  struct {
+    int frameIndex;
+    float dt;
+    VkCommandBuffer commandBuffer;
+    VkDescriptorSet globalDescriptorSet;
+  } frameInfo;
 };
 } // namespace vkh

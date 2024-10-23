@@ -116,7 +116,7 @@ void cleanupVulkan(EngineContext &context) {
   vkDestroyInstance(context.vulkan.instance, nullptr);
 }
 void run() {
-  EngineContext context{};
+  EngineContext context{.camera = {{0.f, 0.f, -2.5f}}};
   initWindow(context);
   initVulkan(context);
   renderer::init(context);
@@ -161,10 +161,6 @@ void run() {
           .build(globalDescriptorSets[i]);
     }
 
-    LveCamera camera{};
-
-    context.camera.translation = {0.f, 0.f, -2.5f};
-
     auto currentTime = std::chrono::high_resolution_clock::now();
     while (!glfwWindowShouldClose(context.window)) {
       glfwPollEvents();
@@ -178,27 +174,26 @@ void run() {
       currentTime = newTime;
 
       cameraController.moveInPlaneXZ(context, frameTime);
-      camera.setViewYXZ(context.camera.translation, context.camera.rotation);
+      context.camera.calcViewYXZ();
 
       float aspect = renderer::getAspectRatio(context);
-      camera.setPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 100.f);
+      context.camera.calcPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 100.f);
 
       if (auto commandBuffer = renderer::beginFrame(context)) {
         int frameIndex = renderer::getFrameIndex();
-        FrameInfo frameInfo{
+        context.frameInfo = {
             frameIndex,
             frameTime,
             commandBuffer,
-            camera,
             globalDescriptorSets[frameIndex],
         };
 
         // update
         GlobalUbo ubo{};
-        ubo.projection = camera.getProjection();
-        ubo.view = camera.getView();
-        ubo.inverseView = camera.getInverseView();
-        pointLightSys::update(context, frameInfo, ubo);
+        ubo.projection = context.camera.getProjection();
+        ubo.view = context.camera.getView();
+        ubo.inverseView = context.camera.getInverseView();
+        pointLightSys::update(context, ubo);
         uboBuffers[frameIndex]->writeToBuffer(&ubo);
         uboBuffers[frameIndex]->flush();
 
@@ -206,8 +201,8 @@ void run() {
         renderer::beginSwapChainRenderPass(context, commandBuffer);
 
         // order here matters
-        objRenderSys::renderGameObjects(context, frameInfo);
-        pointLightSys::render(context, frameInfo);
+        objRenderSys::renderGameObjects(context);
+        pointLightSys::render(context);
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
       }
