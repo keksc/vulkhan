@@ -54,7 +54,7 @@ void LveModel::createVertexBuffers(const std::vector<Vertex> &vertices) {
 
   LveBuffer stagingBuffer{
       context,
-      fmt::format("{} vbo staging", name),
+      fmt::format("{} vertex buffer staging", name),
       vertexSize,
       vertexCount,
       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -66,7 +66,7 @@ void LveModel::createVertexBuffers(const std::vector<Vertex> &vertices) {
   stagingBuffer.writeToBuffer((void *)vertices.data());
 
   vertexBuffer = std::make_unique<LveBuffer>(
-      context, fmt::format("{} vbo", name), vertexSize, vertexCount,
+      context, fmt::format("{} vertex buffer", name), vertexSize, vertexCount,
       VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
@@ -86,7 +86,7 @@ void LveModel::createIndexBuffers(const std::vector<uint32_t> &indices) {
 
   LveBuffer stagingBuffer{
       context,
-      fmt::format("{} ibo staging", name),
+      fmt::format("{} index buffer staging", name),
       indexSize,
       indexCount,
       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -98,7 +98,7 @@ void LveModel::createIndexBuffers(const std::vector<uint32_t> &indices) {
   stagingBuffer.writeToBuffer((void *)indices.data());
 
   indexBuffer = std::make_unique<LveBuffer>(
-      context, fmt::format("{} ibo", name), indexSize, indexCount,
+      context, fmt::format("{} index buffer", name), indexSize, indexCount,
       VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 

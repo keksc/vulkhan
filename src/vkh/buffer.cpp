@@ -47,14 +47,14 @@ LveBuffer::LveBuffer(EngineContext &context, std::string name,
   bufferSize = alignmentSize * instanceCount;
   createBuffer(context, bufferSize, usageFlags, memoryPropertyFlags, buffer,
                memory);
-  fmt::print("{} buffer \"{}\"\n", fmt::format(fmt::fg(fmt::color::light_green), "created"), name);
+  fmt::print("{} buffer {}\n", fmt::styled("created", fmt::fg(fmt::color::light_green)), fmt::styled(name, fg(fmt::color::yellow)));
 }
 
 LveBuffer::~LveBuffer() {
   unmap();
   vkDestroyBuffer(context.vulkan.device, buffer, nullptr);
   vkFreeMemory(context.vulkan.device, memory, nullptr);
-  fmt::print("{} buffer \"{}\"\n", fmt::format(fmt::fg(fmt::color::red), "destroyed"), name);
+  fmt::print("{} buffer {}\n", fmt::styled("destroyed", fmt::fg(fmt::color::red)), fmt::styled(name, fg(fmt::color::yellow)));
 }
 
 /**
