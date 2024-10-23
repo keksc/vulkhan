@@ -69,9 +69,9 @@ void cleanup(EngineContext &context) {
 }
 
 
-void update(EngineContext &context, FrameInfo &frameInfo, GlobalUbo &ubo) {
+void update(EngineContext &context, GlobalUbo &ubo) {
   auto rotateLight =
-      glm::rotate(glm::mat4(1.f), 0.5f * frameInfo.frameTime, {0.f, -1.f, 0.f});
+      glm::rotate(glm::mat4(1.f), 0.5f * context.frameInfo.dt, {0.f, -1.f, 0.f});
   int lightIndex = 0;
   for (auto &pointLight : context.pointLights) {
     auto &transform = pointLight.transform;
@@ -93,23 +93,23 @@ void update(EngineContext &context, FrameInfo &frameInfo, GlobalUbo &ubo) {
   ubo.numLights = lightIndex;
 }
 
-void render(EngineContext &context, FrameInfo &frameInfo) {
+void render(EngineContext &context) {
   // sort lights
   std::map<float, PointLight> sorted;
   for (auto pointLight : context.pointLights) {
     auto &transform = pointLight.transform;
 
-    // calculate distance
-    auto offset = frameInfo.camera.getPosition() - transform.translation;
+    // calculate distanc.e
+    auto offset = context.camera.getPosition() - transform.translation;
     float disSquared = glm::dot(offset, offset);
     sorted[disSquared] = pointLight;
   }
 
-  pipeline->bind(frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.commandBuffer);
 
-  vkCmdBindDescriptorSets(frameInfo.commandBuffer,
+  vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
-                          &frameInfo.globalDescriptorSet, 0, nullptr);
+                          &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   // iterate through sorted lights in reverse order
   for (auto it = sorted.rbegin(); it != sorted.rend(); ++it) {
@@ -123,11 +123,11 @@ void render(EngineContext &context, FrameInfo &frameInfo) {
     push.color = glm::vec4(pointLight.color, pointLight.lightIntensity);
     push.radius = transform.scale.x;
 
-    vkCmdPushConstants(frameInfo.commandBuffer, pipelineLayout,
+    vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
                        VK_SHADER_STAGE_VERTEX_BIT |
                            VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(PointLightPushConstants), &push);
-    vkCmdDraw(frameInfo.commandBuffer, 6, 1, 0, 0);
+    vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
   }
 }
 } // namespace pointLightSys
