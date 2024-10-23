@@ -58,15 +58,15 @@ struct PipelineConfigInfo {
   uint32_t subpass = 0;
 };
 
-class LvePipeline {
+class Pipeline {
 public:
-  LvePipeline(EngineContext &context, const std::string &vertFilepath,
+  Pipeline(EngineContext &context, std::string name, const std::string &vertFilepath,
               const std::string &fragFilepath,
               const PipelineConfigInfo &configInfo);
-  ~LvePipeline();
+  ~Pipeline();
 
-  LvePipeline(const LvePipeline &) = delete;
-  LvePipeline &operator=(const LvePipeline &) = delete;
+  Pipeline(const Pipeline &) = delete;
+  Pipeline &operator=(const Pipeline &) = delete;
 
   void bind(VkCommandBuffer commandBuffer);
 
@@ -83,6 +83,9 @@ private:
                           VkShaderModule *shaderModule);
 
   EngineContext &context;
+
+  std::string name;
+
   VkPipeline graphicsPipeline;
   VkShaderModule vertShaderModule;
   VkShaderModule fragShaderModule;
