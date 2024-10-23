@@ -64,7 +64,8 @@ void loadObjects(EngineContext &context) {
   for (int i = 0; i < 30; i++) {
     for (int j = 0; j < 30; j++) {
       context.entities.push_back(
-          {.transform = {.translation = {2.f + static_cast<float>(i) * 2.f, -1.f,
+          {.transform = {.translation = {2.f + static_cast<float>(i) * 2.f,
+                                         -1.f,
                                          2.f + static_cast<float>(j) * 2.f},
                          .scale = {.5f, .5f, .5f}},
            .model = lveModel});
@@ -144,10 +145,9 @@ void run() {
                                                VK_SHADER_STAGE_FRAGMENT_BIT)
                                .build();
 
-    SimpleRenderSystem simpleRenderSystem(
+    objRenderSys::init(
         context, globalSetLayout->getDescriptorSetLayout());
-    PointLightSystem pointLightSystem(
-        context, globalSetLayout->getDescriptorSetLayout());
+    pointLightSys::init(context, globalSetLayout->getDescriptorSetLayout());
     Controller cameraController(context);
 
     loadObjects(context);
@@ -198,7 +198,7 @@ void run() {
         ubo.projection = camera.getProjection();
         ubo.view = camera.getView();
         ubo.inverseView = camera.getInverseView();
-        pointLightSystem.update(frameInfo, ubo);
+        pointLightSys::update(context, frameInfo, ubo);
         uboBuffers[frameIndex]->writeToBuffer(&ubo);
         uboBuffers[frameIndex]->flush();
 
@@ -206,14 +206,16 @@ void run() {
         renderer::beginSwapChainRenderPass(context, commandBuffer);
 
         // order here matters
-        simpleRenderSystem.renderGameObjects(frameInfo);
-        pointLightSystem.render(frameInfo);
+        objRenderSys::renderGameObjects(context, frameInfo);
+        pointLightSys::render(context, frameInfo);
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
       }
     }
 
     vkDeviceWaitIdle(context.vulkan.device);
+    objRenderSys::cleanup(context);
+    pointLightSys::cleanup(context);
     context.entities.clear();
     context.pointLights.clear();
   }
