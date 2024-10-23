@@ -65,15 +65,15 @@ void cleanup(EngineContext &context) {
   vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
 }
 
-void renderGameObjects(EngineContext &context, FrameInfo &frameInfo) {
-  pipeline->bind(frameInfo.commandBuffer);
+void renderGameObjects(EngineContext &context) {
+  pipeline->bind(context.frameInfo.commandBuffer);
 
   auto projectionView =
-      frameInfo.camera.getProjection() * frameInfo.camera.getView();
+      context.camera.getProjection() * context.camera.getView();
 
-  vkCmdBindDescriptorSets(frameInfo.commandBuffer,
+  vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
-                          &frameInfo.globalDescriptorSet, 0, nullptr);
+                          &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   for (auto entity : context.entities) {
     auto &transform = entity.transform;
@@ -82,12 +82,12 @@ void renderGameObjects(EngineContext &context, FrameInfo &frameInfo) {
     push.modelMatrix = transform.mat4();
     push.normalMatrix = transform.normalMatrix();
 
-    vkCmdPushConstants(frameInfo.commandBuffer, pipelineLayout,
+    vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
                        VK_SHADER_STAGE_VERTEX_BIT |
                            VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(SimplePushConstantData), &push);
-    model->bind(frameInfo.commandBuffer);
-    model->draw(frameInfo.commandBuffer);
+    model->bind(context.frameInfo.commandBuffer);
+    model->draw(context.frameInfo.commandBuffer);
   }
 }
 
