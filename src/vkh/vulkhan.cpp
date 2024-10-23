@@ -15,8 +15,8 @@
 #include "gameObject.hpp"
 #include "init.hpp"
 #include "renderer.hpp"
-#include "systems/point_light_system.hpp"
-#include "systems/simple_render_system.hpp"
+#include "systems/pointLightSys.hpp"
+#include "systems/objRenderSys.hpp"
 
 #include <array>
 #include <cassert>
