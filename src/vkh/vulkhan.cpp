@@ -1,4 +1,5 @@
 #include "vulkhan.hpp"
+#include <cstdio>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -59,14 +60,16 @@ void loadObjects(EngineContext &context) {
                            rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f)),
                        .scale{0.1f, 1.f, 1.f}}});
   }
-  /*lveModel = LveModel::createModelFromFile("cube", context,
-  "models/cube.obj"); for (int i = 0; i < 30; i++) { for (int j = 0; j < 30;
-  j++) { context.entities.push_back(
-          {.transform = {.translation = {2.f + static_cast<float>(i) * 2.f, .5f,
+  lveModel = LveModel::createModelFromFile(context, "cube", "models/cube.obj");
+  for (int i = 0; i < 30; i++) {
+    for (int j = 0; j < 30; j++) {
+      context.entities.push_back(
+          {.transform = {.translation = {2.f + static_cast<float>(i) * 2.f, -1.f,
                                          2.f + static_cast<float>(j) * 2.f},
-  .scale = {.5f, .5f, .5f}}, .model = lveModel});
+                         .scale = {.5f, .5f, .5f}},
+           .model = lveModel});
     }
-  }*/
+  }
 }
 void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
   auto context =
@@ -116,8 +119,7 @@ void run() {
   initWindow(context);
   initVulkan(context);
   renderer::init(context);
-
-  {
+  { // {} to handle call destructors of buffers before vulkah is cleaned up
     std::unique_ptr<LveDescriptorPool> globalPool{};
 
     globalPool = LveDescriptorPool::Builder(context)

@@ -26,9 +26,6 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action,
   if (key == GLFW_KEY_O && action == GLFW_PRESS) {
     auto context =
         reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
-    glfwSetInputMode(
-        context->window, GLFW_RAW_MOUSE_MOTION,
-        !glfwGetInputMode(context->window, GLFW_RAW_MOUSE_MOTION));
     int cursorSetting = glfwGetInputMode(context->window, GLFW_CURSOR);
     if(cursorSetting == GLFW_CURSOR_DISABLED) cursorSetting = GLFW_CURSOR_NORMAL; else cursorSetting = GLFW_CURSOR_DISABLED;
     glfwSetInputMode(
