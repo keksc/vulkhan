@@ -1,6 +1,6 @@
 #include "init.hpp"
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 
 #include <vector>
 #include <stdexcept>
