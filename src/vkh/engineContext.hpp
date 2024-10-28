@@ -5,7 +5,6 @@
 
 #include <vector>
 
-#include "camera.hpp"
 #include "gameObject.hpp"
 
 const int MAX_LIGHTS = 10;
@@ -21,6 +20,8 @@ struct GlobalUbo {
   } pointLights[MAX_LIGHTS];
   int numLights;
 };
+
+const float GROUND_LEVEL = .5f;
 
 namespace vkh {
 struct EngineContext {
@@ -70,12 +71,19 @@ struct EngineContext {
   } vulkan;
   std::vector<Entity> entities;
   std::vector<PointLight> pointLights;
-  Camera camera;
+  Entity player;
   struct {
     int frameIndex;
     float dt;
     VkCommandBuffer commandBuffer;
     VkDescriptorSet globalDescriptorSet;
   } frameInfo;
+  struct {
+    glm::vec3 position{0.f, 0.f, -2.5f};
+    glm::vec3 rotation{0.f};
+    glm::mat4 projectionMatrix{1.f};
+    glm::mat4 viewMatrix{1.f};
+    glm::mat4 inverseViewMatrix{1.f};
+  } camera;
 };
 } // namespace vkh

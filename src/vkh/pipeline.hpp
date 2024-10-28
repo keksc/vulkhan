@@ -14,9 +14,9 @@ struct PipelineConfigInfo {
   PipelineConfigInfo &operator=(const PipelineConfigInfo &) = delete;
 
   std::vector<VkVertexInputBindingDescription> bindingDescriptions =
-      LveModel::Vertex::getBindingDescriptions();
+      Model::Vertex::getBindingDescriptions();
   std::vector<VkVertexInputAttributeDescription> attributeDescriptions =
-      LveModel::Vertex::getAttributeDescriptions();
+      Model::Vertex::getAttributeDescriptions();
   VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
       .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
