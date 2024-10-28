@@ -1,4 +1,5 @@
-#include "objRenderSys.hpp"
+#include "freezeAnimationSys.hpp"
+#include <fmt/base.h>
 
 // libs
 #define GLM_FORCE_RADIANS
@@ -6,29 +7,27 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
-#include "../renderer.hpp"
 #include "../pipeline.hpp"
+#include "../renderer.hpp"
 
 #include <cassert>
 #include <stdexcept>
 
 namespace vkh {
-namespace objRenderSys {
+namespace freezeAnimationSys {
 std::unique_ptr<Pipeline> pipeline;
 VkPipelineLayout pipelineLayout;
 
-struct SimplePushConstantData {
-  glm::mat4 modelMatrix{1.f};
-  glm::mat4 normalMatrix{1.f};
+struct PushConstantData {
+  float time;
 };
 
 void createPipelineLayout(EngineContext &context,
                           VkDescriptorSetLayout globalSetLayout) {
   VkPushConstantRange pushConstantRange{};
-  pushConstantRange.stageFlags =
-      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+  pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   pushConstantRange.offset = 0;
-  pushConstantRange.size = sizeof(SimplePushConstantData);
+  pushConstantRange.size = sizeof(PushConstantData);
 
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{globalSetLayout};
 
@@ -49,11 +48,14 @@ void createPipeline(EngineContext &context) {
          "Cannot create pipeline before pipeline layout");
 
   PipelineConfigInfo pipelineConfig{};
+  Pipeline::enableAlphaBlending(pipelineConfig);
+  pipelineConfig.attributeDescriptions.clear();
+  pipelineConfig.bindingDescriptions.clear();
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipeline = std::make_unique<Pipeline>(
-      context, "objRenderSys", "shaders/simple_shader.vert.spv",
-      "shaders/simple_shader.frag.spv", pipelineConfig);
+      context, "freezeAnimationSys", "shaders/freezeAnimation.vert.spv",
+      "shaders/freezeAnimation.frag.spv", pipelineConfig);
 }
 void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
   createPipelineLayout(context, globalSetLayout);
@@ -65,11 +67,11 @@ void cleanup(EngineContext &context) {
   vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
 }
 
-void renderGameObjects(EngineContext &context) {
+void render(EngineContext &context) {
   pipeline->bind(context.frameInfo.commandBuffer);
 
   auto projectionView =
-      context.camera.getProjection() * context.camera.getView();
+      context.camera.projectionMatrix * context.camera.viewMatrix;
 
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
@@ -78,18 +80,14 @@ void renderGameObjects(EngineContext &context) {
   for (auto entity : context.entities) {
     auto &transform = entity.transform;
     auto model = entity.model;
-    SimplePushConstantData push{};
-    push.modelMatrix = transform.mat4();
-    push.normalMatrix = transform.normalMatrix();
+    PushConstantData push{};
+    push.time = glfwGetTime();
 
     vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
-                       VK_SHADER_STAGE_VERTEX_BIT |
-                           VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, sizeof(SimplePushConstantData), &push);
-    model->bind(context.frameInfo.commandBuffer);
-    model->draw(context.frameInfo.commandBuffer);
+                       VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                       sizeof(PushConstantData), &push);
+    vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
   }
 }
-
-} // namespace objRenderSys
+} // namespace freezeAnimationSys
 } // namespace vkh
