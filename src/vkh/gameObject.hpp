@@ -8,7 +8,7 @@
 #include <unordered_map>
 
 namespace vkh {
-class LveModel;
+class Model;
 struct Transform {
   glm::vec3 translation{};
   glm::vec3 scale{1.f, 1.f, 1.f};
@@ -22,6 +22,17 @@ struct Transform {
   glm::mat3 normalMatrix();
 };
 
+struct RigidBody {
+  glm::vec3 velocity{0.f};
+  glm::vec3 acceleration{0.f, -9.81f, 0.f};
+  float mass = 0.f;
+  bool isJumping = false;
+  float jumpVelocity = -5.0f;
+  void resetForces() {
+    acceleration = glm::vec3{0.f, -9.81f, 0.f};
+  }
+};
+
 struct PointLight {
   glm::vec3 color{};
   float lightIntensity = 1.0f;
@@ -30,6 +41,7 @@ struct PointLight {
 
 struct Entity {
   Transform transform;
-  std::shared_ptr<LveModel> model;
+  std::shared_ptr<Model> model;
+  RigidBody rigidBody;
 };
 } // namespace vkh

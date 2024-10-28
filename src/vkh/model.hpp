@@ -12,7 +12,7 @@
 #include <vector>
 
 namespace vkh {
-class LveModel {
+class Model {
 public:
   struct Vertex {
     glm::vec3 position{};
@@ -38,26 +38,26 @@ public:
     void loadModel(const std::string &filepath);
   };
 
-  LveModel(EngineContext &context, std::string name,
-           const LveModel::Builder &builder);
-  ~LveModel();
+  Model(EngineContext &context, std::string name,
+           const Model::Builder &builder);
+  ~Model();
 
-  LveModel(const LveModel &) = delete;
-  LveModel &operator=(const LveModel &) = delete;
+  Model(const Model &) = delete;
+  Model &operator=(const Model &) = delete;
 
-  static std::unique_ptr<LveModel>
+  static std::unique_ptr<Model>
   createModelFromFile(EngineContext &context, std::string name,
                       const std::string &filepath);
 
   void bind(VkCommandBuffer commandBuffer);
   void draw(VkCommandBuffer commandBuffer);
 
+  std::string name;
 private:
   void createVertexBuffers(const std::vector<Vertex> &vertices);
   void createIndexBuffers(const std::vector<uint32_t> &indices);
 
   EngineContext &context;
-  std::string name;
 
   std::unique_ptr<LveBuffer> vertexBuffer;
   uint32_t vertexCount;
