@@ -3,11 +3,10 @@
 #include "../engineContext.hpp"
 
 namespace vkh {
-	namespace objRenderSys {
+	namespace freezeAnimationSys {
 		void init(EngineContext& context, VkDescriptorSetLayout globalSetLayout);
 		void cleanup(EngineContext& context);
 
-		void renderGameObjects(EngineContext& context);
-
+		void render(EngineContext& context);
 	};
 }  // namespace lve

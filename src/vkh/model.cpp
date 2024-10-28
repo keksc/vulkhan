@@ -6,7 +6,7 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 #define GLM_ENABLE_EXPERIMENTAL
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <glm/gtx/hash.hpp>
 
 #include "deviceHelpers.hpp"
@@ -17,8 +17,8 @@
 #include <unordered_map>
 
 namespace std {
-template <> struct hash<vkh::LveModel::Vertex> {
-  size_t operator()(vkh::LveModel::Vertex const &vertex) const {
+template <> struct hash<vkh::Model::Vertex> {
+  size_t operator()(vkh::Model::Vertex const &vertex) const {
     size_t seed = 0;
     vkh::hashCombine(seed, vertex.position, vertex.color, vertex.normal,
                      vertex.uv);
@@ -29,24 +29,24 @@ template <> struct hash<vkh::LveModel::Vertex> {
 
 namespace vkh {
 
-LveModel::LveModel(EngineContext &context, std::string name,
-                   const LveModel::Builder &builder)
+Model::Model(EngineContext &context, std::string name,
+                   const Model::Builder &builder)
     : context{context}, name{name} {
   createVertexBuffers(builder.vertices);
   createIndexBuffers(builder.indices);
 }
 
-LveModel::~LveModel() {}
+Model::~Model() {}
 
-std::unique_ptr<LveModel>
-LveModel::createModelFromFile(EngineContext &context, std::string name,
+std::unique_ptr<Model>
+Model::createModelFromFile(EngineContext &context, std::string name,
                               const std::string &filepath) {
   Builder builder{};
   builder.loadModel(filepath);
-  return std::make_unique<LveModel>(context, name, builder);
+  return std::make_unique<Model>(context, name, builder);
 }
 
-void LveModel::createVertexBuffers(const std::vector<Vertex> &vertices) {
+void Model::createVertexBuffers(const std::vector<Vertex> &vertices) {
   vertexCount = static_cast<uint32_t>(vertices.size());
   assert(vertexCount >= 3 && "Vertex count must be at least 3");
   VkDeviceSize bufferSize = sizeof(vertices[0]) * vertexCount;
@@ -74,7 +74,7 @@ void LveModel::createVertexBuffers(const std::vector<Vertex> &vertices) {
              bufferSize);
 }
 
-void LveModel::createIndexBuffers(const std::vector<uint32_t> &indices) {
+void Model::createIndexBuffers(const std::vector<uint32_t> &indices) {
   indexCount = static_cast<uint32_t>(indices.size());
   hasIndexBuffer = indexCount > 0;
 
@@ -106,14 +106,14 @@ void LveModel::createIndexBuffers(const std::vector<uint32_t> &indices) {
              bufferSize);
 }
 
-void LveModel::draw(VkCommandBuffer commandBuffer) {
+void Model::draw(VkCommandBuffer commandBuffer) {
   if (hasIndexBuffer)
     vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
   else
     vkCmdDraw(commandBuffer, vertexCount, 1, 0, 0);
 }
 
-void LveModel::bind(VkCommandBuffer commandBuffer) {
+void Model::bind(VkCommandBuffer commandBuffer) {
   VkBuffer buffers[] = {vertexBuffer->getBuffer()};
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(commandBuffer, 0, 1, buffers, offsets);
@@ -125,7 +125,7 @@ void LveModel::bind(VkCommandBuffer commandBuffer) {
 }
 
 std::vector<VkVertexInputBindingDescription>
-LveModel::Vertex::getBindingDescriptions() {
+Model::Vertex::getBindingDescriptions() {
   std::vector<VkVertexInputBindingDescription> bindingDescriptions(1);
   bindingDescriptions[0].binding = 0;
   bindingDescriptions[0].stride = sizeof(Vertex);
@@ -134,7 +134,7 @@ LveModel::Vertex::getBindingDescriptions() {
 }
 
 std::vector<VkVertexInputAttributeDescription>
-LveModel::Vertex::getAttributeDescriptions() {
+Model::Vertex::getAttributeDescriptions() {
   std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
 
   attributeDescriptions.push_back(
@@ -149,7 +149,7 @@ LveModel::Vertex::getAttributeDescriptions() {
   return attributeDescriptions;
 }
 
-void LveModel::Builder::loadModel(const std::string &filepath) {
+void Model::Builder::loadModel(const std::string &filepath) {
   tinyobj::attrib_t attrib;
   std::vector<tinyobj::shape_t> shapes;
   std::vector<tinyobj::material_t> materials;

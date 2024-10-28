@@ -3,20 +3,21 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
 #include "buffer.hpp"
 #include "camera.hpp"
-#include "controller.hpp"
+#include "input.hpp"
 #include "descriptors.hpp"
 #include "engineContext.hpp"
 #include "gameObject.hpp"
 #include "init.hpp"
 #include "renderer.hpp"
+#include "systems/entitySys.hpp"
 #include "systems/pointLightSys.hpp"
-#include "systems/objRenderSys.hpp"
+#include "systems/freezeAnimationSys.hpp"
 
 #include <array>
 #include <cassert>
@@ -27,22 +28,22 @@
 
 namespace vkh {
 void loadObjects(EngineContext &context) {
-  std::shared_ptr<LveModel> lveModel;
-  lveModel = LveModel::createModelFromFile(context, "flat vase",
-                                           "models/flat_vase.obj");
+  std::shared_ptr<Model> lveModel;
+  lveModel =
+      Model::createModelFromFile(context, "flat vase", "models/flat_vase.obj");
   context.entities.push_back(
-      {.transform = {.translation{-.5f, .5f, 0.f}, .scale{3.f, 1.5f, 3.f}},
+      {.transform = {.translation{-.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
        .model = lveModel});
 
-  lveModel = LveModel::createModelFromFile(context, "smooth vase",
-                                           "models/smooth_vase.obj");
+  lveModel = Model::createModelFromFile(context, "smooth vase",
+                                        "models/smooth_vase.obj");
   context.entities.push_back(
-      {.transform = {.translation{.5f, .5f, 0.f}, .scale{3.f, 1.5f, 3.f}},
+      {.transform = {.translation{.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
        .model = lveModel});
 
-  lveModel = LveModel::createModelFromFile(context, "floor", "models/quad.obj");
+  lveModel = Model::createModelFromFile(context, "floor", "models/quad.obj");
   context.entities.push_back(
-      {.transform = {.translation{0.f, .5f, 0.f}, .scale{3.f, 1.5f, 3.f}},
+      {.transform = {.translation{0.f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
        .model = lveModel});
 
   std::vector<glm::vec3> lightColors{{1.f, .1f, .1f}, {.1f, .1f, 1.f},
@@ -60,7 +61,7 @@ void loadObjects(EngineContext &context) {
                            rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f)),
                        .scale{0.1f, 1.f, 1.f}}});
   }
-  lveModel = LveModel::createModelFromFile(context, "cube", "models/cube.obj");
+  lveModel = Model::createModelFromFile(context, "cube", "models/cube.obj");
   for (int i = 0; i < 30; i++) {
     for (int j = 0; j < 30; j++) {
       context.entities.push_back(
@@ -116,11 +117,14 @@ void cleanupVulkan(EngineContext &context) {
   vkDestroyInstance(context.vulkan.instance, nullptr);
 }
 void run() {
-  EngineContext context{.camera = {{0.f, 0.f, -2.5f}}};
+  EngineContext context{};
+  context.player.transform.translation = {0.f, GROUND_LEVEL, -2.5f};
   initWindow(context);
   initVulkan(context);
   renderer::init(context);
   { // {} to handle call destructors of buffers before vulkah is cleaned up
+    input::init(context);
+
     std::unique_ptr<LveDescriptorPool> globalPool{};
 
     globalPool = LveDescriptorPool::Builder(context)
@@ -145,10 +149,9 @@ void run() {
                                                VK_SHADER_STAGE_FRAGMENT_BIT)
                                .build();
 
-    objRenderSys::init(
-        context, globalSetLayout->getDescriptorSetLayout());
+    entitySys::init(context, globalSetLayout->getDescriptorSetLayout());
     pointLightSys::init(context, globalSetLayout->getDescriptorSetLayout());
-    Controller cameraController(context);
+    freezeAnimationSys::init(context, globalSetLayout->getDescriptorSetLayout());
 
     loadObjects(context);
 
@@ -173,11 +176,15 @@ void run() {
       // fmt::print("FPS: {}\n", static_cast<int>(1.f / frameTime));
       currentTime = newTime;
 
-      cameraController.moveInPlaneXZ(context, frameTime);
-      context.camera.calcViewYXZ();
+      context.frameInfo.dt = frameTime;
+      input::moveInPlaneXZ(context);
+      context.camera.position = context.player.transform.translation + glm::vec3{0.f, camera::HEIGHT, 0.f};
+      context.camera.rotation = context.player.transform.rotation;
+      camera::calcViewYXZ(context);
 
       float aspect = renderer::getAspectRatio(context);
-      context.camera.calcPerspectiveProjection(glm::radians(50.f), aspect, 0.1f, 100.f);
+      camera::calcPerspectiveProjection(context, glm::radians(50.f), aspect, 0.1f,
+                                        100.f);
 
       if (auto commandBuffer = renderer::beginFrame(context)) {
         int frameIndex = renderer::getFrameIndex();
@@ -190,9 +197,11 @@ void run() {
 
         // update
         GlobalUbo ubo{};
-        ubo.projection = context.camera.getProjection();
-        ubo.view = context.camera.getView();
-        ubo.inverseView = context.camera.getInverseView();
+        ubo.projection = context.camera.projectionMatrix;
+        ubo.view = context.camera.viewMatrix;
+        ubo.inverseView = context.camera.inverseViewMatrix;
+        if (glfwGetKey(context.window, GLFW_KEY_G))
+          entitySys::update(context);
         pointLightSys::update(context, ubo);
         uboBuffers[frameIndex]->writeToBuffer(&ubo);
         uboBuffers[frameIndex]->flush();
@@ -201,16 +210,18 @@ void run() {
         renderer::beginSwapChainRenderPass(context, commandBuffer);
 
         // order here matters
-        objRenderSys::renderGameObjects(context);
+        entitySys::render(context);
         pointLightSys::render(context);
+        freezeAnimationSys::render(context);
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
       }
     }
 
     vkDeviceWaitIdle(context.vulkan.device);
-    objRenderSys::cleanup(context);
+    entitySys::cleanup(context);
     pointLightSys::cleanup(context);
+    freezeAnimationSys::cleanup(context);
     context.entities.clear();
     context.pointLights.clear();
   }

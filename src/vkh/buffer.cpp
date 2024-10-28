@@ -7,7 +7,7 @@
 
 #include "buffer.hpp"
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <fmt/color.h>
 
 #include "deviceHelpers.hpp"
