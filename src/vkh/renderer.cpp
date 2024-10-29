@@ -18,21 +18,20 @@ namespace vkh {
 			vkDeviceWaitIdle(context.vulkan.device);
 
 			if (context.vulkan.swapChain == nullptr) {
-        swapChain::create(context);
+        context.vulkan.swapChain = std::make_unique<SwapChain>(context);
 			}
-      /*
 			else {
-				std::shared_ptr<LveSwapChain> oldSwapChain = std::move(swapChain);
-				swapChain = std::make_unique<LveSwapChain>(context, extent, oldSwapChain);
+				std::shared_ptr<SwapChain> oldSwapChain = std::move(context.vulkan.swapChain);
+				context.vulkan.swapChain = std::make_unique<SwapChain>(context, oldSwapChain);
 
-				if (!oldSwapChain->compareSwapFormats(*swapChain.get())) {
+				if (!oldSwapChain->compareSwapFormats(*context.vulkan.swapChain)) {
 					throw std::runtime_error("Swap chain image(or depth) format has changed!");
 				}
-			}*/
+      }
 		}
 
 		void createCommandBuffers(EngineContext& context) {
-			commandBuffers.resize(swapChain::MAX_FRAMES_IN_FLIGHT);
+			commandBuffers.resize(SwapChain::MAX_FRAMES_IN_FLIGHT);
 
 			VkCommandBufferAllocateInfo allocInfo{};
 			allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -61,7 +60,7 @@ namespace vkh {
 		}
 
 		void cleanup(EngineContext& context) {
-      swapChain::cleanup(context);
+      context.vulkan.swapChain = nullptr;
 			freeCommandBuffers(context);
 		}
 
@@ -69,8 +68,8 @@ namespace vkh {
 		int currentFrameIndex{ 0 };
 		bool isFrameStarted{ false };
 
-		VkRenderPass getSwapChainRenderPass(EngineContext& context) { return context.vulkan.renderPass; }
-		float getAspectRatio(EngineContext& context) { return swapChain::extentAspectRatio(context); }
+		VkRenderPass getSwapChainRenderPass(EngineContext& context) { return context.vulkan.swapChain->renderPass; }
+		float getAspectRatio(EngineContext& context) { return context.vulkan.swapChain->extentAspectRatio(); }
 		bool isFrameInProgress() { return isFrameStarted; }
 
 		VkCommandBuffer getCurrentCommandBuffer() {
@@ -86,7 +85,7 @@ namespace vkh {
 		VkCommandBuffer beginFrame(EngineContext& context) {
 			assert(!isFrameStarted && "Can't call beginFrame while already in progress");
 
-			auto result = swapChain::acquireNextImage(context, &currentImageIndex);
+			auto result = context.vulkan.swapChain->acquireNextImage(&currentImageIndex);
 			if (result == VK_ERROR_OUT_OF_DATE_KHR) {
 				recreateSwapChain(context);
 				return nullptr;
@@ -115,7 +114,7 @@ namespace vkh {
 				throw std::runtime_error("failed to record command buffer!");
 			}
 
-			auto result = swapChain::submitCommandBuffers(context, &commandBuffer, &currentImageIndex);
+			auto result = context.vulkan.swapChain->submitCommandBuffers(&commandBuffer, &currentImageIndex);
 			if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
 				context.window.framebufferResized) {
 				context.window.framebufferResized = false;
@@ -126,7 +125,7 @@ namespace vkh {
 			}
 
 			isFrameStarted = false;
-			currentFrameIndex = (currentFrameIndex + 1) % swapChain::MAX_FRAMES_IN_FLIGHT;
+			currentFrameIndex = (currentFrameIndex + 1) % SwapChain::MAX_FRAMES_IN_FLIGHT;
 		}
 
 		void beginSwapChainRenderPass(EngineContext& context, VkCommandBuffer commandBuffer) {
@@ -137,11 +136,11 @@ namespace vkh {
 
 			VkRenderPassBeginInfo renderPassInfo{};
 			renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-			renderPassInfo.renderPass = context.vulkan.renderPass;
-			renderPassInfo.framebuffer = swapChain::getFrameBuffer(context, currentImageIndex);
+			renderPassInfo.renderPass = context.vulkan.swapChain->renderPass;
+			renderPassInfo.framebuffer = context.vulkan.swapChain->getFrameBuffer(currentImageIndex);
 
 			renderPassInfo.renderArea.offset = { 0, 0 };
-			renderPassInfo.renderArea.extent = context.vulkan.swapChainExtent;
+			renderPassInfo.renderArea.extent = context.vulkan.swapChain->swapChainExtent;
 
 			std::array<VkClearValue, 2> clearValues{};
 			clearValues[0].color = { 0.01f, 0.01f, 0.01f, 1.0f };
@@ -154,11 +153,11 @@ namespace vkh {
 			VkViewport viewport{};
 			viewport.x = 0.0f;
 			viewport.y = 0.0f;
-			viewport.width = static_cast<float>(context.vulkan.swapChainExtent.width);
-			viewport.height = static_cast<float>(context.vulkan.swapChainExtent.height);
+			viewport.width = static_cast<float>(context.vulkan.swapChain->swapChainExtent.width);
+			viewport.height = static_cast<float>(context.vulkan.swapChain->swapChainExtent.height);
 			viewport.minDepth = 0.0f;
 			viewport.maxDepth = 1.0f;
-			VkRect2D scissor{ {0, 0}, context.vulkan.swapChainExtent };
+			VkRect2D scissor{ {0, 0}, context.vulkan.swapChain->swapChainExtent };
 			vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
 			vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 		}
