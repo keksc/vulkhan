@@ -1,4 +1,4 @@
-#include "gameObject.hpp"
+#include "entity.hpp"
 
 namespace vkh {
 
