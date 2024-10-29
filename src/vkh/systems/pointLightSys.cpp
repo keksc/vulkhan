@@ -55,7 +55,7 @@ void createPipeline(EngineContext &context) {
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipeline = std::make_unique<Pipeline>(
-      context, "pointLightSys", "shaders/point_light.vert.spv", "shaders/point_light.frag.spv",
+      context, "pointLightSys", "shaders/pointLight.vert.spv", "shaders/pointLight.frag.spv",
       pipelineConfig);
 }
 void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
