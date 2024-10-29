@@ -1,7 +1,5 @@
 #include "swapChain.hpp"
 
-// std
-#include "deviceHelpers.hpp"
 #include <array>
 #include <cstdlib>
 #include <cstring>
@@ -10,64 +8,132 @@
 #include <set>
 #include <stdexcept>
 
+#include "deviceHelpers.hpp"
+
 namespace vkh {
 
-namespace swapChain {
-VkSurfaceFormatKHR chooseSwapSurfaceFormat(
-    const std::vector<VkSurfaceFormatKHR> &availableFormats) {
-  for (const auto &availableFormat : availableFormats) {
-    if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB &&
-        availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-      return availableFormat;
-    }
+SwapChain::SwapChain(EngineContext &context) : context{context} { init(); }
+
+SwapChain::SwapChain(EngineContext &context,
+                     std::shared_ptr<SwapChain> previous)
+    : context{context}, oldSwapChain{previous} {
+  init();
+  oldSwapChain = nullptr;
+}
+
+void SwapChain::init() {
+  createSwapChain();
+  createImageViews();
+  createRenderPass();
+  createDepthResources();
+  createFramebuffers();
+  createSyncObjects();
+}
+
+SwapChain::~SwapChain() {
+  for (auto imageView : swapChainImageViews) {
+    vkDestroyImageView(context.vulkan.device, imageView, nullptr);
+  }
+  swapChainImageViews.clear();
+
+  if (swapChain != nullptr) {
+    vkDestroySwapchainKHR(context.vulkan.device, swapChain, nullptr);
+    swapChain = nullptr;
   }
 
-  return availableFormats[0];
-}
-VkPresentModeKHR chooseSwapPresentMode(
-    const std::vector<VkPresentModeKHR> &availablePresentModes) {
-  /*for (const auto &availablePresentMode : availablePresentModes) {
-    if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-      std::cout << "Present mode: Mailbox" << std::endl;
-      return availablePresentMode;
-    }
-  }*/
+  for (int i = 0; i < depthImages.size(); i++) {
+    vkDestroyImageView(context.vulkan.device, depthImageViews[i], nullptr);
+    vkDestroyImage(context.vulkan.device, depthImages[i], nullptr);
+    vkFreeMemory(context.vulkan.device, depthImageMemorys[i], nullptr);
+  }
 
-  // for (const auto &availablePresentMode : availablePresentModes) {
-  //   if (availablePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
-  //     std::cout << "Present mode: Immediate" << std::endl;
-  //     return availablePresentMode;
-  //   }
-  // }
+  for (auto framebuffer : swapChainFramebuffers) {
+    vkDestroyFramebuffer(context.vulkan.device, framebuffer, nullptr);
+  }
 
-  std::cout << "Present mode: V-Sync" << std::endl;
-  return VK_PRESENT_MODE_FIFO_KHR;
-}
-VkExtent2D chooseSwapExtent(EngineContext &context,
-                            const VkSurfaceCapabilitiesKHR &capabilities) {
-  if (capabilities.currentExtent.width !=
-      std::numeric_limits<uint32_t>::max()) {
-    return capabilities.currentExtent;
-  } else {
-    VkExtent2D actualExtent = context.window.getExtent();
-    actualExtent.width = std::max(
-        capabilities.minImageExtent.width,
-        std::min(capabilities.maxImageExtent.width, actualExtent.width));
-    actualExtent.height = std::max(
-        capabilities.minImageExtent.height,
-        std::min(capabilities.maxImageExtent.height, actualExtent.height));
+  vkDestroyRenderPass(context.vulkan.device, renderPass, nullptr);
 
-    return actualExtent;
+  // cleanup synchronization objects
+  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    vkDestroySemaphore(context.vulkan.device, renderFinishedSemaphores[i],
+                       nullptr);
+    vkDestroySemaphore(context.vulkan.device, imageAvailableSemaphores[i],
+                       nullptr);
+    vkDestroyFence(context.vulkan.device, inFlightFences[i], nullptr);
   }
 }
-void createSwapChain(EngineContext &context) {
+
+VkResult SwapChain::acquireNextImage(uint32_t *imageIndex) {
+  vkWaitForFences(context.vulkan.device, 1, &inFlightFences[currentFrame],
+                  VK_TRUE, std::numeric_limits<uint64_t>::max());
+
+  VkResult result = vkAcquireNextImageKHR(
+      context.vulkan.device, swapChain, std::numeric_limits<uint64_t>::max(),
+      imageAvailableSemaphores[currentFrame], // must be a not signaled
+                                              // semaphore
+      VK_NULL_HANDLE, imageIndex);
+
+  return result;
+}
+
+VkResult SwapChain::submitCommandBuffers(const VkCommandBuffer *buffers,
+                                         uint32_t *imageIndex) {
+  if (imagesInFlight[*imageIndex] != VK_NULL_HANDLE) {
+    vkWaitForFences(context.vulkan.device, 1, &imagesInFlight[*imageIndex],
+                    VK_TRUE, UINT64_MAX);
+  }
+  imagesInFlight[*imageIndex] = inFlightFences[currentFrame];
+
+  VkSubmitInfo submitInfo = {};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+  VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
+  VkPipelineStageFlags waitStages[] = {
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+  submitInfo.waitSemaphoreCount = 1;
+  submitInfo.pWaitSemaphores = waitSemaphores;
+  submitInfo.pWaitDstStageMask = waitStages;
+
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = buffers;
+
+  VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
+  submitInfo.signalSemaphoreCount = 1;
+  submitInfo.pSignalSemaphores = signalSemaphores;
+
+  vkResetFences(context.vulkan.device, 1, &inFlightFences[currentFrame]);
+  if (vkQueueSubmit(context.vulkan.graphicsQueue, 1, &submitInfo,
+                    inFlightFences[currentFrame]) != VK_SUCCESS) {
+    throw std::runtime_error("failed to submit draw command buffer!");
+  }
+
+  VkPresentInfoKHR presentInfo = {};
+  presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+
+  presentInfo.waitSemaphoreCount = 1;
+  presentInfo.pWaitSemaphores = signalSemaphores;
+
+  VkSwapchainKHR swapChains[] = {swapChain};
+  presentInfo.swapchainCount = 1;
+  presentInfo.pSwapchains = swapChains;
+
+  presentInfo.pImageIndices = imageIndex;
+
+  auto result = vkQueuePresentKHR(context.vulkan.presentQueue, &presentInfo);
+
+  currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+
+  return result;
+}
+
+void SwapChain::createSwapChain() {
   SwapChainSupportDetails swapChainSupport = getSwapChainSupport(context);
 
   VkSurfaceFormatKHR surfaceFormat =
       chooseSwapSurfaceFormat(swapChainSupport.formats);
   VkPresentModeKHR presentMode =
       chooseSwapPresentMode(swapChainSupport.presentModes);
-  VkExtent2D extent = chooseSwapExtent(context, swapChainSupport.capabilities);
+  VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
 
   uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
   if (swapChainSupport.capabilities.maxImageCount > 0 &&
@@ -106,12 +172,11 @@ void createSwapChain(EngineContext &context) {
   createInfo.presentMode = presentMode;
   createInfo.clipped = VK_TRUE;
 
-  createInfo.oldSwapchain = VK_NULL_HANDLE;//context.vulkan.oldSwapChain == nullptr
-                                //? VK_NULL_HANDLE
-                                //: context.vulkan.oldSwapChain;
+  createInfo.oldSwapchain =
+      oldSwapChain == nullptr ? VK_NULL_HANDLE : oldSwapChain->swapChain;
 
   if (vkCreateSwapchainKHR(context.vulkan.device, &createInfo, nullptr,
-                           &context.vulkan.swapChain) != VK_SUCCESS) {
+                           &swapChain) != VK_SUCCESS) {
     throw std::runtime_error("failed to create swap chain!");
   }
 
@@ -120,27 +185,24 @@ void createSwapChain(EngineContext &context) {
   // we'll first query the final number of images with vkGetSwapchainImagesKHR,
   // then resize the container and finally call it again to retrieve the
   // handles.
-  vkGetSwapchainImagesKHR(context.vulkan.device, context.vulkan.swapChain,
-                          &imageCount, nullptr);
-  context.vulkan.swapChainImages.resize(imageCount);
-  vkGetSwapchainImagesKHR(context.vulkan.device, context.vulkan.swapChain,
-                          &imageCount, context.vulkan.swapChainImages.data());
+  vkGetSwapchainImagesKHR(context.vulkan.device, swapChain, &imageCount,
+                          nullptr);
+  swapChainImages.resize(imageCount);
+  vkGetSwapchainImagesKHR(context.vulkan.device, swapChain, &imageCount,
+                          swapChainImages.data());
 
-  context.vulkan.swapChainImageFormat = surfaceFormat.format;
-  context.vulkan.swapChainExtent = extent;
-
-  //context.vulkan.oldSwapChain = context.vulkan.swapChain;
+  swapChainImageFormat = surfaceFormat.format;
+  swapChainExtent = extent;
 }
 
-void createImageViews(EngineContext &context) {
-  context.vulkan.swapChainImageViews.resize(
-      context.vulkan.swapChainImages.size());
-  for (size_t i = 0; i < context.vulkan.swapChainImages.size(); i++) {
+void SwapChain::createImageViews() {
+  swapChainImageViews.resize(swapChainImages.size());
+  for (size_t i = 0; i < swapChainImages.size(); i++) {
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = context.vulkan.swapChainImages[i];
+    viewInfo.image = swapChainImages[i];
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = context.vulkan.swapChainImageFormat;
+    viewInfo.format = swapChainImageFormat;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     viewInfo.subresourceRange.baseMipLevel = 0;
     viewInfo.subresourceRange.levelCount = 1;
@@ -148,22 +210,15 @@ void createImageViews(EngineContext &context) {
     viewInfo.subresourceRange.layerCount = 1;
 
     if (vkCreateImageView(context.vulkan.device, &viewInfo, nullptr,
-                          &context.vulkan.swapChainImageViews[i]) !=
-        VK_SUCCESS) {
+                          &swapChainImageViews[i]) != VK_SUCCESS) {
       throw std::runtime_error("failed to create texture image view!");
     }
   }
 }
-VkFormat findDepthFormat(EngineContext &context) {
-  return findSupportedFormat(
-      context,
-      {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT,
-       VK_FORMAT_D24_UNORM_S8_UINT},
-      VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
-}
-void createRenderPass(EngineContext &context) {
+
+void SwapChain::createRenderPass() {
   VkAttachmentDescription depthAttachment{};
-  depthAttachment.format = findDepthFormat(context);
+  depthAttachment.format = findDepthFormat();
   depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
   depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -178,7 +233,7 @@ void createRenderPass(EngineContext &context) {
   depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
   VkAttachmentDescription colorAttachment = {};
-  colorAttachment.format = context.vulkan.swapChainImageFormat;
+  colorAttachment.format = getSwapChainImageFormat();
   colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
   colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -220,21 +275,44 @@ void createRenderPass(EngineContext &context) {
   renderPassInfo.pDependencies = &dependency;
 
   if (vkCreateRenderPass(context.vulkan.device, &renderPassInfo, nullptr,
-                         &context.vulkan.renderPass) != VK_SUCCESS) {
+                         &renderPass) != VK_SUCCESS) {
     throw std::runtime_error("failed to create render pass!");
   }
 }
-void createDepthResources(EngineContext &context) {
-  VkFormat depthFormat = findDepthFormat(context);
-  context.vulkan.swapChainDepthFormat = depthFormat;
-  VkExtent2D swapChainExtent = context.vulkan.swapChainExtent;
 
-  context.vulkan.depthImages.resize(context.vulkan.swapChainImages.size());
-  context.vulkan.depthImageMemorys.resize(
-      context.vulkan.swapChainImages.size());
-  context.vulkan.depthImageViews.resize(context.vulkan.swapChainImages.size());
+void SwapChain::createFramebuffers() {
+  swapChainFramebuffers.resize(imageCount());
+  for (size_t i = 0; i < imageCount(); i++) {
+    std::array<VkImageView, 2> attachments = {swapChainImageViews[i],
+                                              depthImageViews[i]};
 
-  for (int i = 0; i < context.vulkan.depthImages.size(); i++) {
+    VkExtent2D swapChainExtent = getSwapChainExtent();
+    VkFramebufferCreateInfo framebufferInfo = {};
+    framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    framebufferInfo.renderPass = renderPass;
+    framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+    framebufferInfo.pAttachments = attachments.data();
+    framebufferInfo.width = swapChainExtent.width;
+    framebufferInfo.height = swapChainExtent.height;
+    framebufferInfo.layers = 1;
+
+    if (vkCreateFramebuffer(context.vulkan.device, &framebufferInfo, nullptr,
+                            &swapChainFramebuffers[i]) != VK_SUCCESS) {
+      throw std::runtime_error("failed to create framebuffer!");
+    }
+  }
+}
+
+void SwapChain::createDepthResources() {
+  VkFormat depthFormat = findDepthFormat();
+  swapChainDepthFormat = depthFormat;
+  VkExtent2D swapChainExtent = getSwapChainExtent();
+
+  depthImages.resize(imageCount());
+  depthImageMemorys.resize(imageCount());
+  depthImageViews.resize(imageCount());
+
+  for (int i = 0; i < depthImages.size(); i++) {
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -252,12 +330,11 @@ void createDepthResources(EngineContext &context) {
     imageInfo.flags = 0;
 
     createImageWithInfo(context, imageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                        context.vulkan.depthImages[i],
-                        context.vulkan.depthImageMemorys[i]);
+                        depthImages[i], depthImageMemorys[i]);
 
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = context.vulkan.depthImages[i];
+    viewInfo.image = depthImages[i];
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
     viewInfo.format = depthFormat;
     viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -267,42 +344,17 @@ void createDepthResources(EngineContext &context) {
     viewInfo.subresourceRange.layerCount = 1;
 
     if (vkCreateImageView(context.vulkan.device, &viewInfo, nullptr,
-                          &context.vulkan.depthImageViews[i]) != VK_SUCCESS) {
+                          &depthImageViews[i]) != VK_SUCCESS) {
       throw std::runtime_error("failed to create texture image view!");
     }
   }
 }
-void createFramebuffers(EngineContext &context) {
-  context.vulkan.swapChainFramebuffers.resize(
-      context.vulkan.swapChainImages.size());
-  for (size_t i = 0; i < context.vulkan.swapChainImages.size(); i++) {
-    std::array<VkImageView, 2> attachments = {
-        context.vulkan.swapChainImageViews[i],
-        context.vulkan.depthImageViews[i]};
 
-    VkExtent2D swapChainExtent = context.vulkan.swapChainExtent;
-    VkFramebufferCreateInfo framebufferInfo = {};
-    framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    framebufferInfo.renderPass = context.vulkan.renderPass;
-    framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-    framebufferInfo.pAttachments = attachments.data();
-    framebufferInfo.width = swapChainExtent.width;
-    framebufferInfo.height = swapChainExtent.height;
-    framebufferInfo.layers = 1;
-
-    if (vkCreateFramebuffer(context.vulkan.device, &framebufferInfo, nullptr,
-                            &context.vulkan.swapChainFramebuffers[i]) !=
-        VK_SUCCESS) {
-      throw std::runtime_error("failed to create framebuffer!");
-    }
-  }
-}
-void createSyncObjects(EngineContext &context) {
-  context.vulkan.imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-  context.vulkan.renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-  context.vulkan.inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
-  context.vulkan.imagesInFlight.resize(context.vulkan.swapChainImages.size(),
-                                       VK_NULL_HANDLE);
+void SwapChain::createSyncObjects() {
+  imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+  renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
+  inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+  imagesInFlight.resize(imageCount(), VK_NULL_HANDLE);
 
   VkSemaphoreCreateInfo semaphoreInfo = {};
   semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -313,147 +365,73 @@ void createSyncObjects(EngineContext &context) {
 
   for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
     if (vkCreateSemaphore(context.vulkan.device, &semaphoreInfo, nullptr,
-                          &context.vulkan.imageAvailableSemaphores[i]) !=
-            VK_SUCCESS ||
+                          &imageAvailableSemaphores[i]) != VK_SUCCESS ||
         vkCreateSemaphore(context.vulkan.device, &semaphoreInfo, nullptr,
-                          &context.vulkan.renderFinishedSemaphores[i]) !=
-            VK_SUCCESS ||
+                          &renderFinishedSemaphores[i]) != VK_SUCCESS ||
         vkCreateFence(context.vulkan.device, &fenceInfo, nullptr,
-                      &context.vulkan.inFlightFences[i]) != VK_SUCCESS) {
+                      &inFlightFences[i]) != VK_SUCCESS) {
       throw std::runtime_error(
           "failed to create synchronization objects for a frame!");
     }
   }
 }
-void create(EngineContext &context) {
-  createSwapChain(context);
-  createImageViews(context);
-  createRenderPass(context);
-  createDepthResources(context);
-  createFramebuffers(context);
-  createSyncObjects(context);
-}
-size_t currentFrame = 0;
-VkResult acquireNextImage(EngineContext &context, uint32_t *imageIndex) {
-  vkWaitForFences(context.vulkan.device, 1,
-                  &context.vulkan.inFlightFences[currentFrame], VK_TRUE,
-                  std::numeric_limits<uint64_t>::max());
 
-  VkResult result = vkAcquireNextImageKHR(
-      context.vulkan.device, context.vulkan.swapChain,
-      std::numeric_limits<uint64_t>::max(),
-      context.vulkan
-          .imageAvailableSemaphores[currentFrame], // must be a not signaled
-                                                   // semaphore
-      VK_NULL_HANDLE, imageIndex);
-
-  return result;
-}
-VkResult submitCommandBuffers(EngineContext& context, const VkCommandBuffer *buffers,
-                                            uint32_t *imageIndex) {
-  if (context.vulkan.imagesInFlight[*imageIndex] != VK_NULL_HANDLE) {
-    vkWaitForFences(context.vulkan.device, 1, &context.vulkan.imagesInFlight[*imageIndex],
-                    VK_TRUE, UINT64_MAX);
-  }
-  context.vulkan.imagesInFlight[*imageIndex] = context.vulkan.inFlightFences[currentFrame];
-
-  VkSubmitInfo submitInfo = {};
-  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
-  VkSemaphore waitSemaphores[] = {context.vulkan.imageAvailableSemaphores[currentFrame]};
-  VkPipelineStageFlags waitStages[] = {
-      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-  submitInfo.waitSemaphoreCount = 1;
-  submitInfo.pWaitSemaphores = waitSemaphores;
-  submitInfo.pWaitDstStageMask = waitStages;
-
-  submitInfo.commandBufferCount = 1;
-  submitInfo.pCommandBuffers = buffers;
-
-  VkSemaphore signalSemaphores[] = {context.vulkan.renderFinishedSemaphores[currentFrame]};
-  submitInfo.signalSemaphoreCount = 1;
-  submitInfo.pSignalSemaphores = signalSemaphores;
-
-  vkResetFences(context.vulkan.device, 1, &context.vulkan.inFlightFences[currentFrame]);
-  if (vkQueueSubmit(context.vulkan.graphicsQueue, 1, &submitInfo,
-                    context.vulkan.inFlightFences[currentFrame]) != VK_SUCCESS) {
-    throw std::runtime_error("failed to submit draw command buffer!");
+VkSurfaceFormatKHR SwapChain::chooseSwapSurfaceFormat(
+    const std::vector<VkSurfaceFormatKHR> &availableFormats) {
+  for (const auto &availableFormat : availableFormats) {
+    if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB &&
+        availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+      return availableFormat;
+    }
   }
 
-  VkPresentInfoKHR presentInfo = {};
-  presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-
-  presentInfo.waitSemaphoreCount = 1;
-  presentInfo.pWaitSemaphores = signalSemaphores;
-
-  VkSwapchainKHR swapChains[] = {context.vulkan.swapChain};
-  presentInfo.swapchainCount = 1;
-  presentInfo.pSwapchains = swapChains;
-
-  presentInfo.pImageIndices = imageIndex;
-
-  auto result = vkQueuePresentKHR(context.vulkan.presentQueue, &presentInfo);
-
-  currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
-
-  return result;
-}
-void cleanup(EngineContext& context) {
-  for (auto imageView : context.vulkan.swapChainImageViews) {
-    vkDestroyImageView(context.vulkan.device, imageView, nullptr);
-  }
-  context.vulkan.swapChainImageViews.clear();
-
-  if (context.vulkan.swapChain != nullptr) {
-    vkDestroySwapchainKHR(context.vulkan.device, context.vulkan.swapChain, nullptr);
-    context.vulkan.swapChain = nullptr;
-  }
-
-  for (int i = 0; i < context.vulkan.depthImages.size(); i++) {
-    vkDestroyImageView(context.vulkan.device, context.vulkan.depthImageViews[i], nullptr);
-    vkDestroyImage(context.vulkan.device, context.vulkan.depthImages[i], nullptr);
-    vkFreeMemory(context.vulkan.device, context.vulkan.depthImageMemorys[i], nullptr);
-  }
-
-  for (auto framebuffer : context.vulkan.swapChainFramebuffers) {
-    vkDestroyFramebuffer(context.vulkan.device, framebuffer, nullptr);
-  }
-
-  vkDestroyRenderPass(context.vulkan.device, context.vulkan.renderPass, nullptr);
-
-  // cleanup synchronization objects
-  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-    vkDestroySemaphore(context.vulkan.device, context.vulkan.renderFinishedSemaphores[i],
-                       nullptr);
-    vkDestroySemaphore(context.vulkan.device, context.vulkan.imageAvailableSemaphores[i],
-                       nullptr);
-    vkDestroyFence(context.vulkan.device, context.vulkan.inFlightFences[i], nullptr);
-  }
-}
-/*LveSwapChain::LveSwapChain(EngineContext &context, VkExtent2D windowExtent)
-    : context{context}, windowExtent{windowExtent} {
-  init();
+  return availableFormats[0];
 }
 
-LveSwapChain::LveSwapChain(EngineContext &context, VkExtent2D windowExtent,
-                           std::shared_ptr<LveSwapChain> previous)
-    : context{context}, windowExtent{windowExtent}, oldSwapChain{previous} {
-  init();
-  oldSwapChain = nullptr;
+VkPresentModeKHR SwapChain::chooseSwapPresentMode(
+    const std::vector<VkPresentModeKHR> &availablePresentModes) {
+  for (const auto &availablePresentMode : availablePresentModes) {
+    if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+      std::cout << "Present mode: Mailbox" << std::endl;
+      return availablePresentMode;
+    }
+  }
+
+  // for (const auto &availablePresentMode : availablePresentModes) {
+  //   if (availablePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+  //     std::cout << "Present mode: Immediate" << std::endl;
+  //     return availablePresentMode;
+  //   }
+  // }
+
+  std::cout << "Present mode: V-Sync" << std::endl;
+  return VK_PRESENT_MODE_FIFO_KHR;
 }
 
-void LveSwapChain::init() {
-  createSwapChain();
-  createImageViews();
-  createRenderPass();
-  createDepthResources();
-  createFramebuffers();
-  createSyncObjects();
+VkExtent2D
+SwapChain::chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities) {
+  if (capabilities.currentExtent.width !=
+      std::numeric_limits<uint32_t>::max()) {
+    return capabilities.currentExtent;
+  } else {
+    VkExtent2D actualExtent = context.window.getExtent();
+    actualExtent.width = std::max(
+        capabilities.minImageExtent.width,
+        std::min(capabilities.maxImageExtent.width, actualExtent.width));
+    actualExtent.height = std::max(
+        capabilities.minImageExtent.height,
+        std::min(capabilities.maxImageExtent.height, actualExtent.height));
+
+    return actualExtent;
+  }
 }
 
+VkFormat SwapChain::findDepthFormat() {
+  return findSupportedFormat(
+      context,
+      {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT,
+       VK_FORMAT_D24_UNORM_S8_UINT},
+      VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+}
 
-
-*/
-
-} // namespace swapChain
 } // namespace vkh

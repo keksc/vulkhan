@@ -1,12 +1,15 @@
 #pragma once
 
+#include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
 #include <vector>
 
-#include "gameObject.hpp"
+#include "entity.hpp"
 
+
+namespace vkh {
 const int MAX_LIGHTS = 10;
 
 struct GlobalUbo {
@@ -19,11 +22,12 @@ struct GlobalUbo {
     glm::vec4 color{};    // w is intensity
   } pointLights[MAX_LIGHTS];
   int numLights;
+  float aspectRatio;
 };
 
 const float GROUND_LEVEL = .5f;
 
-namespace vkh {
+class SwapChain;
 struct EngineContext {
   struct {
     int width = 800;
@@ -33,6 +37,7 @@ struct EngineContext {
     VkExtent2D getExtent() {
       return {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
     };
+    float aspectRatio = static_cast<float>(width)/height;
     operator GLFWwindow *() { return glfwWindow; };
     GLFWwindow *glfwWindow;
   } window;
@@ -51,23 +56,7 @@ struct EngineContext {
     VkQueue graphicsQueue;
     VkQueue presentQueue;
     VkCommandPool commandPool;
-
-    VkSwapchainKHR swapChain;
-    VkFormat swapChainImageFormat;
-    // VkSwapchainKHR oldSwapChain;
-    std::vector<VkImage> swapChainImages;
-    VkExtent2D swapChainExtent;
-    std::vector<VkImageView> swapChainImageViews;
-    VkRenderPass renderPass;
-    VkFormat swapChainDepthFormat;
-    std::vector<VkImage> depthImages;
-    std::vector<VkDeviceMemory> depthImageMemorys;
-    std::vector<VkImageView> depthImageViews;
-    std::vector<VkFramebuffer> swapChainFramebuffers;
-    std::vector<VkSemaphore> imageAvailableSemaphores;
-    std::vector<VkSemaphore> renderFinishedSemaphores;
-    std::vector<VkFence> inFlightFences;
-    std::vector<VkFence> imagesInFlight;
+    std::unique_ptr<SwapChain> swapChain;
   } vulkan;
   std::vector<Entity> entities;
   std::vector<PointLight> pointLights;

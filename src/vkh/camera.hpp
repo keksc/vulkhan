@@ -10,8 +10,6 @@ namespace vkh {
 
 namespace camera {
   const float HEIGHT = -1.f;
-  void calcOrthographicProjection(EngineContext& context, float left, float right, float top,
-                                  float bottom, float near, float far);
   void calcPerspectiveProjection(EngineContext& context, float fovy, float aspect, float near,
                                  float far);
 

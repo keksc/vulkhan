@@ -14,6 +14,7 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
   vec4 ambientLightColor; // w is intensity
   PointLight pointLights[10];
   int numLights;
+  float aspectRatio;
 } ubo;
 
 const vec2 verts[6] = vec2[](

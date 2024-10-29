@@ -8,35 +8,26 @@
 namespace vkh {
 
 namespace camera {
-void calcOrthographicProjection(EngineContext& context, float left, float right, float top,
-                                float bottom, float near, float far) {
-  context.camera.projectionMatrix = glm::mat4{1.0f};
-  context.camera.projectionMatrix[0][0] = 2.f / (right - left);
-  context.camera.projectionMatrix[1][1] = 2.f / (bottom - top);
-  context.camera.projectionMatrix[2][2] = 1.f / (far - near);
-  context.camera.projectionMatrix[3][0] = -(right + left) / (right - left);
-  context.camera.projectionMatrix[3][1] = -(bottom + top) / (bottom - top);
-  context.camera.projectionMatrix[3][2] = -near / (far - near);
-}
-
-void calcPerspectiveProjection(EngineContext& context, float fovy, float aspect, float near,
-                                       float far) {
+void calcPerspectiveProjection(EngineContext &context, float fovy, float aspect,
+                               float near, float far) {
   assert(glm::abs(aspect - std::numeric_limits<float>::epsilon()) > 0.0f);
   const float tanHalfFovy = tan(fovy / 2.f);
   context.camera.projectionMatrix = glm::mat4{0.0f};
-  context.camera.projectionMatrix[0][0] = 1.f / (aspect * tanHalfFovy);
+  context.camera.projectionMatrix[0][0] =
+      1.f / (aspect * tanHalfFovy);
   context.camera.projectionMatrix[1][1] = 1.f / (tanHalfFovy);
   context.camera.projectionMatrix[2][2] = far / (far - near);
   context.camera.projectionMatrix[2][3] = 1.f;
   context.camera.projectionMatrix[3][2] = -(far * near) / (far - near);
 }
 
-void calcViewDirection(EngineContext& context, glm::vec3 direction, glm::vec3 up) {
+void calcViewDirection(EngineContext &context, glm::vec3 direction,
+                       glm::vec3 up) {
   const glm::vec3 w{glm::normalize(direction)};
   const glm::vec3 u{glm::normalize(glm::cross(w, up))};
   const glm::vec3 v{glm::cross(w, u)};
 
-  context.camera.viewMatrix = glm::mat4{1.f};
+  /*context.camera.viewMatrix = glm::mat4{1.f};
   context.camera.viewMatrix[0][0] = u.x;
   context.camera.viewMatrix[1][0] = u.y;
   context.camera.viewMatrix[2][0] = u.z;
@@ -62,14 +53,14 @@ void calcViewDirection(EngineContext& context, glm::vec3 direction, glm::vec3 up
   context.camera.inverseViewMatrix[2][2] = w.z;
   context.camera.inverseViewMatrix[3][0] = context.camera.position.x;
   context.camera.inverseViewMatrix[3][1] = context.camera.position.y;
-  context.camera.inverseViewMatrix[3][2] = context.camera.position.z;
+  context.camera.inverseViewMatrix[3][2] = context.camera.position.z;*/
 }
 
-void calcViewTarget(EngineContext& context, glm::vec3 target, glm::vec3 up) {
+void calcViewTarget(EngineContext &context, glm::vec3 target, glm::vec3 up) {
   calcViewDirection(context, target - context.camera.position, up);
 }
 
-void calcViewYXZ(EngineContext& context) {
+void calcViewYXZ(EngineContext &context) {
   const float c3 = glm::cos(context.camera.rotation.z);
   const float s3 = glm::sin(context.camera.rotation.z);
   const float c2 = glm::cos(context.camera.rotation.x);
