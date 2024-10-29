@@ -1,18 +1,21 @@
 #include "vulkhan.hpp"
 #include <cstdio>
+#include <fmt/base.h>
 
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
+#include <fmt/format.h>
 
 #include "buffer.hpp"
 #include "camera.hpp"
 #include "input.hpp"
 #include "descriptors.hpp"
 #include "engineContext.hpp"
-#include "gameObject.hpp"
+#include "entity.hpp"
 #include "init.hpp"
 #include "renderer.hpp"
 #include "systems/entitySys.hpp"
@@ -79,11 +82,13 @@ void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
   context->window.framebufferResized = true;
   context->window.width = width;
   context->window.height = height;
+  context->window.aspectRatio = static_cast<float>(width)/height;
 }
 void initWindow(EngineContext &context) {
   glfwInit();
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
   glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+  glfwWindowHint(GLFW_FLOATING, GLFW_TRUE);
   context.window.glfwWindow = glfwCreateWindow(
       context.window.width, context.window.height, "Vulkhan", nullptr, nullptr);
   glfwSetWindowUserPointer(context.window, &context);
@@ -128,13 +133,13 @@ void run() {
     std::unique_ptr<LveDescriptorPool> globalPool{};
 
     globalPool = LveDescriptorPool::Builder(context)
-                     .setMaxSets(swapChain::MAX_FRAMES_IN_FLIGHT)
+                     .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT)
                      .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                  swapChain::MAX_FRAMES_IN_FLIGHT)
+                                  SwapChain::MAX_FRAMES_IN_FLIGHT)
                      .build();
 
     std::vector<std::unique_ptr<LveBuffer>> uboBuffers(
-        swapChain::MAX_FRAMES_IN_FLIGHT);
+        SwapChain::MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < uboBuffers.size(); i++) {
       uboBuffers[i] = std::make_unique<LveBuffer>(
           context, fmt::format("ubo #{}", i), sizeof(GlobalUbo), 1,
@@ -156,7 +161,7 @@ void run() {
     loadObjects(context);
 
     std::vector<VkDescriptorSet> globalDescriptorSets(
-        swapChain::MAX_FRAMES_IN_FLIGHT);
+        SwapChain::MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < globalDescriptorSets.size(); i++) {
       auto bufferInfo = uboBuffers[i]->descriptorInfo();
       LveDescriptorWriter(*globalSetLayout, *globalPool)
@@ -182,7 +187,7 @@ void run() {
       context.camera.rotation = context.player.transform.rotation;
       camera::calcViewYXZ(context);
 
-      float aspect = renderer::getAspectRatio(context);
+      float aspect = renderer::getAspectRatio(context); // TODO: recreate the swapchain
       camera::calcPerspectiveProjection(context, glm::radians(50.f), aspect, 0.1f,
                                         100.f);
 
@@ -200,6 +205,7 @@ void run() {
         ubo.projection = context.camera.projectionMatrix;
         ubo.view = context.camera.viewMatrix;
         ubo.inverseView = context.camera.inverseViewMatrix;
+        ubo.aspectRatio = context.window.aspectRatio;
         if (glfwGetKey(context.window, GLFW_KEY_G))
           entitySys::update(context);
         pointLightSys::update(context, ubo);
