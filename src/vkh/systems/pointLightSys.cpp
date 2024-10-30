@@ -16,7 +16,7 @@ namespace vkh {
 namespace pointLightSys {
 std::unique_ptr<Pipeline> pipeline;
 VkPipelineLayout pipelineLayout;
-struct PointLightPushConstants {
+struct PushConstantData {
   glm::vec4 position{};
   glm::vec4 color{};
   float radius;
@@ -28,7 +28,7 @@ void createPipelineLayout(EngineContext &context,
   pushConstantRange.stageFlags =
       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
   pushConstantRange.offset = 0;
-  pushConstantRange.size = sizeof(PointLightPushConstants);
+  pushConstantRange.size = sizeof(PushConstantData);
 
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{globalSetLayout};
 
@@ -55,7 +55,7 @@ void createPipeline(EngineContext &context) {
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipeline = std::make_unique<Pipeline>(
-      context, "pointLightSys", "shaders/pointLight.vert.spv", "shaders/pointLight.frag.spv",
+      context, "pointLight system", "shaders/pointLight.vert.spv", "shaders/pointLight.frag.spv",
       pipelineConfig);
 }
 void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
@@ -118,7 +118,7 @@ void render(EngineContext &context) {
     auto &transform = pointLight.transform;
     ;
 
-    PointLightPushConstants push{};
+    PushConstantData push{};
     push.position = glm::vec4(transform.translation, 1.f);
     push.color = glm::vec4(pointLight.color, pointLight.lightIntensity);
     push.radius = transform.scale.x;
@@ -126,7 +126,7 @@ void render(EngineContext &context) {
     vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
                        VK_SHADER_STAGE_VERTEX_BIT |
                            VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, sizeof(PointLightPushConstants), &push);
+                       0, sizeof(PushConstantData), &push);
     vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
   }
 }
