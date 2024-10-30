@@ -1,4 +1,4 @@
-#include "freezeAnimationSys.hpp"
+#include "freezeAnimation.hpp"
 #include <fmt/base.h>
 
 // libs
@@ -7,11 +7,12 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
-#include "../pipeline.hpp"
-#include "../renderer.hpp"
-
 #include <cassert>
 #include <stdexcept>
+
+#include "../entity.hpp"
+#include "../pipeline.hpp"
+#include "../renderer.hpp"
 
 namespace vkh {
 namespace freezeAnimationSys {
@@ -77,17 +78,13 @@ void render(EngineContext &context) {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
-  for (auto entity : context.entities) {
-    auto &transform = entity.transform;
-    auto model = entity.model;
-    PushConstantData push{};
-    push.time = glfwGetTime();
+  PushConstantData push{};
+  push.time = glfwGetTime();
 
-    vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
-                       VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                       sizeof(PushConstantData), &push);
-    vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
-  }
+  vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
+                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstantData),
+                     &push);
+  vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
 }
 } // namespace freezeAnimationSys
 } // namespace vkh

@@ -1,15 +1,19 @@
 #pragma once
 
-#include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <vector>
-
-#include "entity.hpp"
-
+#include <memory>
 
 namespace vkh {
+class Entity;
+class PointLight;
+
 const int MAX_LIGHTS = 10;
 
 struct GlobalUbo {
@@ -60,7 +64,6 @@ struct EngineContext {
   } vulkan;
   std::vector<Entity> entities;
   std::vector<PointLight> pointLights;
-  Entity player;
   struct {
     int frameIndex;
     float dt;

@@ -4,7 +4,10 @@
 #include <GLFW/glfw3.h>
 #include <fmt/format.h>
 
+#include <glm/fwd.hpp>
 #include <limits>
+
+#include "entity.hpp"
 
 namespace vkh {
 namespace input {
@@ -37,11 +40,11 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action,
     return;
   }
   if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
-    Entity &viewerEntity = context->player;
-    if (viewerEntity.rigidBody.isJumping)
+    Entity &player = context->entities[0];
+    if (player.rigidBody.isJumping)
       return;
-    viewerEntity.rigidBody.isJumping = true;
-    viewerEntity.rigidBody.velocity.y = viewerEntity.rigidBody.jumpVelocity;
+    player.rigidBody.isJumping = true;
+    player.rigidBody.velocity.y = player.rigidBody.jumpVelocity;
   }
 }
 glm::vec2 mousePos;
@@ -63,7 +66,7 @@ void init(EngineContext &context) {
 }
 
 void moveInPlaneXZ(EngineContext &context) {
-  Entity &viewerEntity = context.player;
+  Entity &viewerEntity = context.entities[0];
   glm::vec3 rotate{-mousePos.y, mousePos.x, 0.f};
   viewerEntity.transform.rotation = rotate * 0.0007f;
 
@@ -106,7 +109,6 @@ void moveInPlaneXZ(EngineContext &context) {
         viewerEntity.rigidBody.acceleration * context.frameInfo.dt;
     viewerEntity.transform.translation +=
         viewerEntity.rigidBody.velocity * jumpSpeed * context.frameInfo.dt;
-    viewerEntity.rigidBody.resetForces();
   }
   if (viewerEntity.transform.translation.y >= GROUND_LEVEL && viewerEntity.rigidBody.isJumping) {
     viewerEntity.rigidBody.isJumping = false;
