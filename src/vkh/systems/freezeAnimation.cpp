@@ -1,4 +1,4 @@
-#include "axesSys.hpp"
+#include "freezeAnimation.hpp"
 #include <fmt/base.h>
 
 // libs
@@ -7,19 +7,29 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
-#include "../pipeline.hpp"
-#include "../renderer.hpp"
-
 #include <cassert>
 #include <stdexcept>
 
+#include "../entity.hpp"
+#include "../pipeline.hpp"
+#include "../renderer.hpp"
+
 namespace vkh {
-namespace axesSys {
+namespace freezeAnimationSys {
 std::unique_ptr<Pipeline> pipeline;
 VkPipelineLayout pipelineLayout;
 
+struct PushConstantData {
+  float time;
+};
+
 void createPipelineLayout(EngineContext &context,
                           VkDescriptorSetLayout globalSetLayout) {
+  VkPushConstantRange pushConstantRange{};
+  pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  pushConstantRange.offset = 0;
+  pushConstantRange.size = sizeof(PushConstantData);
+
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{globalSetLayout};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
@@ -27,6 +37,8 @@ void createPipelineLayout(EngineContext &context,
   pipelineLayoutInfo.setLayoutCount =
       static_cast<uint32_t>(descriptorSetLayouts.size());
   pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
+  pipelineLayoutInfo.pushConstantRangeCount = 1;
+  pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
   if (vkCreatePipelineLayout(context.vulkan.device, &pipelineLayoutInfo,
                              nullptr, &pipelineLayout) != VK_SUCCESS) {
     throw std::runtime_error("failed to create pipeline layout!");
@@ -40,12 +52,11 @@ void createPipeline(EngineContext &context) {
   Pipeline::enableAlphaBlending(pipelineConfig);
   pipelineConfig.attributeDescriptions.clear();
   pipelineConfig.bindingDescriptions.clear();
-  pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipeline = std::make_unique<Pipeline>(
-      context, "axes system", "shaders/axes.vert.spv",
-      "shaders/axes.frag.spv", pipelineConfig);
+      context, "freezeAnimation system", "shaders/freezeAnimation.vert.spv",
+      "shaders/freezeAnimation.frag.spv", pipelineConfig);
 }
 void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
   createPipelineLayout(context, globalSetLayout);
@@ -67,11 +78,13 @@ void render(EngineContext &context) {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
-  for (auto entity : context.entities) {
-    auto &transform = entity.transform;
-    auto model = entity.model;
-    vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
-  }
+  PushConstantData push{};
+  push.time = glfwGetTime();
+
+  vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
+                     VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstantData),
+                     &push);
+  vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
 }
 } // namespace freezeAnimationSys
 } // namespace vkh

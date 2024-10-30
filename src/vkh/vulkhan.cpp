@@ -18,10 +18,10 @@
 #include "entity.hpp"
 #include "init.hpp"
 #include "renderer.hpp"
-#include "systems/entitySys.hpp"
-#include "systems/pointLightSys.hpp"
-#include "systems/freezeAnimationSys.hpp"
-#include "systems/axesSys.hpp"
+#include "systems/entity.hpp"
+#include "systems/pointLight.hpp"
+#include "systems/freezeAnimation.hpp"
+#include "systems/axes.hpp"
 
 #include <array>
 #include <cassert>
@@ -124,7 +124,7 @@ void cleanupVulkan(EngineContext &context) {
 }
 void run() {
   EngineContext context{};
-  context.player.transform.translation = {0.f, GROUND_LEVEL, -2.5f};
+  context.entities.push_back({.transform = {.translation = {0.f, GROUND_LEVEL, -2.5f}}});
   initWindow(context);
   initVulkan(context);
   renderer::init(context);
@@ -185,8 +185,8 @@ void run() {
 
       context.frameInfo.dt = frameTime;
       input::moveInPlaneXZ(context);
-      context.camera.position = context.player.transform.translation + glm::vec3{0.f, camera::HEIGHT, 0.f};
-      context.camera.rotation = context.player.transform.rotation;
+      context.camera.position = context.entities[0].transform.translation + glm::vec3{0.f, camera::HEIGHT, 0.f};
+      context.camera.rotation = context.entities[0].transform.rotation;
       camera::calcViewYXZ(context);
 
       float aspect = renderer::getAspectRatio(context); // TODO: recreate the swapchain
