@@ -8,7 +8,7 @@
 
 namespace vkh {
 
-    class LveDescriptorSetLayout {
+    class DescriptorSetLayout {
     public:
         class Builder {
         public:
@@ -19,18 +19,18 @@ namespace vkh {
                 VkDescriptorType descriptorType,
                 VkShaderStageFlags stageFlags,
                 uint32_t count = 1);
-            std::unique_ptr<LveDescriptorSetLayout> build() const;
+            std::unique_ptr<DescriptorSetLayout> build() const;
 
         private:
             EngineContext& context;
             std::unordered_map<uint32_t, VkDescriptorSetLayoutBinding> bindings{};
         };
 
-        LveDescriptorSetLayout(
+        DescriptorSetLayout(
             EngineContext& context, std::unordered_map<uint32_t, VkDescriptorSetLayoutBinding> bindings);
-        ~LveDescriptorSetLayout();
-        LveDescriptorSetLayout(const LveDescriptorSetLayout&) = delete;
-        LveDescriptorSetLayout& operator=(const LveDescriptorSetLayout&) = delete;
+        ~DescriptorSetLayout();
+        DescriptorSetLayout(const DescriptorSetLayout&) = delete;
+        DescriptorSetLayout& operator=(const DescriptorSetLayout&) = delete;
 
         VkDescriptorSetLayout getDescriptorSetLayout() const { return descriptorSetLayout; }
 
@@ -39,10 +39,10 @@ namespace vkh {
         VkDescriptorSetLayout descriptorSetLayout;
         std::unordered_map<uint32_t, VkDescriptorSetLayoutBinding> bindings;
 
-        friend class LveDescriptorWriter;
+        friend class DescriptorWriter;
     };
 
-    class LveDescriptorPool {
+    class DescriptorPool {
     public:
         class Builder {
         public:
@@ -51,7 +51,7 @@ namespace vkh {
             Builder& addPoolSize(VkDescriptorType descriptorType, uint32_t count);
             Builder& setPoolFlags(VkDescriptorPoolCreateFlags flags);
             Builder& setMaxSets(uint32_t count);
-            std::unique_ptr<LveDescriptorPool> build() const;
+            std::unique_ptr<DescriptorPool> build() const;
 
         private:
             EngineContext& context;
@@ -60,14 +60,14 @@ namespace vkh {
             VkDescriptorPoolCreateFlags poolFlags = 0;
         };
 
-        LveDescriptorPool(
+        DescriptorPool(
             EngineContext& context,
             uint32_t maxSets,
             VkDescriptorPoolCreateFlags poolFlags,
             const std::vector<VkDescriptorPoolSize>& poolSizes);
-        ~LveDescriptorPool();
-        LveDescriptorPool(const LveDescriptorPool&) = delete;
-        LveDescriptorPool& operator=(const LveDescriptorPool&) = delete;
+        ~DescriptorPool();
+        DescriptorPool(const DescriptorPool&) = delete;
+        DescriptorPool& operator=(const DescriptorPool&) = delete;
 
         bool allocateDescriptor(
             const VkDescriptorSetLayout descriptorSetLayout, VkDescriptorSet& descriptor) const;
@@ -80,23 +80,23 @@ namespace vkh {
         EngineContext& context;
         VkDescriptorPool descriptorPool;
 
-        friend class LveDescriptorWriter;
+        friend class DescriptorWriter;
     };
 
-    class LveDescriptorWriter {
+    class DescriptorWriter {
     public:
-        LveDescriptorWriter(LveDescriptorSetLayout& setLayout, LveDescriptorPool& pool);
+        DescriptorWriter(DescriptorSetLayout& setLayout, DescriptorPool& pool);
 
-        LveDescriptorWriter& writeBuffer(uint32_t binding, VkDescriptorBufferInfo* bufferInfo);
-        LveDescriptorWriter& writeImage(uint32_t binding, VkDescriptorImageInfo* imageInfo);
+        DescriptorWriter& writeBuffer(uint32_t binding, VkDescriptorBufferInfo* bufferInfo);
+        DescriptorWriter& writeImage(uint32_t binding, VkDescriptorImageInfo* imageInfo);
 
         bool build(VkDescriptorSet& set);
         void overwrite(VkDescriptorSet& set);
 
     private:
-        LveDescriptorSetLayout& setLayout;
-        LveDescriptorPool& pool;
+        DescriptorSetLayout& setLayout;
+        DescriptorPool& pool;
         std::vector<VkWriteDescriptorSet> writes;
     };
 
-}  // namespace lve
+}  // namespace vkh

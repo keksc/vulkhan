@@ -1,9 +1,10 @@
 #pragma once
 
-// libs
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-// std
 #include <memory>
 #include <unordered_map>
 
@@ -28,9 +29,7 @@ struct RigidBody {
   float mass = 0.f;
   bool isJumping = false;
   float jumpVelocity = -5.0f;
-  void resetForces() {
-    acceleration = glm::vec3{0.f, -9.81f, 0.f};
-  }
+  void resetForces() { acceleration = glm::vec3{0.f, -9.81f, 0.f}; }
 };
 
 struct PointLight {
@@ -39,9 +38,22 @@ struct PointLight {
   Transform transform;
 };
 
+struct BoundingBox {
+  glm::vec3 min;
+  glm::vec3 max;
+  bool contains(const glm::vec3 &point) const {
+    return (point.x >= min.x && point.x <= max.x) &&
+           (point.y >= min.y && point.y <= max.y) &&
+           (point.z >= min.z && point.z <= max.z);
+  }
+  glm::vec3 center() const { return (min + max) * 0.5f; }
+  glm::vec3 size() const { return max - min; }
+};
+
 struct Entity {
   Transform transform;
   std::shared_ptr<Model> model;
   RigidBody rigidBody;
+  BoundingBox boundingBox;
 };
 } // namespace vkh
