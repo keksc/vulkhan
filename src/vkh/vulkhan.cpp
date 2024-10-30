@@ -21,6 +21,7 @@
 #include "systems/entitySys.hpp"
 #include "systems/pointLightSys.hpp"
 #include "systems/freezeAnimationSys.hpp"
+#include "systems/axesSys.hpp"
 
 #include <array>
 #include <cassert>
@@ -130,9 +131,9 @@ void run() {
   { // {} to handle call destructors of buffers before vulkah is cleaned up
     input::init(context);
 
-    std::unique_ptr<LveDescriptorPool> globalPool{};
+    std::unique_ptr<DescriptorPool> globalPool{};
 
-    globalPool = LveDescriptorPool::Builder(context)
+    globalPool = DescriptorPool::Builder(context)
                      .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT)
                      .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                                   SwapChain::MAX_FRAMES_IN_FLIGHT)
@@ -148,7 +149,7 @@ void run() {
       uboBuffers[i]->map();
     }
 
-    auto globalSetLayout = LveDescriptorSetLayout::Builder(context)
+    auto globalSetLayout = DescriptorSetLayout::Builder(context)
                                .addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                                            VK_SHADER_STAGE_VERTEX_BIT |
                                                VK_SHADER_STAGE_FRAGMENT_BIT)
@@ -156,6 +157,7 @@ void run() {
 
     entitySys::init(context, globalSetLayout->getDescriptorSetLayout());
     pointLightSys::init(context, globalSetLayout->getDescriptorSetLayout());
+    axesSys::init(context, globalSetLayout->getDescriptorSetLayout());
     freezeAnimationSys::init(context, globalSetLayout->getDescriptorSetLayout());
 
     loadObjects(context);
@@ -164,7 +166,7 @@ void run() {
         SwapChain::MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < globalDescriptorSets.size(); i++) {
       auto bufferInfo = uboBuffers[i]->descriptorInfo();
-      LveDescriptorWriter(*globalSetLayout, *globalPool)
+      DescriptorWriter(*globalSetLayout, *globalPool)
           .writeBuffer(0, &bufferInfo)
           .build(globalDescriptorSets[i]);
     }
@@ -218,6 +220,7 @@ void run() {
         // order here matters
         entitySys::render(context);
         pointLightSys::render(context);
+        axesSys::render(context);
         freezeAnimationSys::render(context);
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
@@ -225,9 +228,12 @@ void run() {
     }
 
     vkDeviceWaitIdle(context.vulkan.device);
+
     entitySys::cleanup(context);
     pointLightSys::cleanup(context);
+    axesSys::cleanup(context);
     freezeAnimationSys::cleanup(context);
+
     context.entities.clear();
     context.pointLights.clear();
   }

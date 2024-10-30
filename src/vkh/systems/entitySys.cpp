@@ -53,8 +53,8 @@ void createPipeline(EngineContext &context) {
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipeline = std::make_unique<Pipeline>(
-      context, "entitySys", "shaders/entityShader.vert.spv",
-      "shaders/entityShader.frag.spv", pipelineConfig);
+      context, "entity system", "shaders/entity.vert.spv",
+      "shaders/entity.frag.spv", pipelineConfig);
 }
 void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
   createPipelineLayout(context, globalSetLayout);
