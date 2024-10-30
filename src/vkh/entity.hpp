@@ -8,6 +8,8 @@
 #include <memory>
 #include <unordered_map>
 
+#include "engineContext.hpp"
+
 namespace vkh {
 class Model;
 struct Transform {
@@ -29,7 +31,7 @@ struct RigidBody {
   float mass = 0.f;
   bool isJumping = false;
   float jumpVelocity = -5.0f;
-  void resetForces() { acceleration = glm::vec3{0.f, -9.81f, 0.f}; }
+  void applyForce(EngineContext& context);
 };
 
 struct PointLight {
