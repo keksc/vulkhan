@@ -1,4 +1,4 @@
-#include "freezeAnimationSys.hpp"
+#include "entity.hpp"
 #include <fmt/base.h>
 
 // libs
@@ -7,25 +7,28 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
-#include "../pipeline.hpp"
-#include "../renderer.hpp"
-
 #include <cassert>
 #include <stdexcept>
 
+#include "../pipeline.hpp"
+#include "../renderer.hpp"
+#include "../entity.hpp"
+
 namespace vkh {
-namespace freezeAnimationSys {
+namespace entitySys {
 std::unique_ptr<Pipeline> pipeline;
 VkPipelineLayout pipelineLayout;
 
 struct PushConstantData {
-  float time;
+  glm::mat4 modelMatrix{1.f};
+  glm::mat4 normalMatrix{1.f};
 };
 
 void createPipelineLayout(EngineContext &context,
                           VkDescriptorSetLayout globalSetLayout) {
   VkPushConstantRange pushConstantRange{};
-  pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+  pushConstantRange.stageFlags =
+      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
   pushConstantRange.offset = 0;
   pushConstantRange.size = sizeof(PushConstantData);
 
@@ -48,14 +51,11 @@ void createPipeline(EngineContext &context) {
          "Cannot create pipeline before pipeline layout");
 
   PipelineConfigInfo pipelineConfig{};
-  Pipeline::enableAlphaBlending(pipelineConfig);
-  pipelineConfig.attributeDescriptions.clear();
-  pipelineConfig.bindingDescriptions.clear();
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipeline = std::make_unique<Pipeline>(
-      context, "freezeAnimation system", "shaders/freezeAnimation.vert.spv",
-      "shaders/freezeAnimation.frag.spv", pipelineConfig);
+      context, "entity system", "shaders/entity.vert.spv",
+      "shaders/entity.frag.spv", pipelineConfig);
 }
 void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
   createPipelineLayout(context, globalSetLayout);
@@ -78,16 +78,39 @@ void render(EngineContext &context) {
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   for (auto entity : context.entities) {
+    if(entity.model == nullptr) continue;
     auto &transform = entity.transform;
     auto model = entity.model;
     PushConstantData push{};
-    push.time = glfwGetTime();
+    push.modelMatrix = transform.mat4();
+    push.normalMatrix = transform.normalMatrix();
 
     vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
-                       VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                       sizeof(PushConstantData), &push);
-    vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
+                       VK_SHADER_STAGE_VERTEX_BIT |
+                           VK_SHADER_STAGE_FRAGMENT_BIT,
+                       0, sizeof(PushConstantData), &push);
+    model->bind(context.frameInfo.commandBuffer);
+    model->draw(context.frameInfo.commandBuffer);
   }
 }
-} // namespace freezeAnimationSys
+void update(EngineContext &context) {
+  for (auto &entity : context.entities) {
+    if (entity.model == nullptr)
+      continue;
+    entity.rigidBody.velocity +=
+        entity.rigidBody.acceleration * context.frameInfo.dt;
+    entity.transform.translation -=
+        entity.rigidBody.velocity * context.frameInfo.dt * 0.05f;
+
+    // Ground plane check for inverted y-axis
+    if (entity.transform.translation.y >
+        GROUND_LEVEL) { // Ground plane at y = 0
+      entity.transform.translation.y = GROUND_LEVEL;
+      entity.rigidBody.velocity.y = 0.0f; // Stop upward velocity
+    }
+
+    //entity.rigidBody.resetForces();
+  }
+}
+} // namespace entitySys
 } // namespace vkh

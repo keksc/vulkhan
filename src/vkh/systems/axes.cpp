@@ -1,4 +1,4 @@
-#include "axesSys.hpp"
+#include "axes.hpp"
 #include <fmt/base.h>
 
 // libs
@@ -7,11 +7,12 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
-#include "../pipeline.hpp"
-#include "../renderer.hpp"
-
 #include <cassert>
 #include <stdexcept>
+
+#include "../entity.hpp"
+#include "../pipeline.hpp"
+#include "../renderer.hpp"
 
 namespace vkh {
 namespace axesSys {
@@ -44,8 +45,8 @@ void createPipeline(EngineContext &context) {
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipeline = std::make_unique<Pipeline>(
-      context, "axes system", "shaders/axes.vert.spv",
-      "shaders/axes.frag.spv", pipelineConfig);
+      context, "axes system", "shaders/axes.vert.spv", "shaders/axes.frag.spv",
+      pipelineConfig);
 }
 void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
   createPipelineLayout(context, globalSetLayout);
@@ -67,11 +68,7 @@ void render(EngineContext &context) {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
-  for (auto entity : context.entities) {
-    auto &transform = entity.transform;
-    auto model = entity.model;
-    vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
-  }
+  vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
 }
-} // namespace freezeAnimationSys
+} // namespace axesSys
 } // namespace vkh
