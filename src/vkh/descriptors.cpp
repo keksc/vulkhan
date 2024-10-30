@@ -7,7 +7,7 @@ namespace vkh {
 
     // *************** Descriptor Set Layout Builder *********************
 
-    LveDescriptorSetLayout::Builder& LveDescriptorSetLayout::Builder::addBinding(
+    DescriptorSetLayout::Builder& DescriptorSetLayout::Builder::addBinding(
         uint32_t binding,
         VkDescriptorType descriptorType,
         VkShaderStageFlags stageFlags,
@@ -22,13 +22,13 @@ namespace vkh {
         return *this;
     }
 
-    std::unique_ptr<LveDescriptorSetLayout> LveDescriptorSetLayout::Builder::build() const {
-        return std::make_unique<LveDescriptorSetLayout>(context, bindings);
+    std::unique_ptr<DescriptorSetLayout> DescriptorSetLayout::Builder::build() const {
+        return std::make_unique<DescriptorSetLayout>(context, bindings);
     }
 
     // *************** Descriptor Set Layout *********************
 
-    LveDescriptorSetLayout::LveDescriptorSetLayout(
+    DescriptorSetLayout::DescriptorSetLayout(
         EngineContext& context, std::unordered_map<uint32_t, VkDescriptorSetLayoutBinding> bindings)
         : context{ context }, bindings{ bindings } {
         std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings{};
@@ -50,35 +50,35 @@ namespace vkh {
         }
     }
 
-    LveDescriptorSetLayout::~LveDescriptorSetLayout() {
+    DescriptorSetLayout::~DescriptorSetLayout() {
         vkDestroyDescriptorSetLayout(context.vulkan.device, descriptorSetLayout, nullptr);
     }
 
     // *************** Descriptor Pool Builder *********************
 
-    LveDescriptorPool::Builder& LveDescriptorPool::Builder::addPoolSize(
+    DescriptorPool::Builder& DescriptorPool::Builder::addPoolSize(
         VkDescriptorType descriptorType, uint32_t count) {
         poolSizes.push_back({ descriptorType, count });
         return *this;
     }
 
-    LveDescriptorPool::Builder& LveDescriptorPool::Builder::setPoolFlags(
+    DescriptorPool::Builder& DescriptorPool::Builder::setPoolFlags(
         VkDescriptorPoolCreateFlags flags) {
         poolFlags = flags;
         return *this;
     }
-    LveDescriptorPool::Builder& LveDescriptorPool::Builder::setMaxSets(uint32_t count) {
+    DescriptorPool::Builder& DescriptorPool::Builder::setMaxSets(uint32_t count) {
         maxSets = count;
         return *this;
     }
 
-    std::unique_ptr<LveDescriptorPool> LveDescriptorPool::Builder::build() const {
-        return std::make_unique<LveDescriptorPool>(context, maxSets, poolFlags, poolSizes);
+    std::unique_ptr<DescriptorPool> DescriptorPool::Builder::build() const {
+        return std::make_unique<DescriptorPool>(context, maxSets, poolFlags, poolSizes);
     }
 
     // *************** Descriptor Pool *********************
 
-    LveDescriptorPool::LveDescriptorPool(
+    DescriptorPool::DescriptorPool(
         EngineContext& context,
         uint32_t maxSets,
         VkDescriptorPoolCreateFlags poolFlags,
@@ -97,11 +97,11 @@ namespace vkh {
         }
     }
 
-    LveDescriptorPool::~LveDescriptorPool() {
+    DescriptorPool::~DescriptorPool() {
         vkDestroyDescriptorPool(context.vulkan.device, descriptorPool, nullptr);
     }
 
-    bool LveDescriptorPool::allocateDescriptor(
+    bool DescriptorPool::allocateDescriptor(
         const VkDescriptorSetLayout descriptorSetLayout, VkDescriptorSet& descriptor) const {
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -117,7 +117,7 @@ namespace vkh {
         return true;
     }
 
-    void LveDescriptorPool::freeDescriptors(std::vector<VkDescriptorSet>& descriptors) const {
+    void DescriptorPool::freeDescriptors(std::vector<VkDescriptorSet>& descriptors) const {
         vkFreeDescriptorSets(
             context.vulkan.device,
             descriptorPool,
@@ -125,16 +125,16 @@ namespace vkh {
             descriptors.data());
     }
 
-    void LveDescriptorPool::resetPool() {
+    void DescriptorPool::resetPool() {
         vkResetDescriptorPool(context.vulkan.device, descriptorPool, 0);
     }
 
     // *************** Descriptor Writer *********************
 
-    LveDescriptorWriter::LveDescriptorWriter(LveDescriptorSetLayout& setLayout, LveDescriptorPool& pool)
+    DescriptorWriter::DescriptorWriter(DescriptorSetLayout& setLayout, DescriptorPool& pool)
         : setLayout{ setLayout }, pool{ pool } {}
 
-    LveDescriptorWriter& LveDescriptorWriter::writeBuffer(
+    DescriptorWriter& DescriptorWriter::writeBuffer(
         uint32_t binding, VkDescriptorBufferInfo* bufferInfo) {
         assert(setLayout.bindings.count(binding) == 1 && "Layout does not contain specified binding");
 
@@ -155,7 +155,7 @@ namespace vkh {
         return *this;
     }
 
-    LveDescriptorWriter& LveDescriptorWriter::writeImage(
+    DescriptorWriter& DescriptorWriter::writeImage(
         uint32_t binding, VkDescriptorImageInfo* imageInfo) {
         assert(setLayout.bindings.count(binding) == 1 && "Layout does not contain specified binding");
 
@@ -176,7 +176,7 @@ namespace vkh {
         return *this;
     }
 
-    bool LveDescriptorWriter::build(VkDescriptorSet& set) {
+    bool DescriptorWriter::build(VkDescriptorSet& set) {
         bool success = pool.allocateDescriptor(setLayout.getDescriptorSetLayout(), set);
         if (!success) {
             return false;
@@ -185,11 +185,11 @@ namespace vkh {
         return true;
     }
 
-    void LveDescriptorWriter::overwrite(VkDescriptorSet& set) {
+    void DescriptorWriter::overwrite(VkDescriptorSet& set) {
         for (auto& write : writes) {
             write.dstSet = set;
         }
         vkUpdateDescriptorSets(pool.context.vulkan.device, writes.size(), writes.data(), 0, nullptr);
     }
 
-}  // namespace lve
+}  // namespace vkh
