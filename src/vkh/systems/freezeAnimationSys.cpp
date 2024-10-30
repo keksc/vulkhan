@@ -54,7 +54,7 @@ void createPipeline(EngineContext &context) {
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipeline = std::make_unique<Pipeline>(
-      context, "freezeAnimationSys", "shaders/freezeAnimation.vert.spv",
+      context, "freezeAnimation system", "shaders/freezeAnimation.vert.spv",
       "shaders/freezeAnimation.frag.spv", pipelineConfig);
 }
 void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
