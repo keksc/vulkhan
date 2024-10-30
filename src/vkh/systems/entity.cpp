@@ -1,4 +1,4 @@
-#include "entitySys.hpp"
+#include "entity.hpp"
 #include <fmt/base.h>
 
 // libs
@@ -7,11 +7,12 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
-#include "../pipeline.hpp"
-#include "../renderer.hpp"
-
 #include <cassert>
 #include <stdexcept>
+
+#include "../pipeline.hpp"
+#include "../renderer.hpp"
+#include "../entity.hpp"
 
 namespace vkh {
 namespace entitySys {
@@ -77,6 +78,7 @@ void render(EngineContext &context) {
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   for (auto entity : context.entities) {
+    if(entity.model == nullptr) continue;
     auto &transform = entity.transform;
     auto model = entity.model;
     PushConstantData push{};
@@ -93,18 +95,21 @@ void render(EngineContext &context) {
 }
 void update(EngineContext &context) {
   for (auto &entity : context.entities) {
+    if (entity.model == nullptr)
+      continue;
     entity.rigidBody.velocity +=
         entity.rigidBody.acceleration * context.frameInfo.dt;
     entity.transform.translation -=
         entity.rigidBody.velocity * context.frameInfo.dt * 0.05f;
 
     // Ground plane check for inverted y-axis
-    if (entity.transform.translation.y > GROUND_LEVEL) { // Ground plane at y = 0
+    if (entity.transform.translation.y >
+        GROUND_LEVEL) { // Ground plane at y = 0
       entity.transform.translation.y = GROUND_LEVEL;
       entity.rigidBody.velocity.y = 0.0f; // Stop upward velocity
     }
 
-    entity.rigidBody.resetForces();
+    //entity.rigidBody.resetForces();
   }
 }
 } // namespace entitySys
