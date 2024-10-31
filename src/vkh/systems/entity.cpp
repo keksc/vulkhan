@@ -93,24 +93,5 @@ void render(EngineContext &context) {
     model->draw(context.frameInfo.commandBuffer);
   }
 }
-void update(EngineContext &context) {
-  for (auto &entity : context.entities) {
-    if (entity.model == nullptr)
-      continue;
-    entity.rigidBody.velocity +=
-        entity.rigidBody.acceleration * context.frameInfo.dt;
-    entity.transform.translation -=
-        entity.rigidBody.velocity * context.frameInfo.dt * 0.05f;
-
-    // Ground plane check for inverted y-axis
-    if (entity.transform.translation.y >
-        GROUND_LEVEL) { // Ground plane at y = 0
-      entity.transform.translation.y = GROUND_LEVEL;
-      entity.rigidBody.velocity.y = 0.0f; // Stop upward velocity
-    }
-
-    //entity.rigidBody.resetForces();
-  }
-}
 } // namespace entitySys
 } // namespace vkh

@@ -8,7 +8,5 @@ namespace vkh {
 		void cleanup(EngineContext& context);
 
 		void render(EngineContext& context);
-    void update(EngineContext& context); // run physics
-
 	};
 }  // namespace lve
