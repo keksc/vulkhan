@@ -80,12 +80,12 @@ void update(EngineContext &context, GlobalUbo &ubo) {
     assert(lightIndex < MAX_LIGHTS && "Point lights exceed maximum specified");
 
     // update light position
-    transform.translation =
-        glm::vec3(rotateLight * glm::vec4(transform.translation, 1.f));
+    transform.position =
+        glm::vec3(rotateLight * glm::vec4(transform.position, 1.f));
 
     // copy light to ubo
     ubo.pointLights[lightIndex].position =
-        glm::vec4(transform.translation, 1.f);
+        glm::vec4(transform.position, 1.f);
     ubo.pointLights[lightIndex].color =
         glm::vec4(pointLight.color, pointLight.lightIntensity);
 
@@ -101,7 +101,7 @@ void render(EngineContext &context) {
     auto &transform = pointLight.transform;
 
     // calculate distanc.e
-    auto offset = context.camera.position - transform.translation;
+    auto offset = context.camera.position - transform.position;
     float disSquared = glm::dot(offset, offset);
     sorted[disSquared] = pointLight;
   }
@@ -120,7 +120,7 @@ void render(EngineContext &context) {
     ;
 
     PushConstantData push{};
-    push.position = glm::vec4(transform.translation, 1.f);
+    push.position = glm::vec4(transform.position, 1.f);
     push.color = glm::vec4(pointLight.color, pointLight.lightIntensity);
     push.radius = transform.scale.x;
 
