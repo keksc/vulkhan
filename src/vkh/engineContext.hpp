@@ -6,6 +6,7 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <vector>
 #include <memory>
@@ -72,7 +73,7 @@ struct EngineContext {
   } frameInfo;
   struct {
     glm::vec3 position{0.f, 0.f, -2.5f};
-    glm::vec3 rotation{0.f};
+    glm::quat orientation;
     glm::mat4 projectionMatrix{1.f};
     glm::mat4 viewMatrix{1.f};
     glm::mat4 inverseViewMatrix{1.f};
