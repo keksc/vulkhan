@@ -5,6 +5,7 @@
 #include <fmt/format.h>
 
 #include <glm/fwd.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <limits>
 
 #include "entity.hpp"
@@ -13,7 +14,6 @@ namespace vkh {
 namespace input {
 float moveSpeed{3.f};
 float lookSpeed{1.5f};
-const float jumpSpeed{.5f};
 void key_callback(GLFWwindow *window, int key, int scancode, int action,
                   int mods) {
   auto context =
@@ -41,10 +41,11 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action,
   }
   if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
     Entity &player = context->entities[0];
-    if (player.rigidBody.isJumping)
+    player.velocity.y -= 1.f;
+    /*if (player.rigidBody.isJumping)
       return;
     player.rigidBody.isJumping = true;
-    player.rigidBody.velocity.y = player.rigidBody.jumpVelocity;
+    player.rigidBody.velocity.y = player.rigidBody.jumpVelocity;*/
   }
 }
 glm::vec2 mousePos;
@@ -66,21 +67,20 @@ void init(EngineContext &context) {
 }
 
 void moveInPlaneXZ(EngineContext &context) {
-  Entity &viewerEntity = context.entities[0];
-  glm::vec3 rotate{-mousePos.y, mousePos.x, 0.f};
-  viewerEntity.transform.rotation = rotate * 0.0007f;
+  Entity &player = context.entities[0];
+  glm::mat3 rotationMatrix = glm::mat3(player.transform.orientation);//glm::eulerAngles(player.transform.orientation);
+  glm::vec3 rotation = glm::vec3{-mousePos.y, mousePos.x, 0.f} * 0.0007f;
 
   if (scroll) {
-    viewerEntity.transform.translation.y -= scroll * 0.02;
+    player.transform.position.y -= scroll * 0.02;
     scroll = 0;
   }
 
-  viewerEntity.transform.rotation.y =
-      glm::mod(viewerEntity.transform.rotation.y, glm::two_pi<float>());
-  viewerEntity.transform.rotation.x =
-      glm::clamp(viewerEntity.transform.rotation.x, -1.5f, 1.5f);
+  rotation.y = glm::mod(rotation.y, glm::two_pi<float>());
+  rotation.x = glm::clamp(rotation.x, -1.5f, 1.5f);
 
-  float yaw = viewerEntity.transform.rotation.y;
+  //player.transform.orientation = glm::quat(rotation);
+  float yaw = rotation.y;
   const glm::vec3 forwardDir{sin(yaw), 0.f, cos(yaw)};
   const glm::vec3 rightDir{forwardDir.z, 0.f, -forwardDir.x};
   const glm::vec3 upDir{0.f, -1.f, 0.f};
@@ -94,26 +94,17 @@ void moveInPlaneXZ(EngineContext &context) {
     moveDir += rightDir;
   if (glfwGetKey(context.window, GLFW_KEY_A))
     moveDir -= rightDir;
-  // if (glfwGetKey(context.window, GLFW_KEY_SPACE))
-  //   moveDir += upDir;
+  //if (glfwGetKey(context.window, GLFW_KEY_SPACE))
+  //  moveDir += upDir;
   if (glfwGetKey(context.window, GLFW_KEY_LEFT_CONTROL))
     moveDir -= upDir;
 
   if (glm::dot(moveDir, moveDir) > std::numeric_limits<float>::epsilon()) {
-    viewerEntity.transform.translation +=
+    player.transform.position +=
         moveSpeed * context.frameInfo.dt * glm::normalize(moveDir);
   }
-  if (viewerEntity.rigidBody.isJumping) {
-    viewerEntity.rigidBody.acceleration.y = 9.81f;
-    viewerEntity.rigidBody.velocity +=
-        viewerEntity.rigidBody.acceleration * context.frameInfo.dt;
-    viewerEntity.transform.translation +=
-        viewerEntity.rigidBody.velocity * jumpSpeed * context.frameInfo.dt;
-  }
-  if (viewerEntity.transform.translation.y >= GROUND_LEVEL && viewerEntity.rigidBody.isJumping) {
-    viewerEntity.rigidBody.isJumping = false;
-    viewerEntity.transform.translation.y = GROUND_LEVEL;
-  }
+  glm::quat rotationQuat = glm::quat(rotation);
+  player.transform.orientation = rotationQuat;
 }
 } // namespace input
 } // namespace vkh
