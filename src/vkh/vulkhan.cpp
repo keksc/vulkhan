@@ -22,6 +22,7 @@
 #include "systems/pointLight.hpp"
 #include "systems/freezeAnimation.hpp"
 #include "systems/axes.hpp"
+#include "systems/physics.hpp"
 
 #include <array>
 #include <cassert>
@@ -36,18 +37,18 @@ void loadObjects(EngineContext &context) {
   lveModel =
       Model::createModelFromFile(context, "flat vase", "models/flat_vase.obj");
   context.entities.push_back(
-      {.transform = {.translation{-.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
+      {.transform = {.position{-.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
        .model = lveModel});
 
   lveModel = Model::createModelFromFile(context, "smooth vase",
                                         "models/smooth_vase.obj");
   context.entities.push_back(
-      {.transform = {.translation{.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
+      {.transform = {.position{.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
        .model = lveModel});
 
   lveModel = Model::createModelFromFile(context, "floor", "models/quad.obj");
   context.entities.push_back(
-      {.transform = {.translation{0.f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
+      {.transform = {.position{0.f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
        .model = lveModel});
 
   std::vector<glm::vec3> lightColors{{1.f, .1f, .1f}, {.1f, .1f, 1.f},
@@ -61,7 +62,7 @@ void loadObjects(EngineContext &context) {
     context.pointLights.push_back(
         {.color = lightColors[i],
          .lightIntensity = 0.2f,
-         .transform = {.translation = glm::vec3(
+         .transform = {.position = glm::vec3(
                            rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f)),
                        .scale{0.1f, 1.f, 1.f}}});
   }
@@ -69,7 +70,7 @@ void loadObjects(EngineContext &context) {
   for (int i = 0; i < 30; i++) {
     for (int j = 0; j < 30; j++) {
       context.entities.push_back(
-          {.transform = {.translation = {2.f + static_cast<float>(i) * 2.f,
+          {.transform = {.position = {2.f + static_cast<float>(i) * 2.f,
                                          -1.f,
                                          2.f + static_cast<float>(j) * 2.f},
                          .scale = {.5f, .5f, .5f}},
@@ -124,7 +125,7 @@ void cleanupVulkan(EngineContext &context) {
 }
 void run() {
   EngineContext context{};
-  context.entities.push_back({.transform = {.translation = {0.f, GROUND_LEVEL, -2.5f}}});
+  context.entities.push_back({.transform = {.position = {0.f, GROUND_LEVEL, -2.5f}}, .mass = 1.f});
   initWindow(context);
   initVulkan(context);
   renderer::init(context);
@@ -185,8 +186,8 @@ void run() {
 
       context.frameInfo.dt = frameTime;
       input::moveInPlaneXZ(context);
-      context.camera.position = context.entities[0].transform.translation + glm::vec3{0.f, camera::HEIGHT, 0.f};
-      context.camera.rotation = context.entities[0].transform.rotation;
+      context.camera.position = context.entities[0].transform.position + glm::vec3{0.f, camera::HEIGHT, 0.f};
+      context.camera.orientation = context.entities[0].transform.orientation;
       camera::calcViewYXZ(context);
 
       float aspect = renderer::getAspectRatio(context); // TODO: recreate the swapchain
@@ -209,7 +210,7 @@ void run() {
         ubo.inverseView = context.camera.inverseViewMatrix;
         ubo.aspectRatio = context.window.aspectRatio;
         if (glfwGetKey(context.window, GLFW_KEY_G))
-          entitySys::update(context);
+          physicsSys::update(context);
         pointLightSys::update(context, ubo);
         uboBuffers[frameIndex]->writeToBuffer(&ubo);
         uboBuffers[frameIndex]->flush();
