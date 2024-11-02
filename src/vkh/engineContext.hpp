@@ -12,8 +12,8 @@
 #include <memory>
 
 namespace vkh {
-class Entity;
-class PointLight;
+struct Entity;
+struct PointLight;
 
 const int MAX_LIGHTS = 10;
 
