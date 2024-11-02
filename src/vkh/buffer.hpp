@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "engineContext.hpp"
 
 namespace vkh {
