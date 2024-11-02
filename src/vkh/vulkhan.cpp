@@ -1,7 +1,6 @@
 #include "vulkhan.hpp"
 #include <cstdio>
 #include <cstdlib>
-#include <fmt/base.h>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -31,6 +30,7 @@
 #include <memory>
 #include <stdexcept>
 #include <vector>
+#include <random>
 
 namespace vkh {
 void loadObjects(EngineContext &context) {
@@ -69,9 +69,12 @@ void loadObjects(EngineContext &context) {
   }
   lveModel = Model::createModelFromFile(context, "cube", "models/cube.obj");
   for (int i = 0; i < 30; i++) {
+      std::random_device rd;                 // Seed generator
+      std::mt19937 gen(rd());                // Mersenne Twister engine
+      std::uniform_int_distribution<> dist(0.f, 9.f);
     context.entities.push_back(
-        {.transform = {.position = {2.f + arc4random_uniform(10.f), -1.f,
-                                    2.f + arc4random_uniform(10.f)},
+        {.transform = {.position = {2.f + dist(gen), -1.f,
+                                    2.f + dist(gen)},
                        .scale = {.5f, .5f, .5f}},
          .model = lveModel});
   }

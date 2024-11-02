@@ -1,7 +1,7 @@
 #include "physics.hpp"
 
 #include "../entity.hpp"
-#include <fmt/base.h>
+#include <fmt/format.h>
 
 namespace vkh {
 namespace physicsSys {
