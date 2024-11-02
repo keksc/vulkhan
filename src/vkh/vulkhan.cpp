@@ -1,28 +1,29 @@
 #include "vulkhan.hpp"
 #include <cstdio>
+#include <cstdlib>
 #include <fmt/base.h>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
-#include <fmt/format.h>
 
 #include "buffer.hpp"
 #include "camera.hpp"
-#include "input.hpp"
 #include "descriptors.hpp"
 #include "engineContext.hpp"
 #include "entity.hpp"
 #include "init.hpp"
+#include "input.hpp"
 #include "renderer.hpp"
-#include "systems/entity.hpp"
-#include "systems/pointLight.hpp"
-#include "systems/freezeAnimation.hpp"
 #include "systems/axes.hpp"
+#include "systems/entity.hpp"
+#include "systems/freezeAnimation.hpp"
 #include "systems/physics.hpp"
+#include "systems/pointLight.hpp"
 
 #include <array>
 #include <cassert>
@@ -36,9 +37,9 @@ void loadObjects(EngineContext &context) {
   std::shared_ptr<Model> lveModel;
   lveModel =
       Model::createModelFromFile(context, "flat vase", "models/flat_vase.obj");
-  context.entities.push_back(
-      {.transform = {.position{-.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
-       .model = lveModel});
+  context.entities.push_back({.transform = {.position{-.5f, GROUND_LEVEL, 0.f},
+                                            .scale{3.f, 1.5f, 3.f}},
+                              .model = lveModel});
 
   lveModel = Model::createModelFromFile(context, "smooth vase",
                                         "models/smooth_vase.obj");
@@ -62,20 +63,17 @@ void loadObjects(EngineContext &context) {
     context.pointLights.push_back(
         {.color = lightColors[i],
          .lightIntensity = 0.2f,
-         .transform = {.position = glm::vec3(
-                           rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f)),
+         .transform = {.position = glm::vec3(rotateLight *
+                                             glm::vec4(-1.f, -1.f, -1.f, 1.f)),
                        .scale{0.1f, 1.f, 1.f}}});
   }
   lveModel = Model::createModelFromFile(context, "cube", "models/cube.obj");
   for (int i = 0; i < 30; i++) {
-    for (int j = 0; j < 30; j++) {
-      context.entities.push_back(
-          {.transform = {.position = {2.f + static_cast<float>(i) * 2.f,
-                                         -1.f,
-                                         2.f + static_cast<float>(j) * 2.f},
-                         .scale = {.5f, .5f, .5f}},
-           .model = lveModel});
-    }
+    context.entities.push_back(
+        {.transform = {.position = {2.f + arc4random_uniform(10.f), -1.f,
+                                    2.f + arc4random_uniform(10.f)},
+                       .scale = {.5f, .5f, .5f}},
+         .model = lveModel});
   }
 }
 void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
@@ -84,7 +82,7 @@ void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
   context->window.framebufferResized = true;
   context->window.width = width;
   context->window.height = height;
-  context->window.aspectRatio = static_cast<float>(width)/height;
+  context->window.aspectRatio = static_cast<float>(width) / height;
 }
 void initWindow(EngineContext &context) {
   glfwInit();
@@ -125,7 +123,8 @@ void cleanupVulkan(EngineContext &context) {
 }
 void run() {
   EngineContext context{};
-  context.entities.push_back({.transform = {.position = {0.f, GROUND_LEVEL, -2.5f}}, .mass = 1.f});
+  context.entities.push_back(
+      {.transform = {.position = {0.f, GROUND_LEVEL, -2.5f}}});
   initWindow(context);
   initVulkan(context);
   renderer::init(context);
@@ -159,7 +158,8 @@ void run() {
     entitySys::init(context, globalSetLayout->getDescriptorSetLayout());
     pointLightSys::init(context, globalSetLayout->getDescriptorSetLayout());
     axesSys::init(context, globalSetLayout->getDescriptorSetLayout());
-    freezeAnimationSys::init(context, globalSetLayout->getDescriptorSetLayout());
+    freezeAnimationSys::init(context,
+                             globalSetLayout->getDescriptorSetLayout());
 
     loadObjects(context);
 
@@ -186,13 +186,15 @@ void run() {
 
       context.frameInfo.dt = frameTime;
       input::moveInPlaneXZ(context);
-      context.camera.position = context.entities[0].transform.position + glm::vec3{0.f, camera::HEIGHT, 0.f};
+      context.camera.position = context.entities[0].transform.position +
+                                glm::vec3{0.f, camera::HEIGHT, 0.f};
       context.camera.orientation = context.entities[0].transform.orientation;
       camera::calcViewYXZ(context);
 
-      float aspect = renderer::getAspectRatio(context); // TODO: recreate the swapchain
-      camera::calcPerspectiveProjection(context, glm::radians(50.f), aspect, 0.1f,
-                                        100.f);
+      float aspect =
+          renderer::getAspectRatio(context); // TODO: recreate the swapchain
+      camera::calcPerspectiveProjection(context, glm::radians(50.f), aspect,
+                                        0.1f, 100.f);
 
       if (auto commandBuffer = renderer::beginFrame(context)) {
         int frameIndex = renderer::getFrameIndex();

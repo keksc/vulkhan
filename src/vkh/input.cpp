@@ -41,7 +41,7 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action,
   }
   if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
     Entity &player = context->entities[0];
-    player.velocity.y -= 1.f;
+    player.rigidBody.velocity.y -= 1.f;
     /*if (player.rigidBody.isJumping)
       return;
     player.rigidBody.isJumping = true;
@@ -94,8 +94,8 @@ void moveInPlaneXZ(EngineContext &context) {
     moveDir += rightDir;
   if (glfwGetKey(context.window, GLFW_KEY_A))
     moveDir -= rightDir;
-  //if (glfwGetKey(context.window, GLFW_KEY_SPACE))
-  //  moveDir += upDir;
+  if (glfwGetKey(context.window, GLFW_KEY_SPACE))
+    moveDir += upDir;
   if (glfwGetKey(context.window, GLFW_KEY_LEFT_CONTROL))
     moveDir -= upDir;
 
