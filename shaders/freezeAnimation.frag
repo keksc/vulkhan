@@ -23,11 +23,14 @@ layout(push_constant) uniform Push {
   float time;
 } push;
 
-vec2 snowflakes[] = {
-  vec2(-0.8, -0.6),
-  vec2(0.8, -0.7),
-  vec2(-0.8, 0.5),
-  vec2(0.7, 0.8)
+//xy is pos, z is initial angle
+vec3 snowflakes[] = {
+  vec3(-0.8, -0.6, 0.0),
+  vec3(-0.8, -0.55, 0.0),
+  vec3(0.8, -0.7, 0.0),
+  vec3(0.9, -0.6, 2.0),
+  vec3(-0.8, 0.5, 0.0),
+  vec3(0.7, 0.8, 0.0)
 };
 
 void main() {
@@ -36,25 +39,26 @@ void main() {
   uv *= 1.0 / min(pow(push.time * 0.5, 2.0) + 0.5, 1.0);
 
   // Adjust snowflakes array positions for aspect ratio
-  vec2 closestSnowflake = vec2(snowflakes[0].x * ubo.aspectRatio, snowflakes[0].y);
-  float closestSnowflakeDist = distance(closestSnowflake, uv);
+  vec3 closestSnowflake = vec3(snowflakes[0].x * ubo.aspectRatio, snowflakes[0].yz);
+  float closestSnowflakeDist = distance(closestSnowflake.xy, uv);
 
   for(int i = 1; i < snowflakes.length(); i++) {
-    vec2 adjustedSnowflake = vec2(snowflakes[i].x * ubo.aspectRatio, snowflakes[i].y);
-    float dist = distance(adjustedSnowflake, uv);
+    vec3 adjustedSnowflake = vec3(snowflakes[i].x * ubo.aspectRatio, snowflakes[i].yz);
+    float dist = distance(adjustedSnowflake.xy, uv);
     if(closestSnowflakeDist > dist) {
       closestSnowflakeDist = dist;
       closestSnowflake = adjustedSnowflake;
     }
   }
 
-  vec2 pos = closestSnowflake - uv;
+  vec2 pos = closestSnowflake.xy - uv;
 
-  float r = length(pos) * 6.0;
-  float a = atan(pos.y, pos.x);
+  float radius = length(pos)*6.0;
+  float angle = atan(pos.y, pos.x)+closestSnowflake.z;
 
-  float f = pow(abs(cos(a * 12.0) * sin(a * 3.0)) * 0.8 + 0.1, 4);
+  float func = pow(abs(cos(angle * 12.0) * sin(angle * 3.0)) * 0.8 + 0.1, 4);
 
-  float opacity = 1.0 - smoothstep(f, f + 0.02, r);
-  outColor = vec4(0.054, 0.57, 0.8, opacity);
+  float alpha = smoothstep(0.0, 1.0, (func-radius)*6.0);
+
+  outColor = vec4(0.054, 0.57, 0.8, alpha);
 }
