@@ -39,6 +39,9 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action,
     context->window.fullscreen = !context->window.fullscreen;
     return;
   }
+  if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+      glfwSetWindowShouldClose(context->window, GLFW_TRUE);
+  }
   if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
     Entity &player = context->entities[0];
     player.rigidBody.velocity.y -= 1.f;
