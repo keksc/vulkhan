@@ -6,9 +6,9 @@
 
 namespace vkh {
 
-    class LveBuffer {
+    class Buffer {
     public:
-        LveBuffer(
+        Buffer(
             EngineContext& context,
             std::string name,
             VkDeviceSize instanceSize,
@@ -16,10 +16,10 @@ namespace vkh {
             VkBufferUsageFlags usageFlags,
             VkMemoryPropertyFlags memoryPropertyFlags,
             VkDeviceSize minOffsetAlignment = 1);
-        ~LveBuffer();
+        ~Buffer();
 
-        LveBuffer(const LveBuffer&) = delete;
-        LveBuffer& operator=(const LveBuffer&) = delete;
+        Buffer(const Buffer&) = delete;
+        Buffer& operator=(const Buffer&) = delete;
 
         VkResult map(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
         void unmap();

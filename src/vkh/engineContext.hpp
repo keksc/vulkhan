@@ -59,6 +59,7 @@ struct EngineContext {
     VkPhysicalDeviceProperties physicalDeviceProperties;
     VkDevice device;
     VkQueue graphicsQueue;
+    VkQueue computeQueue;
     VkQueue presentQueue;
     VkCommandPool commandPool;
     std::unique_ptr<SwapChain> swapChain;

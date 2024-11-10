@@ -60,9 +60,9 @@ struct PipelineConfigInfo {
 
 class Pipeline {
 public:
-  Pipeline(EngineContext &context, std::string name, const std::string &vertFilepath,
-              const std::string &fragFilepath,
-              const PipelineConfigInfo &configInfo);
+  Pipeline(EngineContext &context, std::string name,
+           const std::string &vertFilepath, const std::string &fragFilepath,
+           const PipelineConfigInfo &configInfo);
   ~Pipeline();
 
   Pipeline(const Pipeline &) = delete;
@@ -73,14 +73,9 @@ public:
   static void enableAlphaBlending(PipelineConfigInfo &configInfo);
 
 private:
-  static std::vector<char> readFile(const std::string &filepath);
-
   void createGraphicsPipeline(const std::string &vertFilepath,
                               const std::string &fragFilepath,
                               const PipelineConfigInfo &configInfo);
-
-  void createShaderModule(const std::vector<char> &code,
-                          VkShaderModule *shaderModule);
 
   EngineContext &context;
 
@@ -90,4 +85,6 @@ private:
   VkShaderModule vertShaderModule;
   VkShaderModule fragShaderModule;
 };
+void createComputePipeline(EngineContext &context, const std::string &filepath,
+                           VkDescriptorSetLayout descriptorSetLayout);
 } // namespace vkh

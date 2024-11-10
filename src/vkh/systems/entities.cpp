@@ -1,17 +1,17 @@
-#include "entity.hpp"
+#include "entities.hpp"
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
-#include <fmt/format.h>
 
 #include <cassert>
 #include <stdexcept>
 
+#include "../entity.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
-#include "../entity.hpp"
 
 namespace vkh {
 namespace entitySys {
@@ -41,9 +41,8 @@ void createPipelineLayout(EngineContext &context,
   pipelineLayoutInfo.pushConstantRangeCount = 1;
   pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
   if (vkCreatePipelineLayout(context.vulkan.device, &pipelineLayoutInfo,
-                             nullptr, &pipelineLayout) != VK_SUCCESS) {
+                             nullptr, &pipelineLayout) != VK_SUCCESS)
     throw std::runtime_error("failed to create pipeline layout!");
-  }
 }
 void createPipeline(EngineContext &context) {
   assert(pipelineLayout != nullptr &&
@@ -53,8 +52,8 @@ void createPipeline(EngineContext &context) {
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipeline = std::make_unique<Pipeline>(
-      context, "entity system", "shaders/entity.vert.spv",
-      "shaders/entity.frag.spv", pipelineConfig);
+      context, "entity system", "shaders/entities.vert.spv",
+      "shaders/entities.frag.spv", pipelineConfig);
 }
 void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
   createPipelineLayout(context, globalSetLayout);
@@ -69,15 +68,13 @@ void cleanup(EngineContext &context) {
 void render(EngineContext &context) {
   pipeline->bind(context.frameInfo.commandBuffer);
 
-  auto projectionView =
-      context.camera.projectionMatrix * context.camera.viewMatrix;
-
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   for (auto entity : context.entities) {
-    if(entity.model == nullptr) continue;
+    if (entity.model == nullptr)
+      continue;
     auto &transform = entity.transform;
     auto model = entity.model;
     PushConstantData push{};

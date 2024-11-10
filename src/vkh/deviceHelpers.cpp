@@ -1,6 +1,7 @@
 #include "deviceHelpers.hpp"
 
 #include <stdexcept>
+#include <vulkan/vulkan_core.h>
 
 namespace vkh {
 	SwapChainSupportDetails querySwapChainSupport(EngineContext& context, VkPhysicalDevice device) {
@@ -49,6 +50,10 @@ namespace vkh {
 				indices.presentFamily = i;
 				indices.presentFamilyHasValue = true;
 			}
+      if(queueFamily.queueCount > 0 && queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+        indices.computeFamily = i;
+        indices.computeFamilyHasValue = true;
+      }
 			if (indices.isComplete()) {
 				break;
 			}

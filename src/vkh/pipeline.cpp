@@ -8,26 +8,11 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <vulkan/vulkan_core.h>
 
 namespace vkh {
 
-Pipeline::Pipeline(EngineContext &context, std::string name, const std::string &vertFilepath,
-                   const std::string &fragFilepath,
-                   const PipelineConfigInfo &configInfo) : name{name}, context{context} {
-  createGraphicsPipeline(vertFilepath, fragFilepath, configInfo);
-  fmt::print("{} pipeline {}\n",
-             fmt::styled("created", fmt::fg(fmt::color::light_green)),
-             fmt::styled(name, fg(fmt::color::yellow)));
-}
-
-Pipeline::~Pipeline() {
-  vkDestroyShaderModule(context.vulkan.device, vertShaderModule, nullptr);
-  vkDestroyShaderModule(context.vulkan.device, fragShaderModule, nullptr);
-  vkDestroyPipeline(context.vulkan.device, graphicsPipeline, nullptr);
-  fmt::print("{} pipeline {}\n", fmt::styled("destroyed", fmt::fg(fmt::color::red)), fmt::styled(name, fg(fmt::color::yellow)));
-}
-
-std::vector<char> Pipeline::readFile(const std::string &filepath) {
+std::vector<char> readFile(const std::string &filepath) {
   std::ifstream file{filepath, std::ios::ate | std::ios::binary};
 
   if (!file.is_open()) {
@@ -43,6 +28,37 @@ std::vector<char> Pipeline::readFile(const std::string &filepath) {
   file.close();
   return buffer;
 }
+void createShaderModule(EngineContext &context, const std::vector<char> &code,
+                        VkShaderModule *shaderModule) {
+  VkShaderModuleCreateInfo createInfo{};
+  createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  createInfo.codeSize = code.size();
+  createInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
+
+  if (vkCreateShaderModule(context.vulkan.device, &createInfo, nullptr,
+                           shaderModule) != VK_SUCCESS) {
+    throw std::runtime_error("failed to create shader module");
+  }
+}
+Pipeline::Pipeline(EngineContext &context, std::string name,
+                   const std::string &vertFilepath,
+                   const std::string &fragFilepath,
+                   const PipelineConfigInfo &configInfo)
+    : name{name}, context{context} {
+  createGraphicsPipeline(vertFilepath, fragFilepath, configInfo);
+  fmt::print("{} pipeline {}\n",
+             fmt::styled("created", fmt::fg(fmt::color::light_green)),
+             fmt::styled(name, fg(fmt::color::yellow)));
+}
+
+Pipeline::~Pipeline() {
+  vkDestroyShaderModule(context.vulkan.device, vertShaderModule, nullptr);
+  vkDestroyShaderModule(context.vulkan.device, fragShaderModule, nullptr);
+  vkDestroyPipeline(context.vulkan.device, graphicsPipeline, nullptr);
+  fmt::print("{} pipeline {}\n",
+             fmt::styled("destroyed", fmt::fg(fmt::color::red)),
+             fmt::styled(name, fg(fmt::color::yellow)));
+}
 
 void Pipeline::createGraphicsPipeline(const std::string &vertFilepath,
                                       const std::string &fragFilepath,
@@ -57,24 +73,18 @@ void Pipeline::createGraphicsPipeline(const std::string &vertFilepath,
   auto vertCode = readFile(vertFilepath);
   auto fragCode = readFile(fragFilepath);
 
-  createShaderModule(vertCode, &vertShaderModule);
-  createShaderModule(fragCode, &fragShaderModule);
+  createShaderModule(context, vertCode, &vertShaderModule);
+  createShaderModule(context, fragCode, &fragShaderModule);
 
-  VkPipelineShaderStageCreateInfo shaderStages[2];
-  shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-  shaderStages[0].module = vertShaderModule;
-  shaderStages[0].pName = "main";
-  shaderStages[0].flags = 0;
-  shaderStages[0].pNext = nullptr;
-  shaderStages[0].pSpecializationInfo = nullptr;
-  shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-  shaderStages[1].module = fragShaderModule;
-  shaderStages[1].pName = "main";
-  shaderStages[1].flags = 0;
-  shaderStages[1].pNext = nullptr;
-  shaderStages[1].pSpecializationInfo = nullptr;
+  VkPipelineShaderStageCreateInfo shaderStages[2] = {
+      {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+       .stage = VK_SHADER_STAGE_VERTEX_BIT,
+       .module = vertShaderModule,
+       .pName = "main"},
+      {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+       .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+       .module = fragShaderModule,
+       .pName = "main"}};
 
   auto &bindingDescriptions = configInfo.bindingDescriptions;
   auto &attributeDescriptions = configInfo.attributeDescriptions;
@@ -115,19 +125,6 @@ void Pipeline::createGraphicsPipeline(const std::string &vertFilepath,
   }
 }
 
-void Pipeline::createShaderModule(const std::vector<char> &code,
-                                  VkShaderModule *shaderModule) {
-  VkShaderModuleCreateInfo createInfo{};
-  createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-  createInfo.codeSize = code.size();
-  createInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
-
-  if (vkCreateShaderModule(context.vulkan.device, &createInfo, nullptr,
-                           shaderModule) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create shader module");
-  }
-}
-
 void Pipeline::bind(VkCommandBuffer commandBuffer) {
   vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     graphicsPipeline);
@@ -149,4 +146,41 @@ void Pipeline::enableAlphaBlending(PipelineConfigInfo &configInfo) {
   configInfo.colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 }
 
+void createComputePipeline(EngineContext &context,
+                           const std::string &filepath,
+                           VkDescriptorSetLayout descriptorSetLayout) {
+  VkShaderModule shaderModule;
+  auto compCode = readFile(filepath);
+  createShaderModule(context, compCode, &shaderModule);
+  VkPipelineShaderStageCreateInfo computeShaderStageInfo{};
+  computeShaderStageInfo.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  computeShaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  computeShaderStageInfo.module = shaderModule;
+  computeShaderStageInfo.pName = "main";
+
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{descriptorSetLayout};
+
+  VkPipelineLayoutCreateInfo pipelineLayoutInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+      .setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size()),
+      .pSetLayouts = descriptorSetLayouts.data()};
+
+  VkPipelineLayout pipelineLayout;
+  if (vkCreatePipelineLayout(context.vulkan.device, &pipelineLayoutInfo,
+                             nullptr, &pipelineLayout) != VK_SUCCESS)
+    throw std::runtime_error("failed to create pipeline layout!");
+  VkComputePipelineCreateInfo pipelineInfo{};
+  pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+  pipelineInfo.layout = pipelineLayout;
+  pipelineInfo.stage = computeShaderStageInfo;
+
+  VkPipeline pipeline;
+  if (vkCreateComputePipelines(context.vulkan.device, VK_NULL_HANDLE, 1, &pipelineInfo,
+                               nullptr, &pipeline) != VK_SUCCESS) {
+    throw std::runtime_error("failed to create compute pipeline!");
+  }
+
+  vkDestroyShaderModule(context.vulkan.device, shaderModule, nullptr);
+}
 } // namespace vkh
