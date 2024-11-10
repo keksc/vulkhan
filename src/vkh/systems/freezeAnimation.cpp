@@ -70,9 +70,6 @@ void cleanup(EngineContext &context) {
 void render(EngineContext &context) {
   pipeline->bind(context.frameInfo.commandBuffer);
 
-  auto projectionView =
-      context.camera.projectionMatrix * context.camera.viewMatrix;
-
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);

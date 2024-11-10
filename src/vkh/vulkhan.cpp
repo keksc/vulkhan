@@ -1,6 +1,4 @@
 #include "vulkhan.hpp"
-#include <cstdio>
-#include <cstdlib>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -19,8 +17,9 @@
 #include "input.hpp"
 #include "renderer.hpp"
 #include "systems/axes.hpp"
-#include "systems/entity.hpp"
+#include "systems/entities.hpp"
 #include "systems/freezeAnimation.hpp"
+#include "systems/particles.hpp"
 #include "systems/physics.hpp"
 #include "systems/pointLight.hpp"
 
@@ -28,9 +27,9 @@
 #include <cassert>
 #include <chrono>
 #include <memory>
+#include <random>
 #include <stdexcept>
 #include <vector>
-#include <random>
 
 namespace vkh {
 void loadObjects(EngineContext &context) {
@@ -69,12 +68,11 @@ void loadObjects(EngineContext &context) {
   }
   lveModel = Model::createModelFromFile(context, "cube", "models/cube.obj");
   for (int i = 0; i < 30; i++) {
-      std::random_device rd;                 // Seed generator
-      std::mt19937 gen(rd());                // Mersenne Twister engine
-      std::uniform_int_distribution<> dist(0.f, 9.f);
+    std::random_device rd;  // Seed generator
+    std::mt19937 gen(rd()); // Mersenne Twister engine
+    std::uniform_int_distribution<> dist(0.f, 9.f);
     context.entities.push_back(
-        {.transform = {.position = {2.f + dist(gen), -1.f,
-                                    2.f + dist(gen)},
+        {.transform = {.position = {2.f + dist(gen), -1.f, 2.f + dist(gen)},
                        .scale = {.5f, .5f, .5f}},
          .model = lveModel});
   }
@@ -142,10 +140,10 @@ void run() {
                                   SwapChain::MAX_FRAMES_IN_FLIGHT)
                      .build();
 
-    std::vector<std::unique_ptr<LveBuffer>> uboBuffers(
+    std::vector<std::unique_ptr<Buffer>> uboBuffers(
         SwapChain::MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < uboBuffers.size(); i++) {
-      uboBuffers[i] = std::make_unique<LveBuffer>(
+      uboBuffers[i] = std::make_unique<Buffer>(
           context, fmt::format("ubo #{}", i), sizeof(GlobalUbo), 1,
           VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
@@ -161,6 +159,7 @@ void run() {
     entitySys::init(context, globalSetLayout->getDescriptorSetLayout());
     pointLightSys::init(context, globalSetLayout->getDescriptorSetLayout());
     axesSys::init(context, globalSetLayout->getDescriptorSetLayout());
+    particlesSys::init(context, globalSetLayout->getDescriptorSetLayout());
     freezeAnimationSys::init(context,
                              globalSetLayout->getDescriptorSetLayout());
 
@@ -227,7 +226,8 @@ void run() {
         entitySys::render(context);
         pointLightSys::render(context);
         axesSys::render(context);
-        freezeAnimationSys::render(context);
+        //freezeAnimationSys::render(context);
+        particlesSys::render(context);
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
       }
@@ -239,6 +239,7 @@ void run() {
     pointLightSys::cleanup(context);
     axesSys::cleanup(context);
     freezeAnimationSys::cleanup(context);
+    particlesSys::cleanup(context);
 
     context.entities.clear();
     context.pointLights.clear();

@@ -9,7 +9,6 @@
 #include <cassert>
 #include <stdexcept>
 
-#include "../entity.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
 

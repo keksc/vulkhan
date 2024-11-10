@@ -238,6 +238,7 @@ namespace vkh {
 		}
 
 		vkGetDeviceQueue(context.vulkan.device, indices.graphicsFamily, 0, &context.vulkan.graphicsQueue);
+    vkGetDeviceQueue(context.vulkan.device, indices.computeFamily, 0, &context.vulkan.computeQueue);
 		vkGetDeviceQueue(context.vulkan.device, indices.presentFamily, 0, &context.vulkan.presentQueue);
 	}
 	void createCommandPool(EngineContext& context) {
