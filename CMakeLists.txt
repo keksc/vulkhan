@@ -1,4 +1,4 @@
-﻿cmake_minimum_required (VERSION 3.8)
+﻿cmake_minimum_required (VERSION 3.10)
 
 if(WIN32)
 include("$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
@@ -40,6 +40,7 @@ find_program(GLSL_VALIDATOR glslangValidator HINTS
 file(GLOB_RECURSE GLSL_SOURCE_FILES
   "${PROJECT_SOURCE_DIR}/shaders/*.frag"
   "${PROJECT_SOURCE_DIR}/shaders/*.vert"
+  "${PROJECT_SOURCE_DIR}/shaders/*.comp"
 )
 
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/shaders")

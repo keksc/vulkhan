@@ -15,10 +15,12 @@ namespace vkh {
 	};
 	struct QueueFamilyIndices {
 		uint32_t graphicsFamily;
+    uint32_t computeFamily;
 		uint32_t presentFamily;
 		bool graphicsFamilyHasValue = false;
+    bool computeFamilyHasValue = false;
 		bool presentFamilyHasValue = false;
-		bool isComplete() { return graphicsFamilyHasValue && presentFamilyHasValue; }
+		bool isComplete() { return graphicsFamilyHasValue && presentFamilyHasValue && computeFamilyHasValue; }
 	};
 	SwapChainSupportDetails querySwapChainSupport(EngineContext& context, VkPhysicalDevice device);
 	inline SwapChainSupportDetails getSwapChainSupport(EngineContext& context) { return querySwapChainSupport(context, context.vulkan.physicalDevice); }
