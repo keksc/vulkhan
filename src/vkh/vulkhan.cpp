@@ -46,10 +46,10 @@ void loadObjects(EngineContext &context) {
       {.transform = {.position{.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
        .model = lveModel});
 
-  lveModel = Model::createModelFromFile(context, "floor", "models/quad.obj");
+  /*lveModel = Model::createModelFromFile(context, "floor", "models/quad.obj");
   context.entities.push_back(
       {.transform = {.position{0.f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
-       .model = lveModel});
+       .model = lveModel});*/
 
   std::vector<glm::vec3> lightColors{{1.f, .1f, .1f}, {.1f, .1f, 1.f},
                                      {.1f, 1.f, .1f}, {1.f, 1.f, .1f},
@@ -76,6 +76,10 @@ void loadObjects(EngineContext &context) {
                        .scale = {.5f, .5f, .5f}},
          .model = lveModel});
   }
+  lveModel = Model::createModelFromFile(context, "living room", "models/living-room.obj");
+  context.entities.push_back(
+      {.transform = {.position{0.f, GROUND_LEVEL, 1.f}},
+       .model = lveModel});
 }
 void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
   auto context =
