@@ -16,6 +16,11 @@ pkgs.mkShell {
     glm
     cmake
     glslang
+    openal
+    libmpg123
+    clang-tools
+    cmake-language-server
+    stb
   ];
 
   # Environment variables for Vulkan
