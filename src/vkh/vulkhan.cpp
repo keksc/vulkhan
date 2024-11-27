@@ -7,6 +7,8 @@
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/quaternion.hpp>
 
 #include "buffer.hpp"
 #include "camera.hpp"
@@ -22,6 +24,7 @@
 #include "systems/particles.hpp"
 #include "systems/physics.hpp"
 #include "systems/pointLight.hpp"
+#include "audio.hpp"
 
 #include <array>
 #include <cassert>
@@ -129,9 +132,10 @@ void cleanupVulkan(EngineContext &context) {
 void run() {
   EngineContext context{};
   context.entities.push_back(
-      {.transform = {.position = {0.f, GROUND_LEVEL, -2.5f}}});
+      {.transform = {.position = {0.f, GROUND_LEVEL, 0.f}}});
   initWindow(context);
   initVulkan(context);
+  initAudio(context);
   renderer::init(context);
   { // {} to handle call destructors of buffers before vulkah is cleaned up
     input::init(context);
@@ -197,8 +201,33 @@ void run() {
       context.camera.orientation = context.entities[0].transform.orientation;
       camera::calcViewYXZ(context);
 
+      const Transform& transform = context.entities[0].transform;
+      glm::vec3 forward = glm::rotate(transform.orientation, glm::vec3(0.0f, 0.0f, -1.0f)); // Forward vector
+
+      // Inverted Y-axis: Up vector is negative Y
+      glm::vec3 up = glm::rotate(transform.orientation, glm::vec3(0.0f, -1.0f, 0.0f));      // Up vector
+
+      // Convert to OpenAL format (6-element array)
+      ALfloat orientationAL[] = {
+        forward.x, forward.y, forward.z,  // Forward vector
+        up.x, up.y, up.z                 // Up vector
+      };
+
+      // Update listener orientation
+      alListenerfv(AL_ORIENTATION, orientationAL);
+
+      alListener3f(AL_POSITION, 
+        (ALfloat)transform.position.x,
+        (ALfloat)transform.position.y,
+        (ALfloat)transform.position.z);
+      alListener3f(AL_VELOCITY, 0.0f, 0.0f, 0.0f);
+      alSource3f(context.audio.sourceID, AL_POSITION, 0.0f, 0.0f, 2.0f);
+      alSource3f(context.audio.sourceID, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
+      alSourcef(context.audio.sourceID, AL_GAIN, 1.0f);
+
+
       float aspect =
-          renderer::getAspectRatio(context); // TODO: recreate the swapchain
+          renderer::getAspectRatio(context);
       camera::calcPerspectiveProjection(context, glm::radians(50.f), aspect,
                                         0.1f, 100.f);
 
@@ -252,5 +281,6 @@ void run() {
   renderer::cleanup(context);
   cleanupVulkan(context);
   cleanupWindow(context);
+  cleanupAudio(context);
 }
 } // namespace vkh
