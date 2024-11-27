@@ -7,6 +7,9 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <AL/al.h>
+#include <AL/alc.h>
+#include <mpg123.h>
 
 #include <vector>
 #include <memory>
@@ -34,6 +37,12 @@ const float GROUND_LEVEL = .5f;
 
 class SwapChain;
 struct EngineContext {
+  struct {
+    ALCdevice* device;
+    ALCcontext* context;
+    ALuint sourceID;
+    ALuint bufferID;
+  } audio;
   struct {
     int width = 800;
     int height = 600;

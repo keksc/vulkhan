@@ -117,10 +117,6 @@ namespace vkh {
 			populateDebugMessengerCreateInfo(debugCreateInfo);
 			createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*)&debugCreateInfo;
 		}
-		else {
-			createInfo.enabledLayerCount = 0;
-			createInfo.pNext = nullptr;
-		}
 
 		if (vkCreateInstance(&createInfo, nullptr, &context.vulkan.instance) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create instance!");
@@ -228,9 +224,6 @@ namespace vkh {
 		if (context.vulkan.enableValidationLayers) {
 			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
 			createInfo.ppEnabledLayerNames = validationLayers.data();
-		}
-		else {
-			createInfo.enabledLayerCount = 0;
 		}
 
 		if (vkCreateDevice(context.vulkan.physicalDevice, &createInfo, nullptr, &context.vulkan.device) != VK_SUCCESS) {

@@ -8,4 +8,5 @@ namespace vkh {
 	void pickPhysicalDevice(EngineContext& context);
 	void createLogicalDevice(EngineContext& context);
 	void createCommandPool(EngineContext& context);
+  void initVulkan(EngineContext& context);
 }
