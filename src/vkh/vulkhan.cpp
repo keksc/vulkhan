@@ -135,7 +135,7 @@ void run() {
       {.transform = {.position = {0.f, GROUND_LEVEL, 0.f}}});
   initWindow(context);
   initVulkan(context);
-  initAudio(context);
+  //initAudio(context);
   renderer::init(context);
   { // {} to handle call destructors of buffers before vulkah is cleaned up
     input::init(context);
@@ -281,6 +281,6 @@ void run() {
   renderer::cleanup(context);
   cleanupVulkan(context);
   cleanupWindow(context);
-  cleanupAudio(context);
+  //cleanupAudio(context);
 }
 } // namespace vkh
