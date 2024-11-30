@@ -4,15 +4,15 @@
 #include <GLFW/glfw3.h>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <AL/al.h>
+#include <AL/alc.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
-#include <AL/al.h>
-#include <AL/alc.h>
-#include <mpg123.h>
+#include "AudioFile.h"
 
-#include <vector>
 #include <memory>
+#include <vector>
 
 namespace vkh {
 struct Entity;
@@ -35,14 +35,10 @@ struct GlobalUbo {
 
 const float GROUND_LEVEL = .5f;
 
+const int NUM_BUFFERS = 2;
+
 class SwapChain;
 struct EngineContext {
-  struct {
-    ALCdevice* device;
-    ALCcontext* context;
-    ALuint sourceID;
-    ALuint bufferID;
-  } audio;
   struct {
     int width = 800;
     int height = 600;
@@ -51,7 +47,7 @@ struct EngineContext {
     VkExtent2D getExtent() {
       return {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
     };
-    float aspectRatio = static_cast<float>(width)/height;
+    float aspectRatio = static_cast<float>(width) / height;
     operator GLFWwindow *() { return glfwWindow; };
     GLFWwindow *glfwWindow;
   } window;
