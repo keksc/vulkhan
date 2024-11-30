@@ -17,7 +17,6 @@ pkgs.mkShell {
     cmake
     glslang
     openal
-    libmpg123
     clang-tools
     cmake-language-server
     stb

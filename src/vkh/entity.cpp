@@ -30,10 +30,29 @@ glm::mat4 Transform::mat4() {
           0.0f,
       },
       {position.x, position.y, position.z, 1.0f} };*/
-  glm::mat4 rotationMatrix = glm::mat4(orientation);
+  /*glm::mat4 rotationMatrix = glm::mat4(orientation);
   glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.f), scale);
   glm::mat4 translationMatrix = glm::translate(glm::mat4(1.f), position);
-  return translationMatrix * rotationMatrix * scaleMatrix;
+  return translationMatrix * rotationMatrix * scaleMatrix;*/
+  glm::quat q = glm::normalize(orientation);
+
+  // Rotation columns using quaternion
+  glm::vec3 right = q * glm::vec3(1.0f, 0.0f, 0.0f);   // X-axis rotation
+  glm::vec3 up = q * glm::vec3(0.0f, 1.0f, 0.0f);      // Y-axis rotation
+  glm::vec3 forward = q * glm::vec3(0.0f, 0.0f, 1.0f); // Z-axis rotation
+
+  // Apply scaling to the rotation
+  right *= scale.x;
+  up *= scale.y;
+  forward *= scale.z;
+
+  // Construct the transformation matrix manually
+  glm::mat4 transform(1.0f);
+  transform[0] = glm::vec4(right, 0.0f);
+  transform[1] = glm::vec4(up, 0.0f);
+  transform[2] = glm::vec4(forward, 0.0f);
+  transform[3] = glm::vec4(position, 1.0f);
+  return transform;
 }
 
 glm::mat3 Transform::normalMatrix() {
@@ -63,9 +82,9 @@ glm::mat3 Transform::normalMatrix() {
       },
   };*/
   glm::mat3 rotationMatrix = glm::mat3(orientation);
-  glm::mat3 scaleMatrix = glm::mat3(1.0f / scale.x, 0.0f, 0.0f,
-                                      0.0f, 1.0f / scale.y, 0.0f,
-                                      0.0f, 0.0f, 1.0f / scale.z);
+  glm::mat3 scaleMatrix =
+      glm::mat3(1.0f / scale.x, 0.0f, 0.0f, 0.0f, 1.0f / scale.y, 0.0f, 0.0f,
+                0.0f, 1.0f / scale.z);
   return rotationMatrix * scaleMatrix;
 }
 } // namespace vkh
