@@ -1,100 +1,87 @@
 #include "audio.hpp"
+#include <stdexcept>
 
+#include "AudioFile.h"
 #include <AL/al.h>
 #include <AL/alc.h>
-#include <mpg123.h>
-#include <fmt/format.h>
+#include <cmath>
 
 namespace vkh {
-void checkOpenALError(const std::string &message) {
-  ALenum error = alGetError();
-  if (error != AL_NO_ERROR) {
-    fmt::print("OpenAL Error in {}: {}\n", message, alGetString(error));
+ALCdevice *device = nullptr;
+ALCcontext *context = nullptr;
+ALuint source = 0;
+ALuint buffer = 0;
+std::vector<short> data;
+ALsizei dataSize = 0;
+ALenum format = 0;
+ALsizei sampleRate = 0;
+
+std::vector<short> convertTo16Bit(const AudioFile<float> &audioFile) {
+  std::vector<short> result;
+  const auto &samples = audioFile.samples[0];
+  for (float sample : samples) {
+    result.push_back(static_cast<short>(sample * 32767.0f));
   }
+  return result;
 }
-void initAudio(EngineContext &context) {
-  // Initialize OpenAL
-  context.audio.device = alcOpenDevice(nullptr);
-  if (!context.audio.device) {
-    checkOpenALError("device creation");
+void initAudio() {
+  device = alcOpenDevice(nullptr);
+  if (!device) {
+    throw std::runtime_error("Failed to open OpenAL device.");
   }
 
-  context.audio.context = alcCreateContext(context.audio.device, nullptr);
-  if (!context.audio.context || !alcMakeContextCurrent(context.audio.context)) {
+  context = alcCreateContext(device, nullptr);
+  if (!context || !alcMakeContextCurrent(context)) {
+    throw std::runtime_error("Failed to create or set OpenAL context.");
   }
 
-  // Initialize MPG123
-  mpg123_init();
-  mpg123_handle *mh = mpg123_new(nullptr, nullptr);
-  if (!mh) {
+  alGenSources(1, &source);
+  alGenBuffers(1, &buffer);
+  if (alGetError() != AL_NO_ERROR) {
+    throw std::runtime_error("Error generating OpenAL source or buffer.");
   }
 
-  // Open the MP3 file
-  const char *filename = "sounds/The Yandere's Puppet Show.mp3";
-  if (mpg123_open(mh, filename) != MPG123_OK) {
-    mpg123_delete(mh);
-    mpg123_exit();
+  AudioFile<float> audioFile;
+  if (!audioFile.load("sounds/the-yanderes-puppet-show.wav")) {
+    throw std::runtime_error("Failed to load WAV file.");
   }
 
-  // Get MP3 format information
-  long rate;
-  int channels, encoding;
-  if (mpg123_getformat(mh, &rate, &channels, &encoding) != MPG123_OK) {
-    mpg123_close(mh);
-    mpg123_delete(mh);
-    mpg123_exit();
-  }
+  sampleRate = static_cast<ALsizei>(audioFile.getSampleRate());
+  format = AL_FORMAT_MONO16;
+  data = convertTo16Bit(audioFile);
+  dataSize = static_cast<ALsizei>(data.size() * sizeof(short));
 
-  // Determine OpenAL format
-  ALenum format = (channels == 1) ? AL_FORMAT_MONO16 : AL_FORMAT_STEREO16;
+  alBufferData(buffer, format, data.data(), dataSize, sampleRate);
+  alSourcei(source, AL_BUFFER, buffer);
 
-  // Read and decode the MP3 data
-  std::vector<unsigned char> audioData;
-  unsigned char buffer[4096];
-  size_t bytesRead;
-  while (mpg123_read(mh, buffer, sizeof(buffer), &bytesRead) == MPG123_OK) {
-    audioData.insert(audioData.end(), buffer, buffer + bytesRead);
-  }
+  alSourcef(source, AL_ROLLOFF_FACTOR, 1.0f);
+  alSourcef(source, AL_REFERENCE_DISTANCE, 1.0f);
+  alSourcef(source, AL_MAX_DISTANCE, 10.0f);
+  alSource3f(source, AL_POSITION, 0.0f, 0.0f, -2.0f);
+  alSource3f(source, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
 
-  // Cleanup MPG123
-  mpg123_close(mh);
-  mpg123_delete(mh);
-  mpg123_exit();
-
-  // Create OpenAL buffer
-  alGenBuffers(1, &context.audio.bufferID);
-  // checkOpenALError("alGenBuffers");
-
-  alBufferData(context.audio.bufferID, format, audioData.data(),
-               audioData.size(), rate);
-  // checkOpenALError("alBufferData");
-
-  // Create OpenAL source
-  alGenSources(1, &context.audio.sourceID);
-  // checkOpenALError("alGenSources");
-
-  alSourcei(context.audio.sourceID, AL_BUFFER, context.audio.bufferID);
-  // checkOpenALError("alSourcei");
-
-  // Set source position (invert Y-axis)
-  alSource3f(context.audio.sourceID, AL_POSITION, 0.0f, -1.0f, 0.0f);
-  alSource3f(context.audio.sourceID, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
-  alSourcef(context.audio.sourceID, AL_GAIN, 1.0f);
-
-  // Set listener position with inverted Y-axis
-  alListener3f(AL_POSITION, 0.0f, -5.0f, 0.0f);
-  alListener3f(AL_VELOCITY, 0.0f, 0.0f, 0.0f);
-  ALfloat orientation[] = {0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f};
-  alListenerfv(AL_ORIENTATION, orientation);
-
-  // Play the source
-  alSourcePlay(context.audio.sourceID);
+  alSourcePlay(source);
 }
-void cleanupAudio(EngineContext &context) {
-  alDeleteSources(1, &context.audio.sourceID);
-  alDeleteBuffers(1, &context.audio.bufferID);
+
+void updateAudio(float elapsedTime) {
+  //float speed = 1.0f;
+  //float radius = 2.0f;
+  //float angle = speed * elapsedTime;
+
+  //float x = radius * cos(angle);
+  //float z = radius * sin(angle);
+
+  //alSource3f(source, AL_POSITION, x, 0.0f, z);
+}
+
+void cleanupAudio() {
+  alSourceStop(source);
+  alDeleteSources(1, &source);
+  alDeleteBuffers(1, &buffer);
   alcMakeContextCurrent(nullptr);
-  alcDestroyContext(context.audio.context);
-  alcCloseDevice(context.audio.device);
+  if (context)
+    alcDestroyContext(context);
+  if (device)
+    alcCloseDevice(device);
 }
 } // namespace vkh

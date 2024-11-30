@@ -5,6 +5,7 @@
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <cassert>
 #include <stdexcept>

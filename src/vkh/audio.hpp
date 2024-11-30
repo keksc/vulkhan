@@ -2,7 +2,10 @@
 
 #include "engineContext.hpp"
 
+#include "AudioFile.h"
+
 namespace vkh {
-  void initAudio(EngineContext& context);
-  void cleanupAudio(EngineContext& context);
-}
+void initAudio();
+void cleanupAudio();
+void updateAudio(float elapsedTime);
+} // namespace vkh
