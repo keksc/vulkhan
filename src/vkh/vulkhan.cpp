@@ -8,8 +8,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
+#include <al.h>
 #include <glm/gtx/quaternion.hpp>
 
+#include "audio.hpp"
 #include "buffer.hpp"
 #include "camera.hpp"
 #include "descriptors.hpp"
@@ -24,7 +26,6 @@
 #include "systems/particles.hpp"
 #include "systems/physics.hpp"
 #include "systems/pointLight.hpp"
-#include "audio.hpp"
 
 #include <array>
 #include <cassert>
@@ -70,7 +71,10 @@ void loadObjects(EngineContext &context) {
                        .scale{0.1f, 1.f, 1.f}}});
   }
   lveModel = Model::createModelFromFile(context, "cube", "models/cube.obj");
-  for (int i = 0; i < 30; i++) {
+  context.entities.push_back(
+      {.transform = {.position = {5.f, -.5f, 0.f}, .scale = {.5f, .5f, .5f}},
+       .model = lveModel});
+  /*for (int i = 0; i < 30; i++) {
     std::random_device rd;  // Seed generator
     std::mt19937 gen(rd()); // Mersenne Twister engine
     std::uniform_int_distribution<> dist(0.f, 9.f);
@@ -78,11 +82,11 @@ void loadObjects(EngineContext &context) {
         {.transform = {.position = {2.f + dist(gen), -1.f, 2.f + dist(gen)},
                        .scale = {.5f, .5f, .5f}},
          .model = lveModel});
-  }
-  lveModel = Model::createModelFromFile(context, "living room", "models/living-room.obj");
+  }*/
+  lveModel = Model::createModelFromFile(context, "living room",
+                                        "models/living-room.obj");
   context.entities.push_back(
-      {.transform = {.position{0.f, GROUND_LEVEL, 1.f}},
-       .model = lveModel});
+      {.transform = {.position{0.f, GROUND_LEVEL, 1.f}}, .model = lveModel});
 }
 void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
   auto context =
@@ -135,7 +139,7 @@ void run() {
       {.transform = {.position = {0.f, GROUND_LEVEL, 0.f}}});
   initWindow(context);
   initVulkan(context);
-  //initAudio(context);
+  initAudio();
   renderer::init(context);
   { // {} to handle call destructors of buffers before vulkah is cleaned up
     input::init(context);
@@ -201,33 +205,23 @@ void run() {
       context.camera.orientation = context.entities[0].transform.orientation;
       camera::calcViewYXZ(context);
 
-      const Transform& transform = context.entities[0].transform;
-      glm::vec3 forward = glm::rotate(transform.orientation, glm::vec3(0.0f, 0.0f, -1.0f)); // Forward vector
+      const Transform &transform = context.entities[0].transform;
+      glm::vec3 forward =
+          glm::rotate(transform.orientation,
+                      glm::vec3(0.0f, 0.0f, -1.0f)); // Forward vector
 
-      // Inverted Y-axis: Up vector is negative Y
-      glm::vec3 up = glm::rotate(transform.orientation, glm::vec3(0.0f, -1.0f, 0.0f));      // Up vector
+      glm::vec3 up = glm::rotate(transform.orientation,
+                                 glm::vec3(0.0f, -1.0f, 0.0f)); // Up vector
+      glm::vec3 at = glm::rotate(transform.orientation,
+                                 glm::vec3(0.0f, 0.0f, -1.0f)); // Forward vector
 
-      // Convert to OpenAL format (6-element array)
-      ALfloat orientationAL[] = {
-        forward.x, forward.y, forward.z,  // Forward vector
-        up.x, up.y, up.z                 // Up vector
-      };
+      alListener3f(AL_POSITION, transform.position.x, transform.position.y,
+                   transform.position.z);
+      float orientationArray[6] = {at.x, at.y, at.z, up.x, up.y, up.z};
+      alListenerfv(AL_ORIENTATION, orientationArray);
+      updateAudio(glfwGetTime());
 
-      // Update listener orientation
-      alListenerfv(AL_ORIENTATION, orientationAL);
-
-      alListener3f(AL_POSITION, 
-        (ALfloat)transform.position.x,
-        (ALfloat)transform.position.y,
-        (ALfloat)transform.position.z);
-      alListener3f(AL_VELOCITY, 0.0f, 0.0f, 0.0f);
-      alSource3f(context.audio.sourceID, AL_POSITION, 0.0f, 0.0f, 2.0f);
-      alSource3f(context.audio.sourceID, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
-      alSourcef(context.audio.sourceID, AL_GAIN, 1.0f);
-
-
-      float aspect =
-          renderer::getAspectRatio(context);
+      float aspect = renderer::getAspectRatio(context);
       camera::calcPerspectiveProjection(context, glm::radians(50.f), aspect,
                                         0.1f, 100.f);
 
@@ -259,7 +253,7 @@ void run() {
         entitySys::render(context);
         pointLightSys::render(context);
         axesSys::render(context);
-        //freezeAnimationSys::render(context);
+        // freezeAnimationSys::render(context);
         particlesSys::render(context);
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
@@ -281,6 +275,6 @@ void run() {
   renderer::cleanup(context);
   cleanupVulkan(context);
   cleanupWindow(context);
-  //cleanupAudio(context);
+  cleanupAudio();
 }
 } // namespace vkh

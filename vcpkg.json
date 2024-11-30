@@ -4,6 +4,7 @@
     "glfw3",
     "glm",
     "tinyobjloader",
-    "stb"
+    "stb",
+    "openal-soft"
   ]
 }
