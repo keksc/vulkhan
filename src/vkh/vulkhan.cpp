@@ -8,8 +8,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
-#include <al.h>
 #include <glm/gtx/quaternion.hpp>
+#include <AL/al.h>
 
 #include "audio.hpp"
 #include "buffer.hpp"
@@ -26,6 +26,7 @@
 #include "systems/particles.hpp"
 #include "systems/physics.hpp"
 #include "systems/pointLight.hpp"
+#include "systems/water.hpp"
 
 #include <array>
 #include <cassert>
@@ -84,7 +85,7 @@ void loadObjects(EngineContext &context) {
          .model = lveModel});
   }*/
   lveModel = Model::createModelFromFile(context, "living room",
-                                        "models/living-room.obj");
+                                        "models/mainRoom.obj");
   context.entities.push_back(
       {.transform = {.position{0.f, GROUND_LEVEL, 1.f}}, .model = lveModel});
 }
@@ -174,6 +175,7 @@ void run() {
     particlesSys::init(context, globalSetLayout->getDescriptorSetLayout());
     freezeAnimationSys::init(context,
                              globalSetLayout->getDescriptorSetLayout());
+    waterSys::init(context, globalSetLayout->getDescriptorSetLayout());
 
     loadObjects(context);
 
@@ -253,6 +255,7 @@ void run() {
         axesSys::render(context);
         // freezeAnimationSys::render(context);
         particlesSys::render(context);
+        waterSys::render(context);
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
       }
@@ -265,6 +268,7 @@ void run() {
     axesSys::cleanup(context);
     freezeAnimationSys::cleanup(context);
     particlesSys::cleanup(context);
+    waterSys::cleanup(context);
 
     context.entities.clear();
     context.pointLights.clear();
