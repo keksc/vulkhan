@@ -57,7 +57,7 @@ void initAudio() {
   alSourcef(source, AL_ROLLOFF_FACTOR, 1.0f);
   alSourcef(source, AL_REFERENCE_DISTANCE, 1.0f);
   alSourcef(source, AL_MAX_DISTANCE, 10.0f);
-  alSource3f(source, AL_POSITION, 0.0f, 0.0f, -2.0f);
+  alSource3f(source, AL_POSITION, 5.f, .5f, 0.f);
   alSource3f(source, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
 
   alSourcePlay(source);

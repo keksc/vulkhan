@@ -12,7 +12,7 @@
 
 namespace vkh {
 namespace input {
-float moveSpeed{3.f};
+float moveSpeed{5.f};
 float lookSpeed{1.5f};
 void key_callback(GLFWwindow *window, int key, int scancode, int action,
                   int mods) {
@@ -40,7 +40,7 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action,
     return;
   }
   if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-      glfwSetWindowShouldClose(context->window, GLFW_TRUE);
+    glfwSetWindowShouldClose(context->window, GLFW_TRUE);
   }
   if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
     Entity &player = context->entities[0];
@@ -71,8 +71,10 @@ void init(EngineContext &context) {
 
 void moveInPlaneXZ(EngineContext &context) {
   Entity &player = context.entities[0];
-  glm::mat3 rotationMatrix = glm::mat3(player.transform.orientation);//glm::eulerAngles(player.transform.orientation);
-  glm::vec3 rotation = glm::vec3{-mousePos.y, mousePos.x, 0.f} * 0.0007f;
+  glm::mat3 rotationMatrix = glm::mat3(
+      player.transform
+          .orientation); // glm::eulerAngles(player.transform.orientation);
+  glm::vec3 rotation = glm::vec3{-mousePos.y, mousePos.x, 0.f} * 0.001f;
 
   if (scroll) {
     player.transform.position.y -= scroll * 0.02;
@@ -82,7 +84,7 @@ void moveInPlaneXZ(EngineContext &context) {
   rotation.y = glm::mod(rotation.y, glm::two_pi<float>());
   rotation.x = glm::clamp(rotation.x, -1.5f, 1.5f);
 
-  //player.transform.orientation = glm::quat(rotation);
+  // player.transform.orientation = glm::quat(rotation);
   float yaw = rotation.y;
   const glm::vec3 forwardDir{sin(yaw), 0.f, cos(yaw)};
   const glm::vec3 rightDir{forwardDir.z, 0.f, -forwardDir.x};
@@ -103,8 +105,9 @@ void moveInPlaneXZ(EngineContext &context) {
     moveDir -= upDir;
 
   if (glm::dot(moveDir, moveDir) > std::numeric_limits<float>::epsilon()) {
+    float sprint = glfwGetKey(context.window, GLFW_KEY_LEFT_SHIFT) ? 4.0 : 1.0;
     player.transform.position +=
-        moveSpeed * context.frameInfo.dt * glm::normalize(moveDir);
+        sprint * moveSpeed * context.frameInfo.dt * glm::normalize(moveDir);
   }
   glm::quat rotationQuat = glm::quat(rotation);
   player.transform.orientation = rotationQuat;
