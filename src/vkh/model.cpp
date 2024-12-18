@@ -1,6 +1,7 @@
 #include "model.hpp"
 
 #include "utils.hpp"
+#include <fmt/core.h>
 
 // libs
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -30,7 +31,7 @@ template <> struct hash<vkh::Model::Vertex> {
 namespace vkh {
 
 Model::Model(EngineContext &context, std::string name,
-                   const Model::Builder &builder)
+             const Model::Builder &builder)
     : context{context}, name{name} {
   createVertexBuffers(builder.vertices);
   createIndexBuffers(builder.indices);
@@ -38,9 +39,9 @@ Model::Model(EngineContext &context, std::string name,
 
 Model::~Model() {}
 
-std::unique_ptr<Model>
-Model::createModelFromFile(EngineContext &context, std::string name,
-                              const std::string &filepath) {
+std::unique_ptr<Model> Model::createModelFromFile(EngineContext &context,
+                                                  std::string name,
+                                                  const std::string &filepath) {
   Builder builder{};
   builder.loadModel(filepath);
   return std::make_unique<Model>(context, name, builder);
@@ -204,5 +205,9 @@ void Model::Builder::loadModel(const std::string &filepath) {
     }
   }
 }
-
+void Model::Builder::loadFromVertices(std::vector<Vertex> &inputVertices) {
+  vertices.clear();
+  indices.clear();
+  vertices = inputVertices;
+}
 } // namespace vkh
