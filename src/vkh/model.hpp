@@ -36,10 +36,11 @@ public:
     std::vector<uint32_t> indices{};
 
     void loadModel(const std::string &filepath);
+    void loadFromVertices(std::vector<Vertex> &vertices);
   };
 
   Model(EngineContext &context, std::string name,
-           const Model::Builder &builder);
+        const Model::Builder &builder);
   ~Model();
 
   Model(const Model &) = delete;
@@ -53,6 +54,7 @@ public:
   void draw(VkCommandBuffer commandBuffer);
 
   std::string name;
+
 private:
   void createVertexBuffers(const std::vector<Vertex> &vertices);
   void createIndexBuffers(const std::vector<uint32_t> &indices);

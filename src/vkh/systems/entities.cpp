@@ -1,4 +1,6 @@
 #include "entities.hpp"
+#include <vector>
+#include <vulkan/vulkan_core.h>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -8,9 +10,11 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <cassert>
+
 #include <stdexcept>
 
 #include "../entity.hpp"
+#include "../model.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
 
