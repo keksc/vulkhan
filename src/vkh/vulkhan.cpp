@@ -42,23 +42,23 @@
 
 namespace vkh {
 void loadObjects(EngineContext &context) {
-  /*std::shared_ptr<Model> lveModel;
-  lveModel =
+  std::shared_ptr<Model> model;
+  model =
       Model::createModelFromFile(context, "flat vase", "models/flat_vase.obj");
   context.entities.push_back({.transform = {.position{-.5f, GROUND_LEVEL, 0.f},
                                             .scale{3.f, 1.5f, 3.f}},
-                              .model = lveModel});
+                              .model = model});
 
-  lveModel = Model::createModelFromFile(context, "smooth vase",
+  model = Model::createModelFromFile(context, "smooth vase",
                                         "models/smooth_vase.obj");
   context.entities.push_back(
       {.transform = {.position{.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
-       .model = lveModel});*/
+       .model = model});
 
-  /*lveModel = Model::createModelFromFile(context, "floor", "models/quad.obj");
+  /*model = Model::createModelFromFile(context, "floor", "models/quad.obj");
   context.entities.push_back(
       {.transform = {.position{0.f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
-       .model = lveModel});*/
+       .model = model});*/
 
   /*std::vector<glm::vec3> lightColors{{1.f, .1f, .1f}, {.1f, .1f, 1.f},
                                      {.1f, 1.f, .1f}, {1.f, 1.f, .1f},
@@ -75,10 +75,10 @@ void loadObjects(EngineContext &context) {
                                              glm::vec4(-1.f, -1.f, -1.f, 1.f)),
                        .scale{0.1f, 1.f, 1.f}}});
   }
-  lveModel = Model::createModelFromFile(context, "cube", "models/cube.obj");
+  model = Model::createModelFromFile(context, "cube", "models/cube.obj");
   context.entities.push_back(
       {.transform = {.position = {5.f, -.5f, 0.f}, .scale = {.5f, .5f, .5f}},
-       .model = lveModel});*/
+       .model = model});*/
   /*for (int i = 0; i < 30; i++) {
     std::random_device rd;  // Seed generator
     std::mt19937 gen(rd()); // Mersenne Twister engine
@@ -86,13 +86,13 @@ void loadObjects(EngineContext &context) {
     context.entities.push_back(
         {.transform = {.position = {2.f + dist(gen), -1.f, 2.f + dist(gen)},
                        .scale = {.5f, .5f, .5f}},
-         .model = lveModel});
+         .model = model});
   }*/
-  /*lveModel =
+  model =
       Model::createModelFromFile(context, "living room", "models/mainRoom.obj");
   context.entities.push_back(
-      {.transform = {.position{0.f, GROUND_LEVEL, 1.f}}, .model = lveModel});*/
-  Model::Builder builder;
+      {.transform = {.position = {0.f, GROUND_LEVEL, 1.f}}, .model = model});
+  /*Model::Builder builder;
   builder.vertices.push_back({{-0.5f, -0.5f, 0.f},
                               {1.0f, 0.0f, 0.0f},
                               {0.0f, 0.0f, 0.0f},
@@ -122,6 +122,10 @@ void loadObjects(EngineContext &context) {
   context.entities.push_back(
       {.transform = {.position = {0.f, GROUND_LEVEL - 2.f, 1.f}},
        .model = model});
+  std::shared_ptr<Model> model = Model::createModelFromFile(
+      context, "viking room", "models/viking_room.obj");
+  context.entities.push_back(
+      {.transform = {.position = {0.f, GROUND_LEVEL, 1.f}, .orientation = {0.0, {0.0, 0.0, 0.0}}}, .model = model});*/
 }
 void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
   auto context =
@@ -175,7 +179,7 @@ VkSampler textureSampler;
 
 void createTextureImage(EngineContext &context) {
   int texWidth, texHeight, texChannels;
-  stbi_uc *pixels = stbi_load("textures/texture.jpg", &texWidth, &texHeight,
+  stbi_uc *pixels = stbi_load("textures/viking_room.png", &texWidth, &texHeight,
                               &texChannels, STBI_rgb_alpha);
   VkDeviceSize imageSize = texWidth * texHeight * 4;
 
@@ -267,13 +271,12 @@ void run() {
   { // {} to handle call destructors of buffers before vulkah is cleaned up
     input::init(context);
 
-    std::unique_ptr<DescriptorPool> globalPool{};
 
     createTextureImage(context);
     createTextureImageView(context);
     createTextureSampler(context);
 
-    globalPool = DescriptorPool::Builder(context)
+    std::unique_ptr<DescriptorPool> globalPool = DescriptorPool::Builder(context)
                      .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT)
                      .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                                   SwapChain::MAX_FRAMES_IN_FLIGHT)
