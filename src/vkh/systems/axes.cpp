@@ -11,15 +11,15 @@
 
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
+#include "../descriptors.hpp"
 
 namespace vkh {
 namespace axesSys {
 std::unique_ptr<Pipeline> pipeline;
 VkPipelineLayout pipelineLayout;
 
-void createPipelineLayout(EngineContext &context,
-                          VkDescriptorSetLayout globalSetLayout) {
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{globalSetLayout};
+void createPipelineLayout(EngineContext &context) {
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout()};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -46,8 +46,8 @@ void createPipeline(EngineContext &context) {
       context, "axes system", "shaders/axes.vert.spv", "shaders/axes.frag.spv",
       pipelineConfig);
 }
-void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
-  createPipelineLayout(context, globalSetLayout);
+void init(EngineContext &context) {
+  createPipelineLayout(context);
   createPipeline(context);
 }
 

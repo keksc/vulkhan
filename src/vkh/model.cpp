@@ -1,20 +1,16 @@
 #include "model.hpp"
 
 #include "utils.hpp"
-#include <fmt/core.h>
-#include <sys/types.h>
-#include <vulkan/vulkan_core.h>
 
-// libs
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <fmt/format.h>
 #include <glm/gtx/hash.hpp>
 
+#include "descriptors.hpp"
 #include "deviceHelpers.hpp"
 
-// std
 #include <cassert>
 #include <cstring>
 #include <unordered_map>
@@ -122,8 +118,10 @@ void Model::bind(EngineContext &context, VkCommandBuffer commandBuffer,
     VkDescriptorSet descriptorSets[] = {context.frameInfo.globalDescriptorSet,
                                         textureDescriptorSet};
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipelineLayout, 0, 1, descriptorSets, 0, nullptr);
-  }
+                            pipelineLayout, 0, 2, descriptorSets, 0, nullptr);
+  } else 
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipelineLayout, 0, 1, &context.frameInfo.globalDescriptorSet, 0, nullptr);
 }
 
 std::vector<VkVertexInputBindingDescription>
@@ -208,19 +206,28 @@ void Model::loadModel(const std::string &filepath) {
   createIndexBuffers(indices);
   createVertexBuffers(vertices);
 }
+void Model::createDescriptors() {
+  VkDescriptorImageInfo imageInfo{};
+  imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imageInfo.imageView = textureImageView;
+  imageInfo.sampler = textureSampler;
+  DescriptorWriter(*context.vulkan.modelDescriptorSetLayout, *context.vulkan.globalPool)
+      .writeImage(0, &imageInfo)
+      .build(textureDescriptorSet);
+}
 Model::Model(EngineContext &context, const std::string &name,
              const std::string &filepath)
-    : context{context} {
+    : context{context}, name{name} {
   loadModel(filepath);
 }
 Model::Model(EngineContext &context, const std::string &name,
              const std::string &filepath, const std::string &texturepath)
-    : context{context}, hasTexture{true} {
+    : context{context}, hasTexture{true}, name{name} {
   loadModel(filepath);
-  textureImage =
-      createTextureImage(context, textureImageMemory, texturepath.c_str());
+  textureImage = createTextureImage(context, textureImageMemory, texturepath);
   textureImageView =
       createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
   textureSampler = createTextureSampler(context);
+  createDescriptors();
 }
 } // namespace vkh

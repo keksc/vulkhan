@@ -4,7 +4,7 @@
 
 namespace vkh {
 	namespace waterSys {
-		void init(EngineContext& context, VkDescriptorSetLayout globalSetLayout);
+		void init(EngineContext& context);
 		void cleanup(EngineContext& context);
 
 		void render(EngineContext& context);
