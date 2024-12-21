@@ -41,10 +41,8 @@ public:
   Model(const Model &) = delete;
   Model &operator=(const Model &) = delete;
 
-  Model(Model &&other) noexcept;
-  Model &operator=(Model &&other) noexcept;
-
-  void bind(VkCommandBuffer commandBuffer);
+  void bind(EngineContext &context, VkCommandBuffer commandBuffer,
+            VkPipelineLayout pipelineLayout);
   void draw(VkCommandBuffer commandBuffer);
 
   std::string name;
@@ -67,5 +65,6 @@ private:
   VkDeviceMemory textureImageMemory;
   VkImageView textureImageView;
   VkSampler textureSampler;
+  VkDescriptorSet textureDescriptorSet;
 };
 } // namespace vkh

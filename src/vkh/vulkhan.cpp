@@ -44,15 +44,16 @@
 namespace vkh {
 void loadObjects(EngineContext &context) {
   context.entities.push_back(
-      {.transform = {.position{-.5f, GROUND_LEVEL, 0.f},
-                     .scale{3.f, 1.5f, 3.f}},
-       .model = std::make_optional<Model>(context, "flat vase",
-                                          "models/flat_vase.obj")});
+      {context,
+       {.position{-.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
+       "flat vase",
+       "models/flat_vase.obj"});
 
   context.entities.push_back(
-      {.transform = {.position{.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
-       .model = std::make_optional<Model>(context, "flat vase",
-                                          "models/smooth_vase.obj")});
+      {context,
+       {.position{.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
+       "flat vase",
+       "models/smooth_vase.obj"});
 
   /*model = Model::createModelFromFile(context, "floor", "models/quad.obj");
   context.entities.push_back(
@@ -87,15 +88,16 @@ void loadObjects(EngineContext &context) {
                        .scale = {.5f, .5f, .5f}},
          .model = model});
   }*/
-  context.entities.push_back(
-      {.transform = {.position = {0.f, GROUND_LEVEL, 1.f}},
-       .model = std::make_optional<Model>(context, "living room",
-                                          "models/mainRoom.obj")});
-  context.entities.push_back(
-      {.transform = {.position = {0.f, GROUND_LEVEL - 1.f, 1.f},
-                     .orientation = {0.0, {0.0, 0.0, 0.0}}},
-       .model = std::make_optional<Model>(context, "viking room",
-                                          "models/viking_room.obj")});
+  context.entities.push_back({context,
+                              {.position = {0.f, GROUND_LEVEL, 1.f}},
+                              "living room",
+                              "models/mainRoom.obj"});
+  context.entities.push_back({context,
+                              {.position = {0.f, GROUND_LEVEL - 1.f, 1.f},
+                               .orientation = {0.0, {0.0, 0.0, 0.0}}},
+                              "viking room",
+                              "models/viking_room.obj",
+                              "textures/viking_room.png"});
   /*Model::Builder builder;
   builder.vertices.push_back({{-0.5f, -0.5f, 0.f},
                               {1.0f, 0.0f, 0.0f},
@@ -135,7 +137,7 @@ VkSampler textureSampler;
 void run() {
   EngineContext context{};
   context.entities.push_back(
-      {.transform = {.position = {0.f, GROUND_LEVEL, 0.f}}});
+      {context, {.position = {0.f, GROUND_LEVEL, 0.f}}, "player"});
   initWindow(context);
   initVulkan(context);
   initAudio();
@@ -283,13 +285,13 @@ void run() {
     particlesSys::cleanup(context);
     waterSys::cleanup(context);
 
-    context.entities.clear();
-    context.pointLights.clear();
-
     vkDestroySampler(context.vulkan.device, textureSampler, nullptr);
     vkDestroyImageView(context.vulkan.device, textureImageView, nullptr);
     vkDestroyImage(context.vulkan.device, textureImage, nullptr);
     vkFreeMemory(context.vulkan.device, textureImageMemory, nullptr);
+
+    context.entities.clear();
+    context.pointLights.clear();
   }
 
   renderer::cleanup(context);

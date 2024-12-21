@@ -7,7 +7,7 @@ namespace vkh {
 namespace physicsSys {
 void update(EngineContext &context) {
   for (auto &entity : context.entities) {
-    if (!entity.model.has_value())
+    if (entity.model == nullptr)
       continue;
     glm::vec3 force =
         entity.rigidBody.computeWeight() + glm::vec3{1.f, 0.f, 0.f};
