@@ -1,5 +1,6 @@
 #include "entity.hpp"
 #include <glm/ext/matrix_transform.hpp>
+#include <memory>
 
 namespace vkh {
 
@@ -87,4 +88,21 @@ glm::mat3 Transform::normalMatrix() {
                 0.0f, 1.0f / scale.z);
   return rotationMatrix * scaleMatrix;
 }
+Entity::Entity(EngineContext &context, Transform transform,
+               const std::string &name, RigidBody rigidBody)
+    : transform(transform), rigidBody(rigidBody) {}
+
+Entity::Entity(EngineContext &context, Transform transform,
+               const std::string &name, const std::string &modelFilepath,
+               RigidBody rigidBody)
+    : transform(transform), rigidBody(rigidBody),
+      model(std::make_unique<Model>(context, name, modelFilepath)) {}
+
+Entity::Entity(EngineContext &context, Transform transform,
+               const std::string &name, const std::string &modelFilepath,
+               const std::string &modelTextureFilepath, RigidBody rigidBody)
+    : transform(transform), rigidBody(rigidBody),
+      model(std::make_unique<Model>(context, name, modelFilepath,
+                                    modelTextureFilepath)) {}
+
 } // namespace vkh

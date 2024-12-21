@@ -3,6 +3,7 @@
 #include "utils.hpp"
 #include <fmt/core.h>
 #include <sys/types.h>
+#include <vulkan/vulkan_core.h>
 
 // libs
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -107,7 +108,8 @@ void Model::draw(VkCommandBuffer commandBuffer) {
     vkCmdDraw(commandBuffer, vertexCount, 1, 0, 0);
 }
 
-void Model::bind(VkCommandBuffer commandBuffer) {
+void Model::bind(EngineContext &context, VkCommandBuffer commandBuffer,
+                 VkPipelineLayout pipelineLayout) {
   VkBuffer buffers[] = {vertexBuffer->getBuffer()};
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(commandBuffer, 0, 1, buffers, offsets);
@@ -115,6 +117,12 @@ void Model::bind(VkCommandBuffer commandBuffer) {
   if (hasIndexBuffer) {
     vkCmdBindIndexBuffer(commandBuffer, indexBuffer->getBuffer(), 0,
                          VK_INDEX_TYPE_UINT32);
+  }
+  if (hasTexture) {
+    VkDescriptorSet descriptorSets[] = {context.frameInfo.globalDescriptorSet,
+                                        textureDescriptorSet};
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipelineLayout, 0, 1, descriptorSets, 0, nullptr);
   }
 }
 
@@ -210,41 +218,9 @@ Model::Model(EngineContext &context, const std::string &name,
     : context{context}, hasTexture{true} {
   loadModel(filepath);
   textureImage =
-      createTextureImage(context, textureImageMemory, filepath.c_str());
+      createTextureImage(context, textureImageMemory, texturepath.c_str());
   textureImageView =
       createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
   textureSampler = createTextureSampler(context);
 }
-Model::Model(Model &&other) noexcept
-    : context(other.context), name(std::move(other.name)),
-      vertexBuffer(std::move(other.vertexBuffer)),
-      vertexCount(other.vertexCount), hasIndexBuffer(other.hasIndexBuffer),
-      indexBuffer(std::move(other.indexBuffer)), indexCount(other.indexCount),
-      hasTexture(other.hasTexture) {
-  // Reset other's state
-  other.vertexCount = 0;
-  other.indexCount = 0;
-  other.hasIndexBuffer = false;
-  other.hasTexture = false;
-}
-
-Model &Model::operator=(Model &&other) noexcept {
-  if (this != &other) {
-    name = std::move(other.name);
-    vertexBuffer = std::move(other.vertexBuffer);
-    vertexCount = other.vertexCount;
-    hasIndexBuffer = other.hasIndexBuffer;
-    indexBuffer = std::move(other.indexBuffer);
-    indexCount = other.indexCount;
-    hasTexture = other.hasTexture;
-
-    // Reset other's state
-    other.vertexCount = 0;
-    other.indexCount = 0;
-    other.hasIndexBuffer = false;
-    other.hasTexture = false;
-  }
-  return *this;
-}
-
 } // namespace vkh
