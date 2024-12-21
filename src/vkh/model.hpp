@@ -51,6 +51,7 @@ private:
   void createVertexBuffers(const std::vector<Vertex> &vertices);
   void createIndexBuffers(const std::vector<uint32_t> &indices);
   void createDescriptors();
+  void createDefaultBlackTexture();
 
   EngineContext &context;
 
@@ -61,11 +62,11 @@ private:
   std::unique_ptr<Buffer> indexBuffer;
   uint32_t indexCount;
 
-  bool hasTexture = false;
   VkImage textureImage;
   VkDeviceMemory textureImageMemory;
   VkImageView textureImageView;
-  VkSampler textureSampler;
+  VkSampler textureSampler; // TODO: 1 global texture sampler should be enough
+                            // for the whole program, not 1 per model
   VkDescriptorSet textureDescriptorSet;
 };
 } // namespace vkh
