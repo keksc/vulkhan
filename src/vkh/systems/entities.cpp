@@ -78,7 +78,7 @@ void render(EngineContext &context) {
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   for (auto& entity : context.entities) {
-    if (!entity.model.has_value())
+    if (entity.model == nullptr)
       continue;
     auto &transform = entity.transform;
     auto& model = entity.model;
@@ -90,7 +90,7 @@ void render(EngineContext &context) {
                        VK_SHADER_STAGE_VERTEX_BIT |
                            VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(PushConstantData), &push);
-    model->bind(context.frameInfo.commandBuffer);
+    model->bind(context, context.frameInfo.commandBuffer, pipelineLayout);
     model->draw(context.frameInfo.commandBuffer);
   }
 }
