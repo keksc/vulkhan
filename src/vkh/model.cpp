@@ -1,6 +1,7 @@
 #include "model.hpp"
 
 #include "utils.hpp"
+#include <vulkan/vulkan_core.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
@@ -29,12 +30,10 @@ template <> struct hash<vkh::Model::Vertex> {
 namespace vkh {
 
 Model::~Model() {
-  if (hasTexture) {
-    vkDestroySampler(context.vulkan.device, textureSampler, nullptr);
-    vkDestroyImageView(context.vulkan.device, textureImageView, nullptr);
-    vkDestroyImage(context.vulkan.device, textureImage, nullptr);
-    vkFreeMemory(context.vulkan.device, textureImageMemory, nullptr);
-  }
+  vkDestroySampler(context.vulkan.device, textureSampler, nullptr);
+  vkDestroyImageView(context.vulkan.device, textureImageView, nullptr);
+  vkDestroyImage(context.vulkan.device, textureImage, nullptr);
+  vkFreeMemory(context.vulkan.device, textureImageMemory, nullptr);
 }
 
 void Model::createVertexBuffers(const std::vector<Vertex> &vertices) {
@@ -114,14 +113,10 @@ void Model::bind(EngineContext &context, VkCommandBuffer commandBuffer,
     vkCmdBindIndexBuffer(commandBuffer, indexBuffer->getBuffer(), 0,
                          VK_INDEX_TYPE_UINT32);
   }
-  if (hasTexture) {
-    VkDescriptorSet descriptorSets[] = {context.frameInfo.globalDescriptorSet,
-                                        textureDescriptorSet};
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipelineLayout, 0, 2, descriptorSets, 0, nullptr);
-  } else 
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipelineLayout, 0, 1, &context.frameInfo.globalDescriptorSet, 0, nullptr);
+  VkDescriptorSet descriptorSets[] = {context.frameInfo.globalDescriptorSet,
+                                      textureDescriptorSet};
+  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          pipelineLayout, 0, 2, descriptorSets, 0, nullptr);
 }
 
 std::vector<VkVertexInputBindingDescription>
@@ -211,18 +206,71 @@ void Model::createDescriptors() {
   imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   imageInfo.imageView = textureImageView;
   imageInfo.sampler = textureSampler;
-  DescriptorWriter(*context.vulkan.modelDescriptorSetLayout, *context.vulkan.globalPool)
+  DescriptorWriter(*context.vulkan.modelDescriptorSetLayout,
+                   *context.vulkan.globalPool)
       .writeImage(0, &imageInfo)
       .build(textureDescriptorSet);
+}
+void Model::createDefaultBlackTexture() {
+  uint32_t blackPixel = 0xff000000;
+  VkDeviceSize imageSize = sizeof(blackPixel);
+  VkBuffer stagingBuffer;
+  VkDeviceMemory stagingBufferMemory;
+  createBuffer(context, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+               stagingBuffer, stagingBufferMemory);
+
+  void *data;
+  vkMapMemory(context.vulkan.device, stagingBufferMemory, 0, imageSize, 0,
+              &data);
+  memcpy(data, &blackPixel, static_cast<size_t>(imageSize));
+  vkUnmapMemory(context.vulkan.device, stagingBufferMemory);
+
+  VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                              .imageType = VK_IMAGE_TYPE_2D,
+                              .format = VK_FORMAT_R8G8B8A8_SRGB,
+                              .mipLevels = 1,
+                              .arrayLayers = 1,
+                              .samples = VK_SAMPLE_COUNT_1_BIT,
+                              .tiling = VK_IMAGE_TILING_OPTIMAL,
+                              .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                       VK_IMAGE_USAGE_SAMPLED_BIT,
+                              .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                              .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
+  imageInfo.extent.width = 1;
+  imageInfo.extent.height = 1;
+  imageInfo.extent.depth = 1;
+
+  createImageWithInfo(context, imageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                      textureImage, textureImageMemory);
+
+  transitionImageLayout(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB,
+                        VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  copyBufferToImage(context, stagingBuffer, textureImage,
+                    static_cast<uint32_t>(1),
+                    static_cast<uint32_t>(1));
+  transitionImageLayout(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  vkDestroyBuffer(context.vulkan.device, stagingBuffer, nullptr);
+  vkFreeMemory(context.vulkan.device, stagingBufferMemory, nullptr);
+
+  textureImageView = createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+  textureSampler = createTextureSampler(context);
 }
 Model::Model(EngineContext &context, const std::string &name,
              const std::string &filepath)
     : context{context}, name{name} {
   loadModel(filepath);
+  createDefaultBlackTexture();
+  createDescriptors();
 }
 Model::Model(EngineContext &context, const std::string &name,
              const std::string &filepath, const std::string &texturepath)
-    : context{context}, hasTexture{true}, name{name} {
+    : context{context}, name{name} {
   loadModel(filepath);
   textureImage = createTextureImage(context, textureImageMemory, texturepath);
   textureImageView =
