@@ -13,6 +13,7 @@
 #include <cassert>
 #include <stdexcept>
 
+#include "../descriptors.hpp"
 #include "../entity.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
@@ -30,14 +31,13 @@ struct PushConstantData {
 
 std::unique_ptr<Entity> entity;
 
-void createPipelineLayout(EngineContext &context,
-                          VkDescriptorSetLayout globalSetLayout) {
+void createPipelineLayout(EngineContext &context) {
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
   pushConstantRange.offset = 0;
   pushConstantRange.size = sizeof(PushConstantData);
 
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{globalSetLayout};
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout()};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -61,8 +61,8 @@ void createPipeline(EngineContext &context) {
       context, "entity system", "shaders/water.vert.spv",
       "shaders/water.frag.spv", pipelineConfig);
 }
-void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
-  createPipelineLayout(context, globalSetLayout);
+void init(EngineContext &context) {
+  createPipelineLayout(context);
   createPipeline(context);
   Transform transform{.position{60.f, 0.f, 0.f}, .scale{50.f, 1.f, 50.f}};
   entity = std::make_unique<Entity>(context, transform, "subdivided quad",
