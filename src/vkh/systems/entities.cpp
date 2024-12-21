@@ -17,6 +17,7 @@
 #include "../model.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
+#include "../descriptors.hpp"
 
 namespace vkh {
 namespace entitySys {
@@ -28,15 +29,14 @@ struct PushConstantData {
   glm::mat4 normalMatrix{1.f};
 };
 
-void createPipelineLayout(EngineContext &context,
-                          VkDescriptorSetLayout globalSetLayout) {
+void createPipelineLayout(EngineContext &context) {
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags =
       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
   pushConstantRange.offset = 0;
   pushConstantRange.size = sizeof(PushConstantData);
 
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{globalSetLayout};
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout(), context.vulkan.modelDescriptorSetLayout->getDescriptorSetLayout()};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -60,8 +60,8 @@ void createPipeline(EngineContext &context) {
       context, "entity system", "shaders/entities.vert.spv",
       "shaders/entities.frag.spv", pipelineConfig);
 }
-void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
-  createPipelineLayout(context, globalSetLayout);
+void init(EngineContext &context) {
+  createPipelineLayout(context);
   createPipeline(context);
 }
 
@@ -73,9 +73,9 @@ void cleanup(EngineContext &context) {
 void render(EngineContext &context) {
   pipeline->bind(context.frameInfo.commandBuffer);
 
-  vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
+  /*vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
-                          &context.frameInfo.globalDescriptorSet, 0, nullptr);
+                          &context.frameInfo.globalDescriptorSet, 0, nullptr);*/
 
   for (auto& entity : context.entities) {
     if (entity.model == nullptr)

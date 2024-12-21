@@ -16,6 +16,7 @@
 #include "../deviceHelpers.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
+#include "../descriptors.hpp"
 
 namespace vkh {
 namespace particlesSys {
@@ -32,9 +33,8 @@ struct Particle {
   glm::vec3 velocity;
 };
 
-void createPipelineLayout(EngineContext &context,
-                          VkDescriptorSetLayout globalSetLayout) {
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{globalSetLayout};
+void createPipelineLayout(EngineContext &context) {
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout()};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -119,8 +119,8 @@ void createComputeDescriptorSetLayout(EngineContext &context) {
     vkUpdateDescriptorSets(device, 3, descriptorWrites.data(), 0, nullptr);
   }*/
 }
-void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
-  createPipelineLayout(context, globalSetLayout);
+void init(EngineContext &context) {
+  createPipelineLayout(context);
   createPipeline(context);
   std::default_random_engine rndEngine((unsigned)time(nullptr));
   std::uniform_real_distribution<float> rndDist(0.0f, 1.0f);

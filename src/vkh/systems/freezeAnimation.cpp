@@ -9,9 +9,9 @@
 #include <cassert>
 #include <stdexcept>
 
-#include "../entity.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
+#include "../descriptors.hpp"
 
 namespace vkh {
 namespace freezeAnimationSys {
@@ -22,14 +22,13 @@ struct PushConstantData {
   float time;
 };
 
-void createPipelineLayout(EngineContext &context,
-                          VkDescriptorSetLayout globalSetLayout) {
+void createPipelineLayout(EngineContext &context) {
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   pushConstantRange.offset = 0;
   pushConstantRange.size = sizeof(PushConstantData);
 
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{globalSetLayout};
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout()};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -57,8 +56,8 @@ void createPipeline(EngineContext &context) {
       context, "freezeAnimation system", "shaders/freezeAnimation.vert.spv",
       "shaders/freezeAnimation.frag.spv", pipelineConfig);
 }
-void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
-  createPipelineLayout(context, globalSetLayout);
+void init(EngineContext &context) {
+  createPipelineLayout(context);
   createPipeline(context);
 }
 

@@ -50,6 +50,7 @@ public:
 private:
   void createVertexBuffers(const std::vector<Vertex> &vertices);
   void createIndexBuffers(const std::vector<uint32_t> &indices);
+  void createDescriptors();
 
   EngineContext &context;
 

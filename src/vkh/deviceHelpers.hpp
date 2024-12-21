@@ -54,7 +54,7 @@ void transitionImageLayout(EngineContext &context, VkImage image,
 void copyBufferToImage(EngineContext &context, VkBuffer buffer, VkImage image,
                        uint32_t width, uint32_t height);
 VkImage createTextureImage(EngineContext &context, VkDeviceMemory &imageMemory,
-                           const char *texturePath);
+                           const std::string& texturePath);
 VkImageView createImageView(EngineContext &context, VkImage image,
                             VkFormat format);
 VkSampler createTextureSampler(EngineContext &context);
