@@ -129,11 +129,6 @@ void loadObjects(EngineContext &context) {
       {.transform = {.position = {0.f, GROUND_LEVEL - 2.f, 1.f}},
        .model = model});*/
 }
-VkImage textureImage;
-VkDeviceMemory textureImageMemory;
-VkImageView textureImageView;
-VkSampler textureSampler;
-
 void run() {
   EngineContext context{};
   context.entities.push_back(
@@ -145,19 +140,12 @@ void run() {
   { // {} to handle call destructors of buffers before vulkah is cleaned up
     input::init(context);
 
-    textureImage = createTextureImage(context, textureImageMemory,
-                                      "textures/viking_room.png");
-    textureImageView =
-        createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
-    textureSampler = createTextureSampler(context);
-
-    std::unique_ptr<DescriptorPool> globalPool =
+    context.vulkan.globalPool =
         DescriptorPool::Builder(context)
-            .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT)
+            .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT + 600)
             .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                          SwapChain::MAX_FRAMES_IN_FLIGHT)
-            .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                         SwapChain::MAX_FRAMES_IN_FLIGHT)
+            .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 600)
             .build();
 
     std::vector<std::unique_ptr<Buffer>> uboBuffers(
@@ -170,36 +158,33 @@ void run() {
       uboBuffers[i]->map();
     }
 
-    auto globalSetLayout =
+    context.vulkan.globalDescriptorSetLayout =
         DescriptorSetLayout::Builder(context)
             .addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                         VK_SHADER_STAGE_VERTEX_BIT |
                             VK_SHADER_STAGE_FRAGMENT_BIT)
-            .addBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .build();
+    context.vulkan.modelDescriptorSetLayout =
+        DescriptorSetLayout::Builder(context)
+            .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                         VK_SHADER_STAGE_FRAGMENT_BIT)
             .build();
 
-    entitySys::init(context, globalSetLayout->getDescriptorSetLayout());
-    pointLightSys::init(context, globalSetLayout->getDescriptorSetLayout());
-    axesSys::init(context, globalSetLayout->getDescriptorSetLayout());
-    particlesSys::init(context, globalSetLayout->getDescriptorSetLayout());
-    freezeAnimationSys::init(context,
-                             globalSetLayout->getDescriptorSetLayout());
-    waterSys::init(context, globalSetLayout->getDescriptorSetLayout());
+    entitySys::init(context);
+    pointLightSys::init(context);
+    axesSys::init(context);
+    particlesSys::init(context);
+    freezeAnimationSys::init(context);
+    waterSys::init(context);
 
     loadObjects(context);
 
     std::vector<VkDescriptorSet> globalDescriptorSets(
         SwapChain::MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < globalDescriptorSets.size(); i++) {
-      VkDescriptorImageInfo imageInfo{};
-      imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      imageInfo.imageView = textureImageView;
-      imageInfo.sampler = textureSampler;
       auto bufferInfo = uboBuffers[i]->descriptorInfo();
-      DescriptorWriter(*globalSetLayout, *globalPool)
+      DescriptorWriter(*context.vulkan.globalDescriptorSetLayout, *context.vulkan.globalPool)
           .writeBuffer(0, &bufferInfo)
-          .writeImage(1, &imageInfo)
           .build(globalDescriptorSets[i]);
     }
 
@@ -285,13 +270,11 @@ void run() {
     particlesSys::cleanup(context);
     waterSys::cleanup(context);
 
-    vkDestroySampler(context.vulkan.device, textureSampler, nullptr);
-    vkDestroyImageView(context.vulkan.device, textureImageView, nullptr);
-    vkDestroyImage(context.vulkan.device, textureImage, nullptr);
-    vkFreeMemory(context.vulkan.device, textureImageMemory, nullptr);
-
     context.entities.clear();
     context.pointLights.clear();
+    context.vulkan.globalDescriptorSetLayout = nullptr;
+    context.vulkan.modelDescriptorSetLayout = nullptr;
+    context.vulkan.globalPool = nullptr;
   }
 
   renderer::cleanup(context);

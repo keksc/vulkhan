@@ -8,7 +8,7 @@
 
 namespace vkh {
 namespace pointLightSys {
-void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout);
+void init(EngineContext &context);
 void cleanup(EngineContext& context);
 
 void update(EngineContext& context, GlobalUbo &ubo);

@@ -10,8 +10,9 @@
 #include <map>
 #include <stdexcept>
 
-#include "../renderer.hpp"
+#include "../descriptors.hpp"
 #include "../entity.hpp"
+#include "../renderer.hpp"
 
 namespace vkh {
 namespace pointLightSys {
@@ -23,15 +24,15 @@ struct PushConstantData {
   float radius;
 };
 
-void createPipelineLayout(EngineContext &context,
-                          VkDescriptorSetLayout globalSetLayout) {
+void createPipelineLayout(EngineContext &context) {
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags =
       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
   pushConstantRange.offset = 0;
   pushConstantRange.size = sizeof(PushConstantData);
 
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{globalSetLayout};
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
+      context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout()};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -56,11 +57,11 @@ void createPipeline(EngineContext &context) {
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipeline = std::make_unique<Pipeline>(
-      context, "pointLight system", "shaders/pointLight.vert.spv", "shaders/pointLight.frag.spv",
-      pipelineConfig);
+      context, "pointLight system", "shaders/pointLight.vert.spv",
+      "shaders/pointLight.frag.spv", pipelineConfig);
 }
-void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
-  createPipelineLayout(context, globalSetLayout);
+void init(EngineContext &context) {
+  createPipelineLayout(context);
   createPipeline(context);
 }
 
@@ -69,10 +70,9 @@ void cleanup(EngineContext &context) {
   vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
 }
 
-
 void update(EngineContext &context, GlobalUbo &ubo) {
-  auto rotateLight =
-      glm::rotate(glm::mat4(1.f), 0.5f * context.frameInfo.dt, {0.f, -1.f, 0.f});
+  auto rotateLight = glm::rotate(glm::mat4(1.f), 0.5f * context.frameInfo.dt,
+                                 {0.f, -1.f, 0.f});
   int lightIndex = 0;
   for (auto &pointLight : context.pointLights) {
     auto &transform = pointLight.transform;
@@ -84,8 +84,7 @@ void update(EngineContext &context, GlobalUbo &ubo) {
         glm::vec3(rotateLight * glm::vec4(transform.position, 1.f));
 
     // copy light to ubo
-    ubo.pointLights[lightIndex].position =
-        glm::vec4(transform.position, 1.f);
+    ubo.pointLights[lightIndex].position = glm::vec4(transform.position, 1.f);
     ubo.pointLights[lightIndex].color =
         glm::vec4(pointLight.color, pointLight.lightIntensity);
 
