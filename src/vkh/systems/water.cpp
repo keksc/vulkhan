@@ -1,5 +1,6 @@
 #include "water.hpp"
 #include <GLFW/glfw3.h>
+#include <memory>
 #include <optional>
 
 #define GLM_FORCE_RADIANS
@@ -27,7 +28,7 @@ struct PushConstantData {
   float time;
 };
 
-Entity entity;
+std::unique_ptr<Entity> entity;
 
 void createPipelineLayout(EngineContext &context,
                           VkDescriptorSetLayout globalSetLayout) {
@@ -63,12 +64,13 @@ void createPipeline(EngineContext &context) {
 void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
   createPipelineLayout(context, globalSetLayout);
   createPipeline(context);
-  entity.transform = {.position{60.f, 0.f, 0.f}, .scale{50.f, 1.f, 50.f}};
-  entity.model.emplace(context, "subdivided quad", "models/quadsubdivided.obj");
+  Transform transform{.position{60.f, 0.f, 0.f}, .scale{50.f, 1.f, 50.f}};
+  entity = std::make_unique<Entity>(context, transform, "subdivided quad",
+                                    "models/quadsubdivided.obj");
 }
 
 void cleanup(EngineContext &context) {
-  entity.model = std::nullopt;
+  entity = nullptr;
   pipeline = nullptr;
   vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
 }
@@ -80,8 +82,8 @@ void render(EngineContext &context) {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
-  auto &transform = entity.transform;
-  auto &model = entity.model;
+  auto &transform = entity->transform;
+  auto &model = entity->model;
   PushConstantData push{};
   push.modelMatrix = transform.mat4();
   push.normalMatrix = transform.normalMatrix();
@@ -90,7 +92,7 @@ void render(EngineContext &context) {
   vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
                      VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstantData),
                      &push);
-  model->bind(context.frameInfo.commandBuffer);
+  model->bind(context, context.frameInfo.commandBuffer, pipelineLayout);
   model->draw(context.frameInfo.commandBuffer);
 }
 } // namespace waterSys

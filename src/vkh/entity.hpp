@@ -7,8 +7,8 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <memory>
-#include <optional>
 
+#include "engineContext.hpp"
 #include "model.hpp"
 
 namespace vkh {
@@ -40,9 +40,20 @@ struct RigidBody {
 };
 
 struct Entity {
-  Transform transform;
-  std::optional<Model> model;
-  RigidBody rigidBody;
+    Transform transform;
+    RigidBody rigidBody;
+    std::unique_ptr<Model> model;
+
+    // Modified constructors to accept const references
+    Entity(EngineContext& context, Transform transform, const std::string& name,
+           RigidBody rigidBody = {});
+    
+    Entity(EngineContext& context, Transform transform, const std::string& name,
+           const std::string& modelFilepath, RigidBody rigidBody = {});
+    
+    Entity(EngineContext& context, Transform transform, const std::string& name,
+           const std::string& modelFilepath, const std::string& modelTextureFilepath,
+           RigidBody rigidBody = {});
 };
 
 } // namespace vkh
