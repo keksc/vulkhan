@@ -2,6 +2,7 @@
 
 #include "utils.hpp"
 #include <fmt/core.h>
+#include <sys/types.h>
 
 // libs
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -30,21 +31,13 @@ template <> struct hash<vkh::Model::Vertex> {
 
 namespace vkh {
 
-Model::Model(EngineContext &context, std::string name,
-             const Model::Builder &builder)
-    : context{context}, name{name} {
-  createVertexBuffers(builder.vertices);
-  createIndexBuffers(builder.indices);
-}
-
-Model::~Model() {}
-
-std::unique_ptr<Model> Model::createModelFromFile(EngineContext &context,
-                                                  std::string name,
-                                                  const std::string &filepath) {
-  Builder builder{};
-  builder.loadModel(filepath);
-  return std::make_unique<Model>(context, name, builder);
+Model::~Model() {
+  if (hasTexture) {
+    vkDestroySampler(context.vulkan.device, textureSampler, nullptr);
+    vkDestroyImageView(context.vulkan.device, textureImageView, nullptr);
+    vkDestroyImage(context.vulkan.device, textureImage, nullptr);
+    vkFreeMemory(context.vulkan.device, textureImageMemory, nullptr);
+  }
 }
 
 void Model::createVertexBuffers(const std::vector<Vertex> &vertices) {
@@ -150,7 +143,7 @@ Model::Vertex::getAttributeDescriptions() {
   return attributeDescriptions;
 }
 
-void Model::Builder::loadModel(const std::string &filepath) {
+void Model::loadModel(const std::string &filepath) {
   tinyobj::attrib_t attrib;
   std::vector<tinyobj::shape_t> shapes;
   std::vector<tinyobj::material_t> materials;
@@ -161,8 +154,8 @@ void Model::Builder::loadModel(const std::string &filepath) {
     throw std::runtime_error(warn + err);
   }
 
-  vertices.clear();
-  indices.clear();
+  std::vector<Vertex> vertices;
+  std::vector<uint32_t> indices;
 
   std::unordered_map<Vertex, uint32_t> uniqueVertices{};
   for (const auto &shape : shapes) {
@@ -204,10 +197,54 @@ void Model::Builder::loadModel(const std::string &filepath) {
       indices.push_back(uniqueVertices[vertex]);
     }
   }
+  createIndexBuffers(indices);
+  createVertexBuffers(vertices);
 }
-void Model::Builder::loadFromVertices(std::vector<Vertex> &inputVertices) {
-  vertices.clear();
-  indices.clear();
-  vertices = inputVertices;
+Model::Model(EngineContext &context, const std::string &name,
+             const std::string &filepath)
+    : context{context} {
+  loadModel(filepath);
 }
+Model::Model(EngineContext &context, const std::string &name,
+             const std::string &filepath, const std::string &texturepath)
+    : context{context}, hasTexture{true} {
+  loadModel(filepath);
+  textureImage =
+      createTextureImage(context, textureImageMemory, filepath.c_str());
+  textureImageView =
+      createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+  textureSampler = createTextureSampler(context);
+}
+Model::Model(Model &&other) noexcept
+    : context(other.context), name(std::move(other.name)),
+      vertexBuffer(std::move(other.vertexBuffer)),
+      vertexCount(other.vertexCount), hasIndexBuffer(other.hasIndexBuffer),
+      indexBuffer(std::move(other.indexBuffer)), indexCount(other.indexCount),
+      hasTexture(other.hasTexture) {
+  // Reset other's state
+  other.vertexCount = 0;
+  other.indexCount = 0;
+  other.hasIndexBuffer = false;
+  other.hasTexture = false;
+}
+
+Model &Model::operator=(Model &&other) noexcept {
+  if (this != &other) {
+    name = std::move(other.name);
+    vertexBuffer = std::move(other.vertexBuffer);
+    vertexCount = other.vertexCount;
+    hasIndexBuffer = other.hasIndexBuffer;
+    indexBuffer = std::move(other.indexBuffer);
+    indexCount = other.indexCount;
+    hasTexture = other.hasTexture;
+
+    // Reset other's state
+    other.vertexCount = 0;
+    other.indexCount = 0;
+    other.hasIndexBuffer = false;
+    other.hasTexture = false;
+  }
+  return *this;
+}
+
 } // namespace vkh

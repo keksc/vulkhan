@@ -1,5 +1,6 @@
 #include "water.hpp"
 #include <GLFW/glfw3.h>
+#include <optional>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -62,13 +63,12 @@ void createPipeline(EngineContext &context) {
 void init(EngineContext &context, VkDescriptorSetLayout globalSetLayout) {
   createPipelineLayout(context, globalSetLayout);
   createPipeline(context);
-  entity = {.transform = {.position{60.f, 0.f, 0.f}, .scale{50.f, 1.f, 50.f}},
-            .model = Model::createModelFromFile(context, "subdivided quad",
-                                                "models/quadsubdivided.obj")};
+  entity.transform = {.position{60.f, 0.f, 0.f}, .scale{50.f, 1.f, 50.f}};
+  entity.model.emplace(context, "subdivided quad", "models/quadsubdivided.obj");
 }
 
 void cleanup(EngineContext &context) {
-  entity.model = nullptr;
+  entity.model = std::nullopt;
   pipeline = nullptr;
   vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
 }
@@ -81,7 +81,7 @@ void render(EngineContext &context) {
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   auto &transform = entity.transform;
-  auto model = entity.model;
+  auto &model = entity.model;
   PushConstantData push{};
   push.modelMatrix = transform.mat4();
   push.normalMatrix = transform.normalMatrix();
