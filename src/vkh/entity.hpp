@@ -7,44 +7,42 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <memory>
-#include <unordered_map>
+#include <optional>
 
-#include "engineContext.hpp"
+#include "model.hpp"
 
 namespace vkh {
 
-class Model;
-
 // Transform structure for position, scale, and orientation
 struct Transform {
-    glm::vec3 position{};
-    glm::vec3 scale{1.f, 1.f, 1.f};
-    glm::quat orientation{};
+  glm::vec3 position{};
+  glm::vec3 scale{1.f, 1.f, 1.f};
+  glm::quat orientation{};
 
-    glm::mat4 mat4();
-    glm::mat3 normalMatrix();
+  glm::mat4 mat4();
+  glm::mat3 normalMatrix();
 };
 
 // Point light structure
 struct PointLight {
-    glm::vec3 color{};
-    float lightIntensity = 1.0f;
-    Transform transform;
+  glm::vec3 color{};
+  float lightIntensity = 1.0f;
+  Transform transform;
 };
 
 // RigidBody structure for physics properties
 struct RigidBody {
-    glm::vec3 velocity{0.f};
-    float mass{1.f};
-    bool isStatic{false}; // Static bodies do not move
+  glm::vec3 velocity{0.f};
+  float mass{1.f};
+  bool isStatic{false}; // Static bodies do not move
 
-    const glm::vec3 computeWeight() const { return {0, mass * 9.81f, 0}; }
+  const glm::vec3 computeWeight() const { return {0, mass * 9.81f, 0}; }
 };
 
 struct Entity {
-    Transform transform;
-    std::shared_ptr<Model> model;
-    RigidBody rigidBody;
+  Transform transform;
+  std::optional<Model> model;
+  RigidBody rigidBody;
 };
 
 } // namespace vkh

@@ -53,6 +53,9 @@ void transitionImageLayout(EngineContext &context, VkImage image,
                            VkImageLayout newLayout);
 void copyBufferToImage(EngineContext &context, VkBuffer buffer, VkImage image,
                        uint32_t width, uint32_t height);
+VkImage createTextureImage(EngineContext &context, VkDeviceMemory &imageMemory,
+                           const char *texturePath);
 VkImageView createImageView(EngineContext &context, VkImage image,
                             VkFormat format);
+VkSampler createTextureSampler(EngineContext &context);
 } // namespace vkh
