@@ -1,4 +1,5 @@
 #include "vulkhan.hpp"
+#include <optional>
 #include <vulkan/vulkan_core.h>
 
 #define GLFW_INCLUDE_VULKAN
@@ -11,17 +12,16 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <AL/al.h>
 #include <glm/gtx/quaternion.hpp>
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb/stb_image.h>
 
 #include "audio.hpp"
 #include "buffer.hpp"
 #include "camera.hpp"
+#include "cleanupVulkan.hpp"
 #include "descriptors.hpp"
 #include "deviceHelpers.hpp"
 #include "engineContext.hpp"
 #include "entity.hpp"
-#include "init.hpp"
+#include "initVulkan.hpp"
 #include "input.hpp"
 #include "renderer.hpp"
 #include "systems/axes.hpp"
@@ -31,6 +31,7 @@
 #include "systems/physics.hpp"
 #include "systems/pointLight.hpp"
 #include "systems/water.hpp"
+#include "window.hpp"
 
 #include <array>
 #include <cassert>
@@ -42,18 +43,16 @@
 
 namespace vkh {
 void loadObjects(EngineContext &context) {
-  std::shared_ptr<Model> model;
-  model =
-      Model::createModelFromFile(context, "flat vase", "models/flat_vase.obj");
-  context.entities.push_back({.transform = {.position{-.5f, GROUND_LEVEL, 0.f},
-                                            .scale{3.f, 1.5f, 3.f}},
-                              .model = model});
+  context.entities.push_back(
+      {.transform = {.position{-.5f, GROUND_LEVEL, 0.f},
+                     .scale{3.f, 1.5f, 3.f}},
+       .model = std::make_optional<Model>(context, "flat vase",
+                                          "models/flat_vase.obj")});
 
-  model = Model::createModelFromFile(context, "smooth vase",
-                                        "models/smooth_vase.obj");
   context.entities.push_back(
       {.transform = {.position{.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
-       .model = model});
+       .model = std::make_optional<Model>(context, "flat vase",
+                                          "models/smooth_vase.obj")});
 
   /*model = Model::createModelFromFile(context, "floor", "models/quad.obj");
   context.entities.push_back(
@@ -88,10 +87,15 @@ void loadObjects(EngineContext &context) {
                        .scale = {.5f, .5f, .5f}},
          .model = model});
   }*/
-  model =
-      Model::createModelFromFile(context, "living room", "models/mainRoom.obj");
   context.entities.push_back(
-      {.transform = {.position = {0.f, GROUND_LEVEL, 1.f}}, .model = model});
+      {.transform = {.position = {0.f, GROUND_LEVEL, 1.f}},
+       .model = std::make_optional<Model>(context, "living room",
+                                          "models/mainRoom.obj")});
+  context.entities.push_back(
+      {.transform = {.position = {0.f, GROUND_LEVEL - 1.f, 1.f},
+                     .orientation = {0.0, {0.0, 0.0, 0.0}}},
+       .model = std::make_optional<Model>(context, "viking room",
+                                          "models/viking_room.obj")});
   /*Model::Builder builder;
   builder.vertices.push_back({{-0.5f, -0.5f, 0.f},
                               {1.0f, 0.0f, 0.0f},
@@ -121,145 +125,13 @@ void loadObjects(EngineContext &context) {
       std::make_shared<Model>(context, "img", builder);
   context.entities.push_back(
       {.transform = {.position = {0.f, GROUND_LEVEL - 2.f, 1.f}},
-       .model = model});
-  std::shared_ptr<Model> model = Model::createModelFromFile(
-      context, "viking room", "models/viking_room.obj");
-  context.entities.push_back(
-      {.transform = {.position = {0.f, GROUND_LEVEL, 1.f}, .orientation = {0.0, {0.0, 0.0, 0.0}}}, .model = model});*/
-}
-void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
-  auto context =
-      reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
-  context->window.framebufferResized = true;
-  context->window.width = width;
-  context->window.height = height;
-  context->window.aspectRatio = static_cast<float>(width) / height;
-}
-void initWindow(EngineContext &context) {
-  glfwInit();
-  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-  glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-  glfwWindowHint(GLFW_FLOATING, GLFW_TRUE);
-  context.window.glfwWindow = glfwCreateWindow(
-      context.window.width, context.window.height, "Vulkhan", nullptr, nullptr);
-  glfwSetWindowUserPointer(context.window, &context);
-  glfwSetFramebufferSizeCallback(context.window, framebufferResizeCallback);
-}
-void cleanupWindow(EngineContext &context) {
-  glfwDestroyWindow(context.window);
-  glfwTerminate();
-}
-void initVulkan(EngineContext &context) {
-  createInstance(context);
-  setupDebugMessenger(context);
-  glfwCreateWindowSurface(context.vulkan.instance, context.window, nullptr,
-                          &context.vulkan.surface);
-  pickPhysicalDevice(context);
-  createLogicalDevice(context);
-  createCommandPool(context);
-}
-void cleanupVulkan(EngineContext &context) {
-  vkDestroyCommandPool(context.vulkan.device, context.vulkan.commandPool,
-                       nullptr);
-  vkDestroyDevice(context.vulkan.device, nullptr);
-
-  if (context.vulkan.enableValidationLayers) {
-    reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(
-        context.vulkan.instance, "vkDestroyDebugUtilsMessengerEXT"))(
-        context.vulkan.instance, context.vulkan.debugMessenger, nullptr);
-  }
-
-  vkDestroySurfaceKHR(context.vulkan.instance, context.vulkan.surface, nullptr);
-  vkDestroyInstance(context.vulkan.instance, nullptr);
+       .model = model});*/
 }
 VkImage textureImage;
 VkDeviceMemory textureImageMemory;
 VkImageView textureImageView;
 VkSampler textureSampler;
 
-void createTextureImage(EngineContext &context) {
-  int texWidth, texHeight, texChannels;
-  stbi_uc *pixels = stbi_load("textures/viking_room.png", &texWidth, &texHeight,
-                              &texChannels, STBI_rgb_alpha);
-  VkDeviceSize imageSize = texWidth * texHeight * 4;
-
-  if (!pixels) {
-    throw std::runtime_error("failed to load texture image!");
-  }
-
-  VkBuffer stagingBuffer;
-  VkDeviceMemory stagingBufferMemory;
-  createBuffer(context, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-               stagingBuffer, stagingBufferMemory);
-
-  void *data;
-  vkMapMemory(context.vulkan.device, stagingBufferMemory, 0, imageSize, 0,
-              &data);
-  memcpy(data, pixels, static_cast<size_t>(imageSize));
-  vkUnmapMemory(context.vulkan.device, stagingBufferMemory);
-
-  stbi_image_free(pixels);
-
-  VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-                              .imageType = VK_IMAGE_TYPE_2D,
-                              .format = VK_FORMAT_R8G8B8A8_SRGB,
-                              .mipLevels = 1,
-                              .arrayLayers = 1,
-                              .samples = VK_SAMPLE_COUNT_1_BIT,
-                              .tiling = VK_IMAGE_TILING_OPTIMAL,
-                              .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                       VK_IMAGE_USAGE_SAMPLED_BIT,
-                              .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-                              .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
-  imageInfo.extent.width = texWidth;
-  imageInfo.extent.height = texHeight;
-  imageInfo.extent.depth = 1;
-  createImageWithInfo(context, imageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                      textureImage, textureImageMemory);
-
-  transitionImageLayout(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB,
-                        VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  copyBufferToImage(context, stagingBuffer, textureImage,
-                    static_cast<uint32_t>(texWidth),
-                    static_cast<uint32_t>(texHeight));
-  transitionImageLayout(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-  vkDestroyBuffer(context.vulkan.device, stagingBuffer, nullptr);
-  vkFreeMemory(context.vulkan.device, stagingBufferMemory, nullptr);
-}
-void createTextureImageView(EngineContext &context) {
-  textureImageView =
-      createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
-}
-void createTextureSampler(EngineContext &context) {
-  VkPhysicalDeviceProperties properties{};
-  vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice, &properties);
-
-  VkSamplerCreateInfo samplerInfo{};
-  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-  samplerInfo.magFilter = VK_FILTER_LINEAR;
-  samplerInfo.minFilter = VK_FILTER_LINEAR;
-  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.anisotropyEnable = VK_TRUE;
-  samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-  samplerInfo.unnormalizedCoordinates = VK_FALSE;
-  samplerInfo.compareEnable = VK_FALSE;
-  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-
-  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr,
-                      &textureSampler) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create texture sampler!");
-  }
-}
 void run() {
   EngineContext context{};
   context.entities.push_back(
@@ -271,18 +143,20 @@ void run() {
   { // {} to handle call destructors of buffers before vulkah is cleaned up
     input::init(context);
 
+    textureImage = createTextureImage(context, textureImageMemory,
+                                      "textures/viking_room.png");
+    textureImageView =
+        createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+    textureSampler = createTextureSampler(context);
 
-    createTextureImage(context);
-    createTextureImageView(context);
-    createTextureSampler(context);
-
-    std::unique_ptr<DescriptorPool> globalPool = DescriptorPool::Builder(context)
-                     .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT)
-                     .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                  SwapChain::MAX_FRAMES_IN_FLIGHT)
-                     .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                  SwapChain::MAX_FRAMES_IN_FLIGHT)
-                     .build();
+    std::unique_ptr<DescriptorPool> globalPool =
+        DescriptorPool::Builder(context)
+            .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT)
+            .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                         SwapChain::MAX_FRAMES_IN_FLIGHT)
+            .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                         SwapChain::MAX_FRAMES_IN_FLIGHT)
+            .build();
 
     std::vector<std::unique_ptr<Buffer>> uboBuffers(
         SwapChain::MAX_FRAMES_IN_FLIGHT);

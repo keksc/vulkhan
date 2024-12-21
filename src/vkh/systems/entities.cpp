@@ -77,11 +77,11 @@ void render(EngineContext &context) {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
-  for (auto entity : context.entities) {
-    if (entity.model == nullptr)
+  for (auto& entity : context.entities) {
+    if (!entity.model.has_value())
       continue;
     auto &transform = entity.transform;
-    auto model = entity.model;
+    auto& model = entity.model;
     PushConstantData push{};
     push.modelMatrix = transform.mat4();
     push.normalMatrix = transform.normalMatrix();
