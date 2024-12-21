@@ -30,25 +30,19 @@ public:
              normal == other.normal && uv == other.uv;
     }
   };
+  void loadModel(const std::string &filepath);
 
-  struct Builder {
-    std::vector<Vertex> vertices{};
-    std::vector<uint32_t> indices{};
-
-    void loadModel(const std::string &filepath);
-    void loadFromVertices(std::vector<Vertex> &vertices);
-  };
-
-  Model(EngineContext &context, std::string name,
-        const Model::Builder &builder);
+  Model(EngineContext &context, const std::string &name,
+        const std::string &filepath);
+  Model(EngineContext &context, const std::string &name,
+        const std::string &filepath, const std::string &texturepath);
   ~Model();
 
   Model(const Model &) = delete;
   Model &operator=(const Model &) = delete;
 
-  static std::unique_ptr<Model>
-  createModelFromFile(EngineContext &context, std::string name,
-                      const std::string &filepath);
+  Model(Model &&other) noexcept;
+  Model &operator=(Model &&other) noexcept;
 
   void bind(VkCommandBuffer commandBuffer);
   void draw(VkCommandBuffer commandBuffer);
@@ -67,5 +61,11 @@ private:
   bool hasIndexBuffer = false;
   std::unique_ptr<Buffer> indexBuffer;
   uint32_t indexCount;
+
+  bool hasTexture = false;
+  VkImage textureImage;
+  VkDeviceMemory textureImageMemory;
+  VkImageView textureImageView;
+  VkSampler textureSampler;
 };
 } // namespace vkh

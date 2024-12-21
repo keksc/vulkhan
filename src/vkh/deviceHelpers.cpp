@@ -1,7 +1,9 @@
 #include "deviceHelpers.hpp"
 
-#include <stdexcept>
-#include <vulkan/vulkan_core.h>
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
+
+#include "swapChain.hpp"
 
 namespace vkh {
 SwapChainSupportDetails querySwapChainSupport(EngineContext &context,
@@ -292,7 +294,96 @@ VkImageView createImageView(EngineContext &context, VkImage image,
                         &imageView) != VK_SUCCESS) {
     throw std::runtime_error("failed to create texture image view!");
   }
-
   return imageView;
+}
+VkImage createTextureImage(EngineContext &context, VkDeviceMemory &imageMemory,
+                           const char *texturePath) {
+  int texWidth, texHeight, texChannels;
+  stbi_uc *pixels = stbi_load(texturePath, &texWidth, &texHeight, &texChannels,
+                              STBI_rgb_alpha);
+  VkDeviceSize imageSize = texWidth * texHeight * 4;
+
+  if (!pixels) {
+    throw std::runtime_error("failed to load texture image!");
+  }
+
+  VkBuffer stagingBuffer;
+  VkDeviceMemory stagingBufferMemory;
+  createBuffer(context, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+               stagingBuffer, stagingBufferMemory);
+
+  void *data;
+  vkMapMemory(context.vulkan.device, stagingBufferMemory, 0, imageSize, 0,
+              &data);
+  memcpy(data, pixels, static_cast<size_t>(imageSize));
+  vkUnmapMemory(context.vulkan.device, stagingBufferMemory);
+
+  stbi_image_free(pixels);
+
+  VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                              .imageType = VK_IMAGE_TYPE_2D,
+                              .format = VK_FORMAT_R8G8B8A8_SRGB,
+                              .mipLevels = 1,
+                              .arrayLayers = 1,
+                              .samples = VK_SAMPLE_COUNT_1_BIT,
+                              .tiling = VK_IMAGE_TILING_OPTIMAL,
+                              .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                       VK_IMAGE_USAGE_SAMPLED_BIT,
+                              .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                              .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
+  imageInfo.extent.width = texWidth;
+  imageInfo.extent.height = texHeight;
+  imageInfo.extent.depth = 1;
+
+  VkImage image;
+
+  createImageWithInfo(context, imageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                      image, imageMemory);
+
+  transitionImageLayout(context, image, VK_FORMAT_R8G8B8A8_SRGB,
+                        VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  copyBufferToImage(context, stagingBuffer, image,
+                    static_cast<uint32_t>(texWidth),
+                    static_cast<uint32_t>(texHeight));
+  transitionImageLayout(context, image, VK_FORMAT_R8G8B8A8_SRGB,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  vkDestroyBuffer(context.vulkan.device, stagingBuffer, nullptr);
+  vkFreeMemory(context.vulkan.device, stagingBufferMemory, nullptr);
+  return image;
+}
+VkImageView createTextureImageView(EngineContext &context, VkImage image) {
+  return createImageView(context, image,
+                         context.vulkan.swapChain->getSwapChainImageFormat());
+}
+VkSampler createTextureSampler(EngineContext &context) {
+  VkPhysicalDeviceProperties properties{};
+  vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice, &properties);
+
+  VkSamplerCreateInfo samplerInfo{};
+  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  samplerInfo.magFilter = VK_FILTER_LINEAR;
+  samplerInfo.minFilter = VK_FILTER_LINEAR;
+  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.anisotropyEnable = VK_TRUE;
+  samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
+  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+  samplerInfo.unnormalizedCoordinates = VK_FALSE;
+  samplerInfo.compareEnable = VK_FALSE;
+  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+  VkSampler sampler;
+  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr, &sampler) !=
+      VK_SUCCESS) {
+    throw std::runtime_error("failed to create texture sampler!");
+  }
+  return sampler;
 }
 } // namespace vkh
