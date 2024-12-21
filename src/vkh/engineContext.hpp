@@ -17,6 +17,8 @@
 namespace vkh {
 struct Entity;
 struct PointLight;
+class DescriptorPool;
+class DescriptorSetLayout;
 
 const int MAX_LIGHTS = 10;
 
@@ -68,6 +70,9 @@ struct EngineContext {
     VkQueue presentQueue;
     VkCommandPool commandPool;
     std::unique_ptr<SwapChain> swapChain;
+    std::unique_ptr<DescriptorPool> globalPool;
+    std::unique_ptr<DescriptorSetLayout> modelDescriptorSetLayout;
+    std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout;
   } vulkan;
   std::vector<Entity> entities;
   std::vector<PointLight> pointLights;
