@@ -58,8 +58,6 @@ private:
                       VK_OBJECT_TYPE_IMAGE, textureImage);
     debug::setObjName(context, fmt::format("{} image view", name),
                       VK_OBJECT_TYPE_IMAGE_VIEW, textureImageView);
-    debug::setObjName(context, fmt::format("{} sampler", name),
-                      VK_OBJECT_TYPE_SAMPLER, textureSampler);
     debug::setObjName(context, fmt::format("{} image memory", name),
                       VK_OBJECT_TYPE_DEVICE_MEMORY, textureImageMemory);
   };
@@ -78,8 +76,6 @@ private:
   VkImage textureImage;
   VkDeviceMemory textureImageMemory;
   VkImageView textureImageView;
-  VkSampler textureSampler; // TODO: 1 global texture sampler should be enough
-                            // for the whole program, not 1 per model
   VkDescriptorSet textureDescriptorSet;
 };
 } // namespace vkh
