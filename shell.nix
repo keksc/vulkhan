@@ -20,6 +20,7 @@ pkgs.mkShell {
     clang-tools
     cmake-language-server
     stb
+    freetype
   ];
 
   # Environment variables for Vulkan

@@ -31,7 +31,6 @@ namespace vkh {
 
 Model::~Model() {
   if (enableTexture) {
-    vkDestroySampler(context.vulkan.device, textureSampler, nullptr);
     vkDestroyImageView(context.vulkan.device, textureImageView, nullptr);
     vkDestroyImage(context.vulkan.device, textureImage, nullptr);
     vkFreeMemory(context.vulkan.device, textureImageMemory, nullptr);
@@ -216,7 +215,7 @@ void Model::createDescriptors() {
   VkDescriptorImageInfo imageInfo{};
   imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   imageInfo.imageView = textureImageView;
-  imageInfo.sampler = textureSampler;
+  imageInfo.sampler = context.vulkan.modelSampler;
   DescriptorWriter(*context.vulkan.modelDescriptorSetLayout,
                    *context.vulkan.globalPool)
       .writeImage(0, &imageInfo)
@@ -276,7 +275,6 @@ Model::Model(EngineContext &context, const std::string &name,
     createDefaultBlackTextureImage();
     textureImageView =
         createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
-    textureSampler = createTextureSampler(context);
     createDescriptors();
     fmt::print("{} model {} with default black texture\n",
                fmt::styled("created", fmt::fg(fmt::color::light_green)),
@@ -295,7 +293,6 @@ Model::Model(EngineContext &context, const std::string &name,
   textureImage = createTextureImage(context, textureImageMemory, texturepath);
   textureImageView =
       createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
-  textureSampler = createTextureSampler(context);
   createDescriptors();
   fmt::print("{} model {} with texture {}\n",
              fmt::styled("created", fmt::fg(fmt::color::light_green)),
