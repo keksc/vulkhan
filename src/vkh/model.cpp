@@ -6,7 +6,7 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 #define GLM_ENABLE_EXPERIMENTAL
-#include <fmt/format.h>
+#include <fmt/color.h>
 #include <glm/gtx/hash.hpp>
 
 #include "descriptors.hpp"
@@ -30,13 +30,18 @@ template <> struct hash<vkh::Model::Vertex> {
 namespace vkh {
 
 Model::~Model() {
-  vkDestroySampler(context.vulkan.device, textureSampler, nullptr);
-  vkDestroyImageView(context.vulkan.device, textureImageView, nullptr);
-  vkDestroyImage(context.vulkan.device, textureImage, nullptr);
-  vkFreeMemory(context.vulkan.device, textureImageMemory, nullptr);
+  if (enableTexture) {
+    vkDestroySampler(context.vulkan.device, textureSampler, nullptr);
+    vkDestroyImageView(context.vulkan.device, textureImageView, nullptr);
+    vkDestroyImage(context.vulkan.device, textureImage, nullptr);
+    vkFreeMemory(context.vulkan.device, textureImageMemory, nullptr);
+  }
+  fmt::print("{} model {}\n",
+             fmt::styled("destroyed", fmt::fg(fmt::color::red)),
+             fmt::styled(name, fg(fmt::color::yellow)));
 }
 
-void Model::createVertexBuffers(const std::vector<Vertex> &vertices) {
+void Model::createVertexBuffer(const std::vector<Vertex> &vertices) {
   vertexCount = static_cast<uint32_t>(vertices.size());
   assert(vertexCount >= 3 && "Vertex count must be at least 3");
   VkDeviceSize bufferSize = sizeof(vertices[0]) * vertexCount;
@@ -64,7 +69,7 @@ void Model::createVertexBuffers(const std::vector<Vertex> &vertices) {
              bufferSize);
 }
 
-void Model::createIndexBuffers(const std::vector<uint32_t> &indices) {
+void Model::createIndexBuffer(const std::vector<uint32_t> &indices) {
   indexCount = static_cast<uint32_t>(indices.size());
   hasIndexBuffer = indexCount > 0;
 
@@ -113,10 +118,16 @@ void Model::bind(EngineContext &context, VkCommandBuffer commandBuffer,
     vkCmdBindIndexBuffer(commandBuffer, indexBuffer->getBuffer(), 0,
                          VK_INDEX_TYPE_UINT32);
   }
-  VkDescriptorSet descriptorSets[] = {context.frameInfo.globalDescriptorSet,
-                                      textureDescriptorSet};
-  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          pipelineLayout, 0, 2, descriptorSets, 0, nullptr);
+  if (enableTexture) {
+    VkDescriptorSet descriptorSets[] = {context.frameInfo.globalDescriptorSet,
+                                        textureDescriptorSet};
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipelineLayout, 0, 2, descriptorSets, 0, nullptr);
+  } else {
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipelineLayout, 0, 1,
+                            &context.frameInfo.globalDescriptorSet, 0, nullptr);
+  }
 }
 
 std::vector<VkVertexInputBindingDescription>
@@ -198,8 +209,8 @@ void Model::loadModel(const std::string &filepath) {
       indices.push_back(uniqueVertices[vertex]);
     }
   }
-  createIndexBuffers(indices);
-  createVertexBuffers(vertices);
+  createIndexBuffer(indices);
+  createVertexBuffer(vertices);
 }
 void Model::createDescriptors() {
   VkDescriptorImageInfo imageInfo{};
@@ -211,7 +222,7 @@ void Model::createDescriptors() {
       .writeImage(0, &imageInfo)
       .build(textureDescriptorSet);
 }
-void Model::createDefaultBlackTexture() {
+void Model::createDefaultBlackTextureImage() {
   uint32_t blackPixel = 0xff000000;
   VkDeviceSize imageSize = sizeof(blackPixel);
   VkBuffer stagingBuffer;
@@ -249,24 +260,33 @@ void Model::createDefaultBlackTexture() {
                         VK_IMAGE_LAYOUT_UNDEFINED,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   copyBufferToImage(context, stagingBuffer, textureImage,
-                    static_cast<uint32_t>(1),
-                    static_cast<uint32_t>(1));
+                    static_cast<uint32_t>(1), static_cast<uint32_t>(1));
   transitionImageLayout(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   vkDestroyBuffer(context.vulkan.device, stagingBuffer, nullptr);
   vkFreeMemory(context.vulkan.device, stagingBufferMemory, nullptr);
-
-  textureImageView = createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
-  textureSampler = createTextureSampler(context);
 }
 Model::Model(EngineContext &context, const std::string &name,
-             const std::string &filepath)
-    : context{context}, name{name} {
+             const std::string &filepath, bool enableTexture)
+    : context{context}, name{name}, enableTexture{enableTexture} {
   loadModel(filepath);
-  createDefaultBlackTexture();
-  createDescriptors();
+  if (enableTexture) {
+    createDefaultBlackTextureImage();
+    textureImageView =
+        createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+    textureSampler = createTextureSampler(context);
+    createDescriptors();
+    fmt::print("{} model {} with default black texture\n",
+               fmt::styled("created", fmt::fg(fmt::color::light_green)),
+               fmt::styled(name, fg(fmt::color::yellow)));
+    setDebugObjNames();
+  } else {
+    fmt::print("{} model {} without a texture\n",
+               fmt::styled("created", fmt::fg(fmt::color::light_green)),
+               fmt::styled(name, fg(fmt::color::yellow)));
+  }
 }
 Model::Model(EngineContext &context, const std::string &name,
              const std::string &filepath, const std::string &texturepath)
@@ -277,5 +297,10 @@ Model::Model(EngineContext &context, const std::string &name,
       createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
   textureSampler = createTextureSampler(context);
   createDescriptors();
+  fmt::print("{} model {} with texture {}\n",
+             fmt::styled("created", fmt::fg(fmt::color::light_green)),
+             fmt::styled(name, fg(fmt::color::yellow)),
+             fmt::styled(texturepath, fg(fmt::color::azure)));
+  setDebugObjNames();
 }
 } // namespace vkh
