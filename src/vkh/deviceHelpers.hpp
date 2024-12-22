@@ -57,5 +57,4 @@ VkImage createTextureImage(EngineContext &context, VkDeviceMemory &imageMemory,
                            const std::string &texturePath);
 VkImageView createImageView(EngineContext &context, VkImage image,
                             VkFormat format);
-VkSampler createTextureSampler(EngineContext &context);
 } // namespace vkh

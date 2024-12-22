@@ -73,6 +73,8 @@ struct EngineContext {
     std::unique_ptr<DescriptorPool> globalPool;
     std::unique_ptr<DescriptorSetLayout> modelDescriptorSetLayout;
     std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout;
+    VkSampler fontSampler;
+    VkSampler modelSampler;
   } vulkan;
   std::vector<Entity> entities;
   std::vector<Particle> particles;

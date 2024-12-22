@@ -16,7 +16,6 @@
 #include "camera.hpp"
 #include "cleanupVulkan.hpp"
 #include "descriptors.hpp"
-#include "deviceHelpers.hpp"
 #include "engineContext.hpp"
 #include "entity.hpp"
 #include "initVulkan.hpp"
@@ -89,12 +88,14 @@ void loadObjects(EngineContext &context) {
                               {.position = {0.f, GROUND_LEVEL, 1.f}},
                               "living room",
                               "models/mainRoom.obj"});
-  context.entities.push_back({context,
-                              {.position = {0.f, GROUND_LEVEL - 1.f, 1.f},
-                               .orientation = {0.0, {0.0, 0.0, 0.0}}},
-                              "viking room",
-                              "models/viking_room.obj",
-                              "textures/viking_room.png"s});
+  context.entities.push_back(
+      {context,
+       {.position = {0.f, GROUND_LEVEL - 1.f, 1.f},
+        .orientation =
+            glm::angleAxis(glm::pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f))},
+       "viking room",
+       "models/morning_room.obj",
+       "textures/morning_room.jpg"s});
   /*Model::Builder builder;
   builder.vertices.push_back({{-0.5f, -0.5f, 0.f},
                               {1.0f, 0.0f, 0.0f},
@@ -142,7 +143,8 @@ void run() {
             .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT + MAX_TEXTURES)
             .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                          SwapChain::MAX_FRAMES_IN_FLIGHT)
-            .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_TEXTURES)
+            .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                         MAX_TEXTURES)
             .build();
 
     std::vector<std::unique_ptr<Buffer>> uboBuffers(
@@ -240,6 +242,7 @@ void run() {
         // freezeAnimationSys::render(context);
         particleSys::render(context);
         waterSys::render(context);
+
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
       }
