@@ -319,6 +319,47 @@ void displayInitInfo(EngineContext &context) {
 
   fmt::print("{:=<60}\n", ""); // Table border
 }
+void createSamplers(EngineContext &context) {
+  VkPhysicalDeviceProperties properties{};
+  vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice, &properties);
+
+  VkSamplerCreateInfo samplerInfo{};
+  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  samplerInfo.magFilter = VK_FILTER_LINEAR;
+  samplerInfo.minFilter = VK_FILTER_LINEAR;
+  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.anisotropyEnable = VK_TRUE;
+  samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
+  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+  samplerInfo.unnormalizedCoordinates = VK_FALSE;
+  samplerInfo.compareEnable = VK_FALSE;
+  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr,
+                      &context.vulkan.modelSampler) != VK_SUCCESS) {
+    throw std::runtime_error("failed to create texture sampler!");
+  }
+
+  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.anisotropyEnable = VK_FALSE;
+  samplerInfo.maxAnisotropy = 1.0f;
+  samplerInfo.compareEnable = VK_FALSE;
+  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  samplerInfo.mipLodBias = 0.0f;
+  samplerInfo.minLod = 0.0f;
+  samplerInfo.maxLod = 0.0f;
+
+  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr,
+                      &context.vulkan.fontSampler) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create font sampler!");
+  }
+}
 void initVulkan(EngineContext &context) {
   createInstance(context);
   setupDebugMessenger(context);
@@ -329,5 +370,6 @@ void initVulkan(EngineContext &context) {
   createLogicalDevice(context);
   createCommandPool(context);
   displayInitInfo(context);
+  createSamplers(context);
 }
 } // namespace vkh
