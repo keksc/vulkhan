@@ -1,16 +1,14 @@
 #include "vulkhan.hpp"
-#include <optional>
-#include <vulkan/vulkan_core.h>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <AL/al.h>
+#include <fmt/format.h>
 #include <glm/gtx/quaternion.hpp>
 
 #include "audio.hpp"
@@ -29,7 +27,6 @@
 #include "systems/freezeAnimation.hpp"
 #include "systems/particles.hpp"
 #include "systems/physics.hpp"
-#include "systems/pointLight.hpp"
 #include "systems/water.hpp"
 #include "window.hpp"
 
@@ -40,6 +37,8 @@
 #include <random>
 #include <stdexcept>
 #include <vector>
+
+using namespace std::string_literals;
 
 namespace vkh {
 void loadObjects(EngineContext &context) {
@@ -60,7 +59,7 @@ void loadObjects(EngineContext &context) {
       {.transform = {.position{0.f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
        .model = model});*/
 
-  /*std::vector<glm::vec3> lightColors{{1.f, .1f, .1f}, {.1f, .1f, 1.f},
+  std::vector<glm::vec3> lightColors{{1.f, .1f, .1f}, {.1f, .1f, 1.f},
                                      {.1f, 1.f, .1f}, {1.f, 1.f, .1f},
                                      {.1f, 1.f, 1.f}, {1.f, 1.f, 1.f}};
 
@@ -68,13 +67,11 @@ void loadObjects(EngineContext &context) {
     auto rotateLight = glm::rotate(
         glm::mat4(1.f), (i * glm::two_pi<float>()) / lightColors.size(),
         {0.f, -1.f, 0.f});
-    context.pointLights.push_back(
-        {.color = lightColors[i],
-         .lightIntensity = 0.2f,
-         .transform = {.position = glm::vec3(rotateLight *
-                                             glm::vec4(-1.f, -1.f, -1.f, 1.f)),
-                       .scale{0.1f, 1.f, 1.f}}});
+    context.particles.push_back(
+        {.position = rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f),
+         .color = glm::vec4(lightColors[i], 1.0)});
   }
+  /*
   model = Model::createModelFromFile(context, "cube", "models/cube.obj");
   context.entities.push_back(
       {.transform = {.position = {5.f, -.5f, 0.f}, .scale = {.5f, .5f, .5f}},
@@ -97,7 +94,7 @@ void loadObjects(EngineContext &context) {
                                .orientation = {0.0, {0.0, 0.0, 0.0}}},
                               "viking room",
                               "models/viking_room.obj",
-                              "textures/viking_room.png"});
+                              "textures/viking_room.png"s});
   /*Model::Builder builder;
   builder.vertices.push_back({{-0.5f, -0.5f, 0.f},
                               {1.0f, 0.0f, 0.0f},
@@ -142,10 +139,10 @@ void run() {
 
     context.vulkan.globalPool =
         DescriptorPool::Builder(context)
-            .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT + 600)
+            .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT + MAX_TEXTURES)
             .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                          SwapChain::MAX_FRAMES_IN_FLIGHT)
-            .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 600)
+            .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_TEXTURES)
             .build();
 
     std::vector<std::unique_ptr<Buffer>> uboBuffers(
@@ -170,20 +167,20 @@ void run() {
                         VK_SHADER_STAGE_FRAGMENT_BIT)
             .build();
 
+    loadObjects(context);
+
     entitySys::init(context);
-    pointLightSys::init(context);
     axesSys::init(context);
-    particlesSys::init(context);
+    particleSys::init(context);
     freezeAnimationSys::init(context);
     waterSys::init(context);
-
-    loadObjects(context);
 
     std::vector<VkDescriptorSet> globalDescriptorSets(
         SwapChain::MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < globalDescriptorSets.size(); i++) {
       auto bufferInfo = uboBuffers[i]->descriptorInfo();
-      DescriptorWriter(*context.vulkan.globalDescriptorSetLayout, *context.vulkan.globalPool)
+      DescriptorWriter(*context.vulkan.globalDescriptorSetLayout,
+                       *context.vulkan.globalPool)
           .writeBuffer(0, &bufferInfo)
           .build(globalDescriptorSets[i]);
     }
@@ -207,19 +204,7 @@ void run() {
       context.camera.orientation = context.entities[0].transform.orientation;
       camera::calcViewYXZ(context);
 
-      const Transform &transform = context.entities[0].transform;
-      glm::vec3 forward = glm::rotate(
-          transform.orientation, glm::vec3(0.0f, 0.0f, 1.0f)); // Forward vector
-
-      glm::vec3 up = glm::rotate(transform.orientation,
-                                 glm::vec3(0.0f, -1.0f, 0.0f)); // Up vector
-
-      alListener3f(AL_POSITION, transform.position.x, transform.position.y,
-                   transform.position.z);
-      float orientationArray[6] = {forward.x, forward.y, forward.z,
-                                   up.x,      up.y,      up.z};
-      alListenerfv(AL_ORIENTATION, orientationArray);
-      updateAudio(glfwGetTime());
+      updateAudio(context);
 
       float aspect = renderer::getAspectRatio(context);
       camera::calcPerspectiveProjection(context, glm::radians(50.f), aspect,
@@ -242,7 +227,7 @@ void run() {
         ubo.aspectRatio = context.window.aspectRatio;
         if (glfwGetKey(context.window, GLFW_KEY_G))
           physicsSys::update(context);
-        pointLightSys::update(context, ubo);
+        particleSys::update(context, ubo);
         uboBuffers[frameIndex]->writeToBuffer(&ubo);
         uboBuffers[frameIndex]->flush();
 
@@ -251,10 +236,9 @@ void run() {
 
         // order here matters
         entitySys::render(context);
-        pointLightSys::render(context);
         axesSys::render(context);
         // freezeAnimationSys::render(context);
-        particlesSys::render(context);
+        particleSys::render(context);
         waterSys::render(context);
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
@@ -264,14 +248,12 @@ void run() {
     vkDeviceWaitIdle(context.vulkan.device);
 
     entitySys::cleanup(context);
-    pointLightSys::cleanup(context);
     axesSys::cleanup(context);
     freezeAnimationSys::cleanup(context);
-    particlesSys::cleanup(context);
+    particleSys::cleanup(context);
     waterSys::cleanup(context);
 
     context.entities.clear();
-    context.pointLights.clear();
     context.vulkan.globalDescriptorSetLayout = nullptr;
     context.vulkan.modelDescriptorSetLayout = nullptr;
     context.vulkan.globalPool = nullptr;

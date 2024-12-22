@@ -66,7 +66,7 @@ void init(EngineContext &context) {
   createPipeline(context);
   Transform transform{.position{60.f, 0.f, 0.f}, .scale{50.f, 1.f, 50.f}};
   entity = std::make_unique<Entity>(context, transform, "subdivided quad",
-                                    "models/quadsubdivided.obj");
+                                    "models/quadsubdivided.obj", false);
 }
 
 void cleanup(EngineContext &context) {
