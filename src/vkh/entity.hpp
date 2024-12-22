@@ -23,13 +23,6 @@ struct Transform {
   glm::mat3 normalMatrix();
 };
 
-// Point light structure
-struct PointLight {
-  glm::vec3 color{};
-  float lightIntensity = 1.0f;
-  Transform transform;
-};
-
 // RigidBody structure for physics properties
 struct RigidBody {
   glm::vec3 velocity{0.f};
@@ -49,7 +42,7 @@ struct Entity {
            RigidBody rigidBody = {});
     
     Entity(EngineContext& context, Transform transform, const std::string& name,
-           const std::string& modelFilepath, RigidBody rigidBody = {});
+           const std::string& modelFilepath, bool modelEnableTexture = true, RigidBody rigidBody = {});
     
     Entity(EngineContext& context, Transform transform, const std::string& name,
            const std::string& modelFilepath, const std::string& modelTextureFilepath,
