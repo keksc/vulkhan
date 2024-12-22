@@ -4,7 +4,14 @@
 #include "AudioFile.h"
 #include <AL/al.h>
 #include <AL/alc.h>
-#include <cmath>
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/quaternion.hpp>
+
+#include "entity.hpp"
 
 namespace vkh {
 ALCdevice *device = nullptr;
@@ -61,17 +68,23 @@ void initAudio() {
   alSource3f(source, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
 
   alSourcePlay(source);
+
+  alListenerf(AL_GAIN, 0.f); // mute master volume
 }
 
-void updateAudio(float elapsedTime) {
-  //float speed = 1.0f;
-  //float radius = 2.0f;
-  //float angle = speed * elapsedTime;
+void updateAudio(EngineContext &context) {
+  const Transform &transform = context.entities[0].transform;
+  glm::vec3 forward = glm::rotate(
+      transform.orientation, glm::vec3(0.0f, 0.0f, 1.0f)); // Forward vector
 
-  //float x = radius * cos(angle);
-  //float z = radius * sin(angle);
+  glm::vec3 up = glm::rotate(transform.orientation,
+                             glm::vec3(0.0f, -1.0f, 0.0f)); // Up vector
 
-  //alSource3f(source, AL_POSITION, x, 0.0f, z);
+  alListener3f(AL_POSITION, transform.position.x, transform.position.y,
+               transform.position.z);
+  float orientationArray[6] = {forward.x, forward.y, forward.z,
+                               up.x,      up.y,      up.z};
+  alListenerfv(AL_ORIENTATION, orientationArray);
 }
 
 void cleanupAudio() {

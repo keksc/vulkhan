@@ -16,22 +16,22 @@
 
 namespace vkh {
 struct Entity;
-struct PointLight;
+struct Particle {
+  glm::vec3 position{};
+  glm::vec3 color{};
+};
 class DescriptorPool;
 class DescriptorSetLayout;
 
-const int MAX_LIGHTS = 10;
+const int MAX_PARTICLES = 10;
+const int MAX_TEXTURES = 600;
 
 struct GlobalUbo {
   glm::mat4 projection{1.f};
   glm::mat4 view{1.f};
   glm::mat4 inverseView{1.f};
-  glm::vec4 ambientLightColor{1.f, 1.f, 1.f, .02f}; // w is intensity
-  struct {
-    glm::vec4 position{}; // ignore w
-    glm::vec4 color{};    // w is intensity
-  } pointLights[MAX_LIGHTS];
-  int numLights;
+  Particle particles[MAX_PARTICLES];
+  int numParticles;
   float aspectRatio;
 };
 
@@ -75,7 +75,7 @@ struct EngineContext {
     std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout;
   } vulkan;
   std::vector<Entity> entities;
-  std::vector<PointLight> pointLights;
+  std::vector<Particle> particles;
   struct {
     int frameIndex;
     float dt;

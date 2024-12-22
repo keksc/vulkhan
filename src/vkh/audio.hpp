@@ -1,7 +1,9 @@
 #pragma once
 
+#include "engineContext.hpp"
+
 namespace vkh {
 void initAudio();
 void cleanupAudio();
-void updateAudio(float elapsedTime);
+void updateAudio(EngineContext& context);
 } // namespace vkh

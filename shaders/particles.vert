@@ -1,19 +1,22 @@
 #version 450
 
-struct PointLight {
-  vec4 position; // ignore w
-  vec4 color; // w is intensity
+struct Particle {
+  vec3 position;
+  vec3 color;
 };
 
 layout(set = 0, binding = 0) uniform GlobalUbo {
   mat4 projection;
   mat4 view;
   mat4 invView;
-  vec4 ambientLightColor; // w is intensity
-  PointLight pointLights[10];
-  int numLights;
+  Particle particles[10];
+  int numParticles;
   float aspectRatio;
 } ubo;
+
+layout(push_constant) uniform Push {
+  int particleIndex;
+} push;
 
 const vec3 verts[6] = vec3[](
   vec3(0.0, 0.0, 1.0),
@@ -25,6 +28,6 @@ const vec3 verts[6] = vec3[](
 );
 
 void main() {
-  gl_Position = ubo.projection * ubo.view * vec4(verts[gl_VertexIndex], 1.0);
+  gl_Position = ubo.projection * ubo.view * vec4(ubo.particles[push.particleIndex].position, 1.0);
   gl_PointSize = 14.0;
 }

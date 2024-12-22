@@ -7,18 +7,17 @@ layout (location = 3) in vec2 uv;
 
 layout (location = 0) out vec4 outColor;
 
-struct PointLight {
-  vec4 position; // ignore w
-  vec4 color; // w is intensity
+struct Particle {
+  vec3 position;
+  vec3 color;
 };
 
 layout(set = 0, binding = 0) uniform GlobalUbo {
   mat4 projection;
   mat4 view;
   mat4 invView;
-  vec4 ambientLightColor; // w is intensity
-  PointLight pointLights[10];
-  int numLights;
+  Particle particles[10];
+  int numParticles;
   float aspectRatio;
 } ubo;
 
@@ -30,14 +29,15 @@ layout(push_constant) uniform Push {
 } push;
 
 void main() {
-  /*vec3 diffuseLight = ubo.ambientLightColor.xyz * ubo.ambientLightColor.w;
+  vec3 ambientLightColor = vec3(.02, .02, .02);
+  /*vec3 diffuseLight = ambientLightColor;
   vec3 specularLight = vec3(0.0);
   vec3 surfaceNormal = normalize(fragNormalWorld);
 
   vec3 cameraPosWorld = ubo.invView[3].xyz;
   vec3 viewDirection = normalize(cameraPosWorld - fragPosWorld);
 
-  for (int i = 0; i < ubo.numLights; i++) {
+  for (int i = 0; i < ubo.numParticles; i++) {
     PointLight light = ubo.pointLights[i];
     vec3 directionToLight = light.position.xyz - fragPosWorld;
     float attenuation = 1.0 / dot(directionToLight, directionToLight); // distance squared
@@ -57,5 +57,20 @@ void main() {
   }
   
   outColor = vec4(diffuseLight * fragColor + specularLight * fragColor, 1.0);*/
-  outColor = texture(texSampler, uv);
+
+  /*vec4 color = texture(texSampler, uv);
+  vec3 light = ubo.ambientLightColor.xyz * ubo.ambientLightColor.w;
+
+  vec3 surfaceNormal = normalize(fragNormalWorld);
+
+  vec3 cameraPosWorld = ubo.invView[3].xyz;
+  vec3 viewDirection = normalize(cameraPosWorld - fragPosWorld);
+  for(int i=0;i<ubo.numLights;i++) {
+    PointLight light = ubo.pointLights[i];
+    vec3 dirToLight = normalize(light.position.xyz*fragPosWorld);
+    light *= dot(surfaceNormal, dirToLight);
+  }
+  outColor = color*light;*/
+  vec4 color = texture(texSampler, uv);
+  outColor = color;
 }

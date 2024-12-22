@@ -3,10 +3,11 @@
 #include "../engineContext.hpp"
 
 namespace vkh {
-	namespace particlesSys {
-		void init(EngineContext& context);
-		void cleanup(EngineContext& context);
+namespace particleSys {
+void init(EngineContext &context);
+void cleanup(EngineContext &context);
 
-		void render(EngineContext& context);
-	};
-}  // namespace lve
+void update(EngineContext &context, GlobalUbo &ubo);
+void render(EngineContext &context);
+}; // namespace particlesSys
+} // namespace vkh

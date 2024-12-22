@@ -93,10 +93,10 @@ Entity::Entity(EngineContext &context, Transform transform,
     : transform(transform), rigidBody(rigidBody) {}
 
 Entity::Entity(EngineContext &context, Transform transform,
-               const std::string &name, const std::string &modelFilepath,
+               const std::string &name, const std::string &modelFilepath, bool modelEnableTexture,
                RigidBody rigidBody)
     : transform(transform), rigidBody(rigidBody),
-      model(std::make_unique<Model>(context, name, modelFilepath)) {}
+      model(std::make_unique<Model>(context, name, modelFilepath, modelEnableTexture)) {}
 
 Entity::Entity(EngineContext &context, Transform transform,
                const std::string &name, const std::string &modelFilepath,

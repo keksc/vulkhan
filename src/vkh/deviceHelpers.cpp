@@ -297,10 +297,10 @@ VkImageView createImageView(EngineContext &context, VkImage image,
   return imageView;
 }
 VkImage createTextureImage(EngineContext &context, VkDeviceMemory &imageMemory,
-                           const std::string& texturePath) {
+                           const std::string &texturePath) {
   int texWidth, texHeight, texChannels;
-  stbi_uc *pixels = stbi_load(texturePath.c_str(), &texWidth, &texHeight, &texChannels,
-                              STBI_rgb_alpha);
+  stbi_uc *pixels = stbi_load(texturePath.c_str(), &texWidth, &texHeight,
+                              &texChannels, STBI_rgb_alpha);
   VkDeviceSize imageSize = texWidth * texHeight * 4;
 
   if (!pixels) {
