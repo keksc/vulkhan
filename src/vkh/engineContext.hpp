@@ -50,7 +50,7 @@ struct EngineContext {
       return {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
     };
     float aspectRatio = static_cast<float>(width) / height;
-    operator GLFWwindow *() { return glfwWindow; };
+    operator GLFWwindow *() { return glfwWindow; }
     GLFWwindow *glfwWindow;
   } window;
   struct {
