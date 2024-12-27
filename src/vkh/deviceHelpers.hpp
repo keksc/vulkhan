@@ -35,10 +35,6 @@ QueueFamilyIndices findQueueFamilies(EngineContext &context,
 inline QueueFamilyIndices findPhysicalQueueFamilies(EngineContext &context) {
   return findQueueFamilies(context, context.vulkan.physicalDevice);
 }
-void createImageWithInfo(EngineContext &context,
-                         const VkImageCreateInfo &imageInfo,
-                         VkMemoryPropertyFlags properties, VkImage &image,
-                         VkDeviceMemory &imageMemory);
 VkFormat findSupportedFormat(EngineContext &context,
                              const std::vector<VkFormat> &candidates,
                              VkImageTiling tiling,
@@ -53,8 +49,12 @@ void transitionImageLayout(EngineContext &context, VkImage image,
                            VkImageLayout newLayout);
 void copyBufferToImage(EngineContext &context, VkBuffer buffer, VkImage image,
                        uint32_t width, uint32_t height);
-VkImage createTextureImage(EngineContext &context, VkDeviceMemory &imageMemory,
-                           const std::string &texturePath);
 VkImageView createImageView(EngineContext &context, VkImage image,
                             VkFormat format);
+std::vector<char> readFile(const std::string &filepath);
+uint32_t findMemoryType(EngineContext &context, uint32_t typeFilter,
+                        VkMemoryPropertyFlags properties);
+VkImage createImage(EngineContext& context, int w, int h, VkDeviceMemory &imageMemory,
+                           VkFormat format);
+VkImage createImageWithInfo(EngineContext& context, const VkImageCreateInfo &imageInfo, VkDeviceMemory &imageMemory);
 } // namespace vkh
