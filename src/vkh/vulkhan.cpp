@@ -10,12 +10,14 @@
 #include <AL/al.h>
 #include <fmt/format.h>
 #include <glm/gtx/quaternion.hpp>
+#include <stb/stb_truetype.h>
 
 #include "audio.hpp"
 #include "buffer.hpp"
 #include "camera.hpp"
 #include "cleanupVulkan.hpp"
 #include "descriptors.hpp"
+#include "deviceHelpers.hpp"
 #include "engineContext.hpp"
 #include "entity.hpp"
 #include "initVulkan.hpp"
@@ -23,6 +25,7 @@
 #include "renderer.hpp"
 #include "systems/axes.hpp"
 #include "systems/entities.hpp"
+#include "systems/font.hpp"
 #include "systems/freezeAnimation.hpp"
 #include "systems/particles.hpp"
 #include "systems/physics.hpp"
@@ -84,48 +87,18 @@ void loadObjects(EngineContext &context) {
                        .scale = {.5f, .5f, .5f}},
          .model = model});
   }*/
-  context.entities.push_back({context,
+  /*context.entities.push_back({context,
                               {.position = {0.f, GROUND_LEVEL, 1.f}},
                               "living room",
-                              "models/mainRoom.obj"});
+                              "models/mainRoom.obj"});*/
   context.entities.push_back(
       {context,
-       {.position = {0.f, GROUND_LEVEL - 1.f, 1.f},
+       {.position = {0.f, GROUND_LEVEL, 1.f},
         .orientation =
             glm::angleAxis(glm::pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f))},
        "viking room",
-       "models/morning_room.obj",
-       "textures/morning_room.jpg"s});
-  /*Model::Builder builder;
-  builder.vertices.push_back({{-0.5f, -0.5f, 0.f},
-                              {1.0f, 0.0f, 0.0f},
-                              {0.0f, 0.0f, 0.0f},
-                              {1.0f, 0.0f}});
-  builder.vertices.push_back({{0.5f, -0.5f, 0.f},
-                              {0.0f, 1.0f, 0.0f},
-                              {0.0f, 0.0f, 0.0f},
-                              {0.0f, 0.0f}});
-  builder.vertices.push_back({{0.5f, 0.5f, 0.f},
-                              {0.0f, 0.0f, 1.0f},
-                              {0.0f, 0.0f, 0.0f},
-                              {0.0f, 1.0f}});
-  builder.vertices.push_back({{-0.5f, -0.5f, 0.f},
-                              {1.0f, 1.0f, 1.0f},
-                              {0.0f, 0.0f, 0.0f},
-                              {1.0f, 0.0f}});
-  builder.vertices.push_back({{-0.5f, 0.5f, 0.f},
-                              {1.0f, 1.0f, 1.0f},
-                              {0.0f, 0.0f, 0.0f},
-                              {1.0f, 1.0f}});
-  builder.vertices.push_back({{0.5f, 0.5f, 0.f},
-                              {1.0f, 1.0f, 1.0f},
-                              {0.0f, 0.0f, 0.0f},
-                              {0.0f, 1.0f}});
-  std::shared_ptr<Model> model =
-      std::make_shared<Model>(context, "img", builder);
-  context.entities.push_back(
-      {.transform = {.position = {0.f, GROUND_LEVEL - 2.f, 1.f}},
-       .model = model});*/
+       "models/viking_room.obj",
+       "textures/viking_room.png"s});
 }
 void run() {
   EngineContext context{};
@@ -176,6 +149,7 @@ void run() {
     particleSys::init(context);
     freezeAnimationSys::init(context);
     waterSys::init(context);
+    fontSys::init(context);
 
     std::vector<VkDescriptorSet> globalDescriptorSets(
         SwapChain::MAX_FRAMES_IN_FLIGHT);
@@ -242,6 +216,7 @@ void run() {
         // freezeAnimationSys::render(context);
         particleSys::render(context);
         waterSys::render(context);
+        fontSys::render(context);
 
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
@@ -255,6 +230,7 @@ void run() {
     freezeAnimationSys::cleanup(context);
     particleSys::cleanup(context);
     waterSys::cleanup(context);
+    fontSys::cleanup(context);
 
     context.entities.clear();
     context.vulkan.globalDescriptorSetLayout = nullptr;

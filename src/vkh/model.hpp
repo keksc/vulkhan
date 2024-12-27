@@ -4,9 +4,10 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 
-#include "debug.hpp"
 #include "buffer.hpp"
+#include "debug.hpp"
 #include "engineContext.hpp"
+#include "image.hpp"
 
 #include <memory>
 #include <string>
@@ -37,6 +38,11 @@ public:
         const std::string &filepath, bool disableTexture = false);
   Model(EngineContext &context, const std::string &name,
         const std::string &filepath, const std::string &texturepath);
+  Model(EngineContext &context, const std::string &name,
+        std::vector<Vertex> vertices, std::vector<uint32_t> indices);
+  Model(EngineContext &context, const std::string &name,
+        std::vector<Vertex> vertices, std::vector<uint32_t> indices,
+        std::shared_ptr<Image> image);
   ~Model();
 
   Model(const Model &) = delete;
@@ -52,15 +58,6 @@ private:
   void createVertexBuffer(const std::vector<Vertex> &vertices);
   void createIndexBuffer(const std::vector<uint32_t> &indices);
   void createDescriptors();
-  void createDefaultBlackTextureImage();
-  inline void setDebugObjNames() {
-    debug::setObjName(context, fmt::format("{} image", name),
-                      VK_OBJECT_TYPE_IMAGE, textureImage);
-    debug::setObjName(context, fmt::format("{} image view", name),
-                      VK_OBJECT_TYPE_IMAGE_VIEW, textureImageView);
-    debug::setObjName(context, fmt::format("{} image memory", name),
-                      VK_OBJECT_TYPE_DEVICE_MEMORY, textureImageMemory);
-  };
 
   EngineContext &context;
 
@@ -73,9 +70,7 @@ private:
 
   bool enableTexture = true;
 
-  VkImage textureImage;
-  VkDeviceMemory textureImageMemory;
-  VkImageView textureImageView;
+  std::shared_ptr<Image> image;
   VkDescriptorSet textureDescriptorSet;
 };
 } // namespace vkh

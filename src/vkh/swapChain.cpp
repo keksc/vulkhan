@@ -198,7 +198,8 @@ void SwapChain::createSwapChain() {
 void SwapChain::createImageViews() {
   swapChainImageViews.resize(swapChainImages.size());
   for (size_t i = 0; i < swapChainImages.size(); i++) {
-    swapChainImageViews[i] = createImageView(context, swapChainImages[i], swapChainImageFormat);
+    swapChainImageViews[i] =
+        createImageView(context, swapChainImages[i], swapChainImageFormat);
   }
 }
 
@@ -315,8 +316,8 @@ void SwapChain::createDepthResources() {
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.flags = 0;
 
-    createImageWithInfo(context, imageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                        depthImages[i], depthImageMemorys[i]);
+    depthImages[i] =
+        createImageWithInfo(context, imageInfo, depthImageMemorys[i]);
 
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
