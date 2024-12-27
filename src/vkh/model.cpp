@@ -1,7 +1,5 @@
 #include "model.hpp"
-
-#include "utils.hpp"
-#include <vulkan/vulkan_core.h>
+#include <memory>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
@@ -11,6 +9,8 @@
 
 #include "descriptors.hpp"
 #include "deviceHelpers.hpp"
+#include "image.hpp"
+#include "utils.hpp"
 
 #include <cassert>
 #include <cstring>
@@ -30,11 +30,6 @@ template <> struct hash<vkh::Model::Vertex> {
 namespace vkh {
 
 Model::~Model() {
-  if (enableTexture) {
-    vkDestroyImageView(context.vulkan.device, textureImageView, nullptr);
-    vkDestroyImage(context.vulkan.device, textureImage, nullptr);
-    vkFreeMemory(context.vulkan.device, textureImageMemory, nullptr);
-  }
   fmt::print("{} model {}\n",
              fmt::styled("destroyed", fmt::fg(fmt::color::red)),
              fmt::styled(name, fg(fmt::color::yellow)));
@@ -118,8 +113,8 @@ void Model::bind(EngineContext &context, VkCommandBuffer commandBuffer,
                          VK_INDEX_TYPE_UINT32);
   }
   if (enableTexture) {
-    VkDescriptorSet descriptorSets[] = {context.frameInfo.globalDescriptorSet,
-                                        textureDescriptorSet};
+    VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
+                                         textureDescriptorSet};
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                             pipelineLayout, 0, 2, descriptorSets, 0, nullptr);
   } else {
@@ -214,72 +209,23 @@ void Model::loadModel(const std::string &filepath) {
 void Model::createDescriptors() {
   VkDescriptorImageInfo imageInfo{};
   imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  imageInfo.imageView = textureImageView;
+  imageInfo.imageView = image->getImageView();
   imageInfo.sampler = context.vulkan.modelSampler;
   DescriptorWriter(*context.vulkan.modelDescriptorSetLayout,
                    *context.vulkan.globalPool)
       .writeImage(0, &imageInfo)
       .build(textureDescriptorSet);
 }
-void Model::createDefaultBlackTextureImage() {
-  uint32_t blackPixel = 0xff000000;
-  VkDeviceSize imageSize = sizeof(blackPixel);
-  VkBuffer stagingBuffer;
-  VkDeviceMemory stagingBufferMemory;
-  createBuffer(context, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-               stagingBuffer, stagingBufferMemory);
-
-  void *data;
-  vkMapMemory(context.vulkan.device, stagingBufferMemory, 0, imageSize, 0,
-              &data);
-  memcpy(data, &blackPixel, static_cast<size_t>(imageSize));
-  vkUnmapMemory(context.vulkan.device, stagingBufferMemory);
-
-  VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-                              .imageType = VK_IMAGE_TYPE_2D,
-                              .format = VK_FORMAT_R8G8B8A8_SRGB,
-                              .mipLevels = 1,
-                              .arrayLayers = 1,
-                              .samples = VK_SAMPLE_COUNT_1_BIT,
-                              .tiling = VK_IMAGE_TILING_OPTIMAL,
-                              .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                       VK_IMAGE_USAGE_SAMPLED_BIT,
-                              .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-                              .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
-  imageInfo.extent.width = 1;
-  imageInfo.extent.height = 1;
-  imageInfo.extent.depth = 1;
-
-  createImageWithInfo(context, imageInfo, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                      textureImage, textureImageMemory);
-
-  transitionImageLayout(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB,
-                        VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  copyBufferToImage(context, stagingBuffer, textureImage,
-                    static_cast<uint32_t>(1), static_cast<uint32_t>(1));
-  transitionImageLayout(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-  vkDestroyBuffer(context.vulkan.device, stagingBuffer, nullptr);
-  vkFreeMemory(context.vulkan.device, stagingBufferMemory, nullptr);
-}
 Model::Model(EngineContext &context, const std::string &name,
              const std::string &filepath, bool enableTexture)
     : context{context}, name{name}, enableTexture{enableTexture} {
   loadModel(filepath);
   if (enableTexture) {
-    createDefaultBlackTextureImage();
-    textureImageView =
-        createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
+    image = std::make_shared<Image>(context, name, 0xff000000);
     createDescriptors();
     fmt::print("{} model {} with default black texture\n",
                fmt::styled("created", fmt::fg(fmt::color::light_green)),
                fmt::styled(name, fg(fmt::color::yellow)));
-    setDebugObjNames();
   } else {
     fmt::print("{} model {} without a texture\n",
                fmt::styled("created", fmt::fg(fmt::color::light_green)),
@@ -289,15 +235,32 @@ Model::Model(EngineContext &context, const std::string &name,
 Model::Model(EngineContext &context, const std::string &name,
              const std::string &filepath, const std::string &texturepath)
     : context{context}, name{name} {
+  image = std::make_shared<Image>(context, name, texturepath);
   loadModel(filepath);
-  textureImage = createTextureImage(context, textureImageMemory, texturepath);
-  textureImageView =
-      createImageView(context, textureImage, VK_FORMAT_R8G8B8A8_SRGB);
   createDescriptors();
   fmt::print("{} model {} with texture {}\n",
              fmt::styled("created", fmt::fg(fmt::color::light_green)),
              fmt::styled(name, fg(fmt::color::yellow)),
              fmt::styled(texturepath, fg(fmt::color::azure)));
-  setDebugObjNames();
+}
+Model::Model(EngineContext &context, const std::string &name,
+             std::vector<Vertex> vertices, std::vector<uint32_t> indices)
+    : context{context}, name{name}, enableTexture{false} {
+  createVertexBuffer(vertices);
+  createIndexBuffer(indices);
+  fmt::print("{} model {} without a texture from vertices and indices\n",
+             fmt::styled("created", fmt::fg(fmt::color::light_green)),
+             fmt::styled(name, fg(fmt::color::yellow)));
+}
+Model::Model(EngineContext &context, const std::string &name,
+             std::vector<Vertex> vertices, std::vector<uint32_t> indices,
+             std::shared_ptr<Image> image)
+    : context{context}, name{name}, image{image} {
+  createVertexBuffer(vertices);
+  createIndexBuffer(indices);
+  createDescriptors();
+  fmt::print("{} model {} without a texture from vertices and indices with an image\n",
+             fmt::styled("created", fmt::fg(fmt::color::light_green)),
+             fmt::styled(name, fg(fmt::color::yellow)));
 }
 } // namespace vkh
