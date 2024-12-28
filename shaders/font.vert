@@ -22,6 +22,8 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 } ubo;
 
 void main() {
-  gl_Position = vec4(position, 1.0);
+  vec3 pos = position;
+  //pos.x *= ubo.aspectRatio;
+  gl_Position = vec4(pos, 1.0);
   fragUv = uv;
 }
