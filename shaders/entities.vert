@@ -15,11 +15,13 @@ struct Particle {
   vec3 color;
 };
 
+const int MAX_PARTICLES = 10;
+
 layout(set = 0, binding = 0) uniform GlobalUbo {
   mat4 projection;
   mat4 view;
-  mat4 invView;
-  Particle particles[10];
+  mat4 inverseView;
+  Particle particles[MAX_PARTICLES];
   int numParticles;
   float aspectRatio;
 } ubo;

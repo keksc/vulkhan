@@ -13,7 +13,6 @@ namespace vkh {
 		void cleanup(EngineContext& context);
 
 		VkRenderPass getSwapChainRenderPass(EngineContext& context);
-		float getAspectRatio(EngineContext& context);
 		bool isFrameInProgress();
 
 		VkCommandBuffer getCurrentCommandBuffer();

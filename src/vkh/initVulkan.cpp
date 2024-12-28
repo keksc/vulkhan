@@ -305,11 +305,10 @@ void displayInitInfo(EngineContext &context) {
       "{:<30} {:<25}\n", "Device Type",
       deviceTypeToString(context.vulkan.physicalDeviceProperties.deviceType));
   fmt::print(
-      "{:<30} {}.{}.{}", "API Version",
+      "{:<30} {}.{}.{}\n", "API Version",
       VK_VERSION_MAJOR(context.vulkan.physicalDeviceProperties.apiVersion),
       VK_VERSION_MINOR(context.vulkan.physicalDeviceProperties.apiVersion),
       VK_VERSION_PATCH(context.vulkan.physicalDeviceProperties.apiVersion));
-  fmt::print("{:<25}\n", "Vulkan API Version");
 
   // Window Info
   fmt::print("{:<30} {:<25}\n", "Window Resolution",
