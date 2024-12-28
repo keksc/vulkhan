@@ -69,7 +69,6 @@ namespace vkh {
 		bool isFrameStarted{ false };
 
 		VkRenderPass getSwapChainRenderPass(EngineContext& context) { return context.vulkan.swapChain->renderPass; }
-		float getAspectRatio(EngineContext& context) { return context.vulkan.swapChain->extentAspectRatio(); }
 		bool isFrameInProgress() { return isFrameStarted; }
 
 		VkCommandBuffer getCurrentCommandBuffer() {
