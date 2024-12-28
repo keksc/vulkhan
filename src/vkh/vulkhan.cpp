@@ -182,7 +182,7 @@ void run() {
 
       updateAudio(context);
 
-      float aspect = renderer::getAspectRatio(context);
+      float aspect = context.window.aspectRatio;
       camera::calcPerspectiveProjection(context, glm::radians(50.f), aspect,
                                         0.1f, 100.f);
 
@@ -200,7 +200,8 @@ void run() {
         ubo.projection = context.camera.projectionMatrix;
         ubo.view = context.camera.viewMatrix;
         ubo.inverseView = context.camera.inverseViewMatrix;
-        ubo.aspectRatio = context.window.aspectRatio;
+        ubo.aspectRatio = aspect;
+        fmt::print("{}\n", aspect);
         if (glfwGetKey(context.window, GLFW_KEY_G))
           physicsSys::update(context);
         particleSys::update(context, ubo);
