@@ -1,7 +1,6 @@
 #pragma once
 
 #include "engineContext.hpp"
-#include "model.hpp"
 
 #include <string>
 #include <vector>
@@ -13,10 +12,8 @@ struct PipelineConfigInfo {
   PipelineConfigInfo(const PipelineConfigInfo &) = delete;
   PipelineConfigInfo &operator=(const PipelineConfigInfo &) = delete;
 
-  std::vector<VkVertexInputBindingDescription> bindingDescriptions =
-      Model::Vertex::getBindingDescriptions();
-  std::vector<VkVertexInputAttributeDescription> attributeDescriptions =
-      Model::Vertex::getAttributeDescriptions();
+  std::vector<VkVertexInputBindingDescription> bindingDescriptions;
+  std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
   VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
       .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -85,6 +82,15 @@ private:
   VkShaderModule vertShaderModule;
   VkShaderModule fragShaderModule;
 };
-void createComputePipeline(EngineContext &context, const std::string &filepath,
-                           VkDescriptorSetLayout descriptorSetLayout);
+class ComputePipeline {
+  ComputePipeline(const ComputePipeline &) = delete;
+  ComputePipeline &operator=(const ComputePipeline &) = delete;
+
+private:
+  std::string name;
+
+  VkPipeline graphicsPipeline;
+  VkShaderModule vertShaderModule;
+  VkShaderModule fragShaderModule;
+};
 } // namespace vkh

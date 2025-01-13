@@ -47,9 +47,9 @@ Image::Image(EngineContext &context, const std::string &name,
   debug::setObjName(context, name, VK_OBJECT_TYPE_IMAGE, image);
 }
 Image::Image(EngineContext &context, const std::string &name, uint32_t color,
-             VkFormat format)
+             int w, int h, VkFormat format)
     : context{context} {
-  image = createImage(context, 1, 1, imageMemory, format);
+  image = createImage(context, w, h, imageMemory, format);
 
   Buffer stagingBuffer(context, name, sizeof(uint32_t), 1,
                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -76,7 +76,7 @@ Image::~Image() {
 Image::Image(EngineContext &context, const std::string &name, int w, int h,
              void *data, VkFormat format)
     : context{context} {
-  VkDeviceSize imageSize = w * h;
+  VkDeviceSize imageSize = w * h * 4;
   image = createImage(context, w, h, imageMemory, format);
 
   Buffer stagingBuffer(context, name, imageSize, 1,

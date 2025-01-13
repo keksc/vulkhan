@@ -2,16 +2,17 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
-#include <fmt/format.h>
 
 #include <cassert>
 #include <stdexcept>
 
+#include "../descriptors.hpp"
+#include "../model.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
-#include "../descriptors.hpp"
 
 namespace vkh {
 namespace freezeAnimationSys {
@@ -28,7 +29,8 @@ void createPipelineLayout(EngineContext &context) {
   pushConstantRange.offset = 0;
   pushConstantRange.size = sizeof(PushConstantData);
 
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout()};
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
+      context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout()};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -48,8 +50,6 @@ void createPipeline(EngineContext &context) {
 
   PipelineConfigInfo pipelineConfig{};
   Pipeline::enableAlphaBlending(pipelineConfig);
-  pipelineConfig.attributeDescriptions.clear();
-  pipelineConfig.bindingDescriptions.clear();
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipeline = std::make_unique<Pipeline>(
