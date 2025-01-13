@@ -14,6 +14,7 @@
 #include <stdexcept>
 
 #include "../descriptors.hpp"
+#include "../model.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
 
@@ -54,8 +55,6 @@ void createPipeline(EngineContext &context) {
 
   PipelineConfigInfo pipelineConfig{};
   Pipeline::enableAlphaBlending(pipelineConfig);
-  pipelineConfig.attributeDescriptions.clear();
-  pipelineConfig.bindingDescriptions.clear();
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;

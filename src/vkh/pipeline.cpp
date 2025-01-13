@@ -1,8 +1,8 @@
 #include "pipeline.hpp"
 
+#include "model.hpp"
 #include <fmt/color.h>
 #include <fmt/format.h>
-#include "model.hpp"
 
 #include <cassert>
 #include <fstream>
@@ -129,43 +129,5 @@ void Pipeline::enableAlphaBlending(PipelineConfigInfo &configInfo) {
   configInfo.colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
   configInfo.colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
   configInfo.colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-}
-
-void createComputePipeline(EngineContext &context,
-                           const std::string &filepath,
-                           VkDescriptorSetLayout descriptorSetLayout) {
-  VkShaderModule shaderModule;
-  auto compCode = readFile(filepath);
-  createShaderModule(context, compCode, &shaderModule);
-  VkPipelineShaderStageCreateInfo computeShaderStageInfo{};
-  computeShaderStageInfo.sType =
-      VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-  computeShaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-  computeShaderStageInfo.module = shaderModule;
-  computeShaderStageInfo.pName = "main";
-
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{descriptorSetLayout};
-
-  VkPipelineLayoutCreateInfo pipelineLayoutInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-      .setLayoutCount = static_cast<uint32_t>(descriptorSetLayouts.size()),
-      .pSetLayouts = descriptorSetLayouts.data()};
-
-  VkPipelineLayout pipelineLayout;
-  if (vkCreatePipelineLayout(context.vulkan.device, &pipelineLayoutInfo,
-                             nullptr, &pipelineLayout) != VK_SUCCESS)
-    throw std::runtime_error("failed to create pipeline layout!");
-  VkComputePipelineCreateInfo pipelineInfo{};
-  pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-  pipelineInfo.layout = pipelineLayout;
-  pipelineInfo.stage = computeShaderStageInfo;
-
-  VkPipeline pipeline;
-  if (vkCreateComputePipelines(context.vulkan.device, VK_NULL_HANDLE, 1, &pipelineInfo,
-                               nullptr, &pipeline) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create compute pipeline!");
-  }
-
-  vkDestroyShaderModule(context.vulkan.device, shaderModule, nullptr);
 }
 } // namespace vkh

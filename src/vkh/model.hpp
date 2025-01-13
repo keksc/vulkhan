@@ -5,7 +5,6 @@
 #include <glm/glm.hpp>
 
 #include "buffer.hpp"
-#include "debug.hpp"
 #include "engineContext.hpp"
 #include "image.hpp"
 
@@ -18,7 +17,6 @@ class Model {
 public:
   struct Vertex {
     glm::vec3 position{};
-    glm::vec3 color{};
     glm::vec3 normal{};
     glm::vec2 uv{};
 
@@ -28,8 +26,8 @@ public:
     getAttributeDescriptions();
 
     bool operator==(const Vertex &other) const {
-      return position == other.position && color == other.color &&
-             normal == other.normal && uv == other.uv;
+      return position == other.position && normal == other.normal &&
+             uv == other.uv;
     }
   };
   void loadModel(const std::string &filepath);

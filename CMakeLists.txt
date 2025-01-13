@@ -13,9 +13,10 @@ find_package(glfw3 3.3 REQUIRED)
 find_package(fmt REQUIRED)
 find_package(tinyobjloader REQUIRED)
 find_package(OpenAL REQUIRED)
+find_package(FFTW3 REQUIRED)
 
 link_libraries(Vulkan::Vulkan glfw fmt::fmt tinyobjloader::tinyobjloader
-               OpenAL::OpenAL)
+  OpenAL::OpenAL fftw3)
 file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   set(FLAGS WIN32)
@@ -62,4 +63,5 @@ file(COPY "${PROJECT_SOURCE_DIR}/fonts" DESTINATION "${PROJECT_BINARY_DIR}")
 install(TARGETS vulkhan DESTINATION bin)
 install(IMPORTED_RUNTIME_ARTIFACTS fmt::fmt glfw DESTINATION bin)
 install(FILES ${PROJECT_BINARY_DIR}/OpenAL32.dll DESTINATION bin)
-install(DIRECTORY ${PROJECT_BINARY_DIR}/shaders ${PROJECT_BINARY_DIR}/sounds ${PROJECT_BINARY_DIR}/models DESTINATION bin)
+install(DIRECTORY ${PROJECT_BINARY_DIR}/shaders ${PROJECT_BINARY_DIR}/sounds
+                  ${PROJECT_BINARY_DIR}/models DESTINATION bin)

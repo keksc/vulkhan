@@ -7,16 +7,16 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-#include <vector>
 #include <stdexcept>
+#include <vector>
 
 #include <cassert>
 
+#include "../descriptors.hpp"
 #include "../entity.hpp"
 #include "../model.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
-#include "../descriptors.hpp"
 
 namespace vkh {
 namespace entitySys {
@@ -35,7 +35,9 @@ void createPipelineLayout(EngineContext &context) {
   pushConstantRange.offset = 0;
   pushConstantRange.size = sizeof(PushConstantData);
 
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout(), context.vulkan.modelDescriptorSetLayout->getDescriptorSetLayout()};
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
+      context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout(),
+      context.vulkan.modelDescriptorSetLayout->getDescriptorSetLayout()};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -53,8 +55,11 @@ void createPipeline(EngineContext &context) {
          "Cannot create pipeline before pipeline layout");
 
   PipelineConfigInfo pipelineConfig{};
-  pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
+  pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
+  pipelineConfig.attributeDescriptions =
+      Model::Vertex::getAttributeDescriptions();
+  pipelineConfig.bindingDescriptions = Model::Vertex::getBindingDescriptions();
   pipeline = std::make_unique<Pipeline>(
       context, "entity system", "shaders/entities.vert.spv",
       "shaders/entities.frag.spv", pipelineConfig);
@@ -76,11 +81,11 @@ void render(EngineContext &context) {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);*/
 
-  for (auto& entity : context.entities) {
+  for (auto &entity : context.entities) {
     if (entity.model == nullptr)
       continue;
     auto &transform = entity.transform;
-    auto& model = entity.model;
+    auto &model = entity.model;
     PushConstantData push{};
     push.modelMatrix = transform.mat4();
     push.normalMatrix = transform.normalMatrix();

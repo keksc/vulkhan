@@ -1,9 +1,7 @@
 #version 450
 
-layout(location = 0) in vec3 position;
-layout(location = 1) in vec3 color;
-layout(location = 2) in vec3 normal;
-layout(location = 3) in vec2 uv;
+layout(location = 0) in vec2 position;
+layout(location = 1) in vec2 uv;
 
 layout(location = 0) out vec2 fragUv;
 
@@ -24,8 +22,8 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 } ubo;
 
 void main() {
-  vec3 pos = position;
+  vec2 pos = position;
   pos.x /= ubo.aspectRatio;
-  gl_Position = vec4(pos, 1.0);
+  gl_Position = vec4(pos, 0.0, 1.0);
   fragUv = uv;
 }

@@ -1,6 +1,4 @@
-#include "entities.hpp"
 #include <memory>
-#include <utility>
 #include <vulkan/vulkan_core.h>
 
 #define GLM_FORCE_RADIANS
@@ -17,18 +15,31 @@
 
 #include <cassert>
 
+#include "../buffer.hpp"
 #include "../descriptors.hpp"
 #include "../deviceHelpers.hpp"
-#include "../model.hpp"
+#include "../image.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
 
 namespace vkh {
 namespace fontSys {
 std::unique_ptr<Pipeline> pipeline;
+std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
+VkDescriptorSet descriptorSet;
+struct Vertex {
+  glm::vec2 position{};
+  glm::vec2 uv{};
+};
+std::vector<VkVertexInputAttributeDescription> attributeDescriptions = {
+    {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position)},
+    {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)}};
+std::vector<VkVertexInputBindingDescription> bindingDescriptions = {
+    {0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX}};
 VkPipelineLayout pipelineLayout;
 
-std::unique_ptr<Model> model;
+std::unique_ptr<Buffer> vertexBuffer;
+std::unique_ptr<Buffer> indexBuffer;
 
 std::vector<char> fontDataChar;
 unsigned char *fontData;
@@ -41,11 +52,47 @@ struct Glyph {
   float advance;
 };
 
-std::string text = "abcd";
+std::vector<Vertex> vertices;
+std::vector<uint32_t> indices;
 
 std::unordered_map<char, Glyph> glyphs;
 std::shared_ptr<Image> fontAtlas;
 
+const int maxCharCount = 30;
+const int maxVertexCount = 4 * maxCharCount; // 4 vertices = 1 quad = 1 glyph
+VkDeviceSize maxVertexSize = sizeof(Vertex) * maxVertexCount;
+const int maxIndexCount = maxCharCount * 6;
+VkDeviceSize maxIndexSize = sizeof(uint32_t) * 6 * maxCharCount;
+
+void createBuffers(EngineContext &context) {
+  vertexBuffer = std::make_unique<Buffer>(
+      context, "font vertex buffer", sizeof(Vertex), maxVertexCount,
+      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  vertexBuffer->map();
+
+  indexBuffer =
+      std::make_unique<Buffer>(context, "font index buffer", sizeof(uint32_t),
+                               maxIndexCount, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  indexBuffer->map();
+}
+void createDescriptors(EngineContext &context) {
+  descriptorSetLayout =
+      DescriptorSetLayout::Builder(context)
+          .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                      VK_SHADER_STAGE_FRAGMENT_BIT)
+          .build();
+  VkDescriptorImageInfo imageInfo{};
+  imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imageInfo.imageView = fontAtlas->getImageView();
+  imageInfo.sampler = context.vulkan.fontSampler;
+  DescriptorWriter(*descriptorSetLayout, *context.vulkan.globalPool)
+      .writeImage(0, &imageInfo)
+      .build(descriptorSet);
+}
 // struct PushConstantData {};
 
 void createPipelineLayout(EngineContext &context) {
@@ -57,7 +104,7 @@ void createPipelineLayout(EngineContext &context) {
 
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
       context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout(),
-      context.vulkan.modelDescriptorSetLayout->getDescriptorSetLayout()};
+      descriptorSetLayout->getDescriptorSetLayout()};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -75,8 +122,10 @@ void createPipeline(EngineContext &context) {
          "Cannot create pipeline before pipeline layout");
 
   PipelineConfigInfo pipelineConfig{};
-  pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
+  pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
+  pipelineConfig.attributeDescriptions = attributeDescriptions;
+  pipelineConfig.bindingDescriptions = bindingDescriptions;
   pipelineConfig.depthStencilInfo = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
       .depthTestEnable = false,
@@ -84,8 +133,8 @@ void createPipeline(EngineContext &context) {
       .depthCompareOp = VK_COMPARE_OP_LESS};
   Pipeline::enableAlphaBlending(pipelineConfig);
   pipeline = std::make_unique<Pipeline>(
-      context, "entity system", "shaders/font.vert.spv",
-      "shaders/font.frag.spv", pipelineConfig);
+      context, "font system", "shaders/font.vert.spv", "shaders/font.frag.spv",
+      pipelineConfig);
 }
 void initFont() {
   fontDataChar = readFile("fonts/Roboto-Regular.ttf");
@@ -122,7 +171,11 @@ void createGlyphs(EngineContext &context) {
     char c = i + 32;
     const stbtt_packedchar &pc = charInfo[i];
 
-    glm::vec2 size = {(pc.xoff2 - pc.xoff)/context.vulkan.swapChain->getSwapChainExtent().width, (pc.yoff2 - pc.yoff)/context.vulkan.swapChain->getSwapChainExtent().height};
+    glm::vec2 size = {
+        (pc.xoff2 - pc.xoff) /
+            context.vulkan.swapChain->getSwapChainExtent().width,
+        (pc.yoff2 - pc.yoff) /
+            context.vulkan.swapChain->getSwapChainExtent().height};
     glm::vec2 offset = {pc.xoff, pc.yoff};
     Glyph glyph{.size = size,
                 .offset = offset,
@@ -138,41 +191,63 @@ void createGlyphs(EngineContext &context) {
 void init(EngineContext &context) {
   initFont();
   createGlyphs(context);
-
-  glm::vec3 col(0.0);
-  glm::vec3 n(0.0);
-  auto ch = glyphs['b'];
-  float scale = 0.01f; // Adjust this value as needed
-
-  std::vector<Model::Vertex> vertices = {
-      {{0.f, 0.f, 0.0}, col, n, {ch.uvOffset.x, ch.uvOffset.y}},
-      {{ch.size.x, 0.f, 0.0},
-       col,
-       n,
-       {ch.uvOffset.x + ch.uvExtent.x, ch.uvOffset.y}},
-      {{ch.size.x, ch.size.y, 0.0},
-       col,
-       n,
-       {ch.uvOffset.x + ch.uvExtent.x, ch.uvOffset.y + ch.uvExtent.y}},
-      {{0.f, ch.size.y, 0.0},
-       col,
-       n,
-       {ch.uvOffset.x, ch.uvOffset.y + ch.uvExtent.y}},
-  };
-  std::vector<uint32_t> indices = {0, 1, 2, 0, 3, 2};
-
-  model = std::make_unique<Model>(context, "font atlas", vertices, indices,
-                                  fontAtlas);
+  createBuffers(context);
+  createDescriptors(context);
 
   createPipelineLayout(context);
   createPipeline(context);
 }
+void updateText(EngineContext &context, std::string text) {
+  vertices.clear();
+  indices.clear();
+  float cursorX = -0.8f; // empirical, TODO: make this be the true left border
+
+  // For each character in the text
+  for (size_t i = 0; i < text.length(); i++) {
+    char c = text[i];
+    auto &ch = glyphs[c];
+
+    // Calculate vertex positions for this character
+    float x0 = cursorX;
+    float x1 = x0 + ch.size.x;
+    float y0 = -1.f;
+    float y1 = ch.size.y + y0;
+
+    // Add four vertices for this character
+    uint32_t baseIndex = vertices.size();
+    vertices.push_back({{x0, y0}, {ch.uvOffset.x, ch.uvOffset.y}});
+    vertices.push_back(
+        {{x1, y0}, {ch.uvOffset.x + ch.uvExtent.x, ch.uvOffset.y}});
+    vertices.push_back(
+        {{x1, y1},
+
+         {ch.uvOffset.x + ch.uvExtent.x, ch.uvOffset.y + ch.uvExtent.y}});
+    vertices.push_back(
+        {{x0, y1}, {ch.uvOffset.x, ch.uvOffset.y + ch.uvExtent.y}});
+
+    // Add indices for this character's quad
+    indices.push_back(baseIndex + 0);
+    indices.push_back(baseIndex + 1);
+    indices.push_back(baseIndex + 2);
+    indices.push_back(baseIndex + 0);
+    indices.push_back(baseIndex + 2);
+    indices.push_back(baseIndex + 3);
+
+    // Move cursor to next character position
+    cursorX +=
+        ch.advance / context.vulkan.swapChain->getSwapChainExtent().width;
+  }
+  vertexBuffer->writeToBuffer(vertices.data());
+  indexBuffer->writeToBuffer(indices.data());
+}
 
 void cleanup(EngineContext &context) {
+  vertexBuffer = nullptr;
+  indexBuffer = nullptr;
   pipeline = nullptr;
   glyphs.clear();
   fontAtlas = nullptr;
-  model = nullptr;
+  descriptorSetLayout = nullptr;
   vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
 }
 
@@ -185,8 +260,21 @@ void render(EngineContext &context) {
                      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                      0, sizeof(PushConstantData), &push);*/
 
-  model->bind(context, context.frameInfo.commandBuffer, pipelineLayout);
-  model->draw(context.frameInfo.commandBuffer);
+  // model->bind(context, context.frameInfo.commandBuffer, pipelineLayout);
+  // model->draw(context.frameInfo.commandBuffer);
+  VkBuffer buffers[] = {vertexBuffer->getBuffer()};
+  VkDeviceSize offsets[] = {0};
+  vkCmdBindVertexBuffers(context.frameInfo.commandBuffer, 0, 1, buffers,
+                         offsets);
+  vkCmdBindIndexBuffer(context.frameInfo.commandBuffer,
+                       indexBuffer->getBuffer(), 0, VK_INDEX_TYPE_UINT32);
+  VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
+                                       descriptorSet};
+  vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 2,
+                          descriptorSets, 0, nullptr);
+
+  vkCmdDrawIndexed(context.frameInfo.commandBuffer, indices.size(), 1, 0, 0, 0);
 }
 } // namespace fontSys
 } // namespace vkh
