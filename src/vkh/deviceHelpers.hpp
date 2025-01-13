@@ -54,7 +54,12 @@ VkImageView createImageView(EngineContext &context, VkImage image,
 std::vector<char> readFile(const std::string &filepath);
 uint32_t findMemoryType(EngineContext &context, uint32_t typeFilter,
                         VkMemoryPropertyFlags properties);
-VkImage createImage(EngineContext& context, int w, int h, VkDeviceMemory &imageMemory,
-                           VkFormat format);
-VkImage createImageWithInfo(EngineContext& context, const VkImageCreateInfo &imageInfo, VkDeviceMemory &imageMemory);
+VkImage createImage(EngineContext &context, int w, int h,
+                    VkDeviceMemory &imageMemory, VkFormat format);
+VkImage createImageWithInfo(EngineContext &context,
+                            const VkImageCreateInfo &imageInfo,
+                            VkDeviceMemory &imageMemory);
+VkCommandBuffer beginSingleTimeCommands(EngineContext &context);
+void endSingleTimeCommands(EngineContext &context,
+                           VkCommandBuffer commandBuffer);
 } // namespace vkh

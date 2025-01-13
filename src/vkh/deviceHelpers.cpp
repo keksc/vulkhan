@@ -348,7 +348,8 @@ VkImage createImageWithInfo(EngineContext &context,
   allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   allocInfo.allocationSize = memRequirements.size;
   allocInfo.memoryTypeIndex =
-      findMemoryType(context, memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+      findMemoryType(context, memRequirements.memoryTypeBits,
+                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
   if (vkAllocateMemory(context.vulkan.device, &allocInfo, nullptr,
                        &imageMemory) != VK_SUCCESS) {
