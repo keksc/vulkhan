@@ -20,8 +20,7 @@ namespace std {
 template <> struct hash<vkh::Model::Vertex> {
   size_t operator()(vkh::Model::Vertex const &vertex) const {
     size_t seed = 0;
-    vkh::hashCombine(seed, vertex.position, vertex.color, vertex.normal,
-                     vertex.uv);
+    vkh::hashCombine(seed, vertex.position, vertex.normal, vertex.uv);
     return seed;
   }
 };
@@ -140,11 +139,9 @@ Model::Vertex::getAttributeDescriptions() {
   attributeDescriptions.push_back(
       {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)});
   attributeDescriptions.push_back(
-      {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)});
+      {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)});
   attributeDescriptions.push_back(
-      {2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)});
-  attributeDescriptions.push_back(
-      {3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)});
+      {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)});
 
   return attributeDescriptions;
 }
@@ -173,11 +170,6 @@ void Model::loadModel(const std::string &filepath) {
             attrib.vertices[3 * index.vertex_index + 0],
             attrib.vertices[3 * index.vertex_index + 1],
             attrib.vertices[3 * index.vertex_index + 2],
-        };
-        vertex.color = {
-            attrib.colors[3 * index.vertex_index + 0],
-            attrib.colors[3 * index.vertex_index + 1],
-            attrib.colors[3 * index.vertex_index + 2],
         };
       }
 
@@ -221,7 +213,7 @@ Model::Model(EngineContext &context, const std::string &name,
     : context{context}, name{name}, enableTexture{enableTexture} {
   loadModel(filepath);
   if (enableTexture) {
-    image = std::make_shared<Image>(context, name, 0xff000000);
+    image = std::make_shared<Image>(context, name, 0xff000000, 1, 1);
     createDescriptors();
     fmt::print("{} model {} with default black texture\n",
                fmt::styled("created", fmt::fg(fmt::color::light_green)),
@@ -259,8 +251,9 @@ Model::Model(EngineContext &context, const std::string &name,
   createVertexBuffer(vertices);
   createIndexBuffer(indices);
   createDescriptors();
-  fmt::print("{} model {} without a texture from vertices and indices with an image\n",
-             fmt::styled("created", fmt::fg(fmt::color::light_green)),
-             fmt::styled(name, fg(fmt::color::yellow)));
+  fmt::print(
+      "{} model {} without a texture from vertices and indices with an image\n",
+      fmt::styled("created", fmt::fg(fmt::color::light_green)),
+      fmt::styled(name, fg(fmt::color::yellow)));
 }
 } // namespace vkh
