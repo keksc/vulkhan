@@ -17,7 +17,6 @@
 #include "camera.hpp"
 #include "cleanupVulkan.hpp"
 #include "descriptors.hpp"
-#include "deviceHelpers.hpp"
 #include "engineContext.hpp"
 #include "entity.hpp"
 #include "initVulkan.hpp"
@@ -171,6 +170,7 @@ void run() {
               newTime - currentTime)
               .count();
       // fmt::print("FPS: {}\n", static_cast<int>(1.f / frameTime));
+      fontSys::updateText(context, "FPS: "s + std::to_string(1.f / frameTime));
       currentTime = newTime;
 
       context.frameInfo.dt = frameTime;
@@ -201,7 +201,6 @@ void run() {
         ubo.view = context.camera.viewMatrix;
         ubo.inverseView = context.camera.inverseViewMatrix;
         ubo.aspectRatio = aspect;
-        fmt::print("{}\n", aspect);
         if (glfwGetKey(context.window, GLFW_KEY_G))
           physicsSys::update(context);
         particleSys::update(context, ubo);

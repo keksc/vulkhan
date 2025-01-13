@@ -37,8 +37,6 @@ void createPipeline(EngineContext &context) {
 
   PipelineConfigInfo pipelineConfig{};
   Pipeline::enableAlphaBlending(pipelineConfig);
-  pipelineConfig.attributeDescriptions.clear();
-  pipelineConfig.bindingDescriptions.clear();
   pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;

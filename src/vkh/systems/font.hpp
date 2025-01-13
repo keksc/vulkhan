@@ -3,10 +3,11 @@
 #include "../engineContext.hpp"
 
 namespace vkh {
-	namespace fontSys {
-		void init(EngineContext& context);
-		void cleanup(EngineContext& context);
+namespace fontSys {
+void init(EngineContext &context);
+void cleanup(EngineContext &context);
 
-		void render(EngineContext& context);
-	};
-}  // namespace lve
+void updateText(EngineContext &context, std::string text);
+void render(EngineContext &context);
+}; // namespace fontSys
+} // namespace vkh
