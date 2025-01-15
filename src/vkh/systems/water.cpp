@@ -5,7 +5,6 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <fftw3.h>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
@@ -191,61 +190,6 @@ void createPipeline(EngineContext &context) {
   pipeline = std::make_unique<Pipeline>(
       context, "water system", "shaders/water.vert.spv",
       "shaders/water.frag.spv", pipelineConfig);
-}
-const double g = 9.81;           // gravitational constant
-const double alpha = 0.0081;     // Phillips constant
-const double gamma_factor = 3.3; // peak enhancement factor
-const double omega_peak = 0.84;
-
-// Function to compute the JONSWAP spectrum
-double jonswap_spectrum(double omega) {
-  if (omega <= 0)
-    return 0; // Avoid division by zero
-  double sigma_p = (omega <= omega_peak) ? 0.07 : 0.09;
-  double r =
-      exp(-pow((omega - omega_peak), 2) / (2 * pow(sigma_p * omega_peak, 2)));
-  return alpha * pow(g, 2) / pow(omega, 5) *
-         exp(-5.0 / 4.0 * pow((omega_peak / omega), 4)) * pow(gamma_factor, r);
-}
-
-// Function to generate the initial wave heights using the JONSWAP spectrum
-std::vector<std::complex<double>> generate_initial_wave_heights(int N,
-                                                                double L) {
-  std::vector<std::complex<double>> wave_heights(N * N);
-  double delta_k = 2 * M_PI / L;
-  for (int i = 0; i < N; ++i) {
-    for (int j = 0; j < N; ++j) {
-      double kx = (i - static_cast<float>(N) / 2) * delta_k;
-      double ky = (j - static_cast<float>(N) / 2) * delta_k;
-      double k = sqrt(kx * kx + ky * ky);
-      if (k == 0) { // Avoid division by zero
-        wave_heights[i * N + j] = std::complex<double>(0, 0);
-        continue;
-      }
-      double omega = sqrt(g * k);
-      double spectrum = jonswap_spectrum(omega);
-      wave_heights[i * N + j] = std::polar(
-          sqrt(spectrum / 2), 2 * M_PI * ((double)rand() / RAND_MAX));
-    }
-  }
-  return wave_heights;
-}
-
-// Function to perform the inverse FFT and generate the ocean surface
-void generate_ocean_surface(std::vector<std::complex<double>> &wave_heights,
-                            int N) {
-  // Perform inverse FFT
-  fftw_plan plan = fftw_plan_dft_2d(
-      N, N, reinterpret_cast<fftw_complex *>(wave_heights.data()),
-      reinterpret_cast<fftw_complex *>(wave_heights.data()), FFTW_BACKWARD,
-      FFTW_ESTIMATE);
-  fftw_execute(plan);
-  fftw_destroy_plan(plan);
-
-  // Normalize the result
-  for (auto &height : wave_heights) {
-    height /= (N * N);
-  }
 }
 void init(EngineContext &context) {
   int N = 256;
