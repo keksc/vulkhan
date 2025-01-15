@@ -10,7 +10,6 @@
 #include <AL/al.h>
 #include <fmt/format.h>
 #include <glm/gtx/quaternion.hpp>
-#include <stb/stb_truetype.h>
 
 #include "audio.hpp"
 #include "buffer.hpp"
