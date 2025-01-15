@@ -8,8 +8,11 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 #define STB_TRUETYPE_IMPLEMENTATION
+#ifdef WIN32
+#include <stb_truetype.h>
+#else
 #include <stb/stb_truetype.h>
-
+#endif
 #include <stdexcept>
 #include <vector>
 
