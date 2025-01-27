@@ -1,18 +1,21 @@
 #include "water.hpp"
+
 #include <GLFW/glfw3.h>
-#include <algorithm>
+#include <glm/exponential.hpp>
+#include <glm/ext/scalar_constants.hpp>
 #include <vulkan/vulkan_core.h>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <fftw3.h>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <complex>
+#include <fstream>
 #include <memory>
+#include <random>
 #include <stdexcept>
 
 #include <cassert>
@@ -192,78 +195,116 @@ void createPipeline(EngineContext &context) {
       context, "water system", "shaders/water.vert.spv",
       "shaders/water.frag.spv", pipelineConfig);
 }
-const double g = 9.81;           // gravitational constant
-const double alpha = 0.0081;     // Phillips constant
-const double gamma_factor = 3.3; // peak enhancement factor
-const double omega_peak = 0.84;
 
-// Function to compute the JONSWAP spectrum
-double jonswap_spectrum(double omega) {
-  if (omega <= 0)
-    return 0; // Avoid division by zero
-  double sigma_p = (omega <= omega_peak) ? 0.07 : 0.09;
-  double r =
-      exp(-pow((omega - omega_peak), 2) / (2 * pow(sigma_p * omega_peak, 2)));
-  return alpha * pow(g, 2) / pow(omega, 5) *
-         exp(-5.0 / 4.0 * pow((omega_peak / omega), 4)) * pow(gamma_factor, r);
+const float sigma1 = 0.07f;
+const float sigma2 = 0.09f;
+const float g = 9.81f;
+const float a = 0.013365746443f;
+const float hs = 11.f;
+const float tp = 3.874025875f;
+const float fm = 1.f / tp;
+const float peakEnhancementFactor = 3.3f;
+
+float jonswapSpectrum(float f) {
+    const float sigma = (f <= fm) ? sigma1 : sigma2;
+    float b = glm::exp(-(1.f / (2.f * glm::pow(sigma, 2))) * glm::pow(f / fm - 1, 2));
+    float spectrum = (a * glm::pow(g, 2)) * (glm::pow(2 * glm::pi<float>(), -4)) * glm::pow(f, -5) *
+                     glm::exp(-(5.f / 4.f) * glm::pow(f / fm, -4)) *
+                     glm::pow(peakEnhancementFactor, b);
+
+    return spectrum;
 }
 
-// Function to generate the initial wave heights using the JONSWAP spectrum
-std::vector<std::complex<double>> generate_initial_wave_heights(int N,
-                                                                double L) {
-  std::vector<std::complex<double>> wave_heights(N * N);
-  double delta_k = 2 * M_PI / L;
-  for (int i = 0; i < N; ++i) {
-    for (int j = 0; j < N; ++j) {
-      double kx = (i - static_cast<float>(N) / 2) * delta_k;
-      double ky = (j - static_cast<float>(N) / 2) * delta_k;
-      double k = sqrt(kx * kx + ky * ky);
-      if (k == 0) { // Avoid division by zero
-        wave_heights[i * N + j] = std::complex<double>(0, 0);
-        continue;
-      }
-      double omega = sqrt(g * k);
-      double spectrum = jonswap_spectrum(omega);
-      wave_heights[i * N + j] = std::polar(
-          sqrt(spectrum / 2), 2 * M_PI * ((double)rand() / RAND_MAX));
+// FFT function
+void fft(std::vector<std::complex<float>>& a) {
+    int n = a.size();
+    if (n <= 1) return;
+
+    std::vector<std::complex<float>> even(n / 2), odd(n / 2);
+    for (int i = 0; i < n / 2; ++i) {
+        even[i] = a[i * 2];
+        odd[i] = a[i * 2 + 1];
     }
-  }
-  return wave_heights;
+
+    fft(even);
+    fft(odd);
+
+    for (int i = 0; i < n / 2; ++i) {
+        std::complex<float> t = std::polar(1.0f, -2.0f * glm::pi<float>() * i / n) * odd[i];
+        a[i] = even[i] + t;
+        a[i + n / 2] = even[i] - t;
+    }
 }
 
-// Function to perform the inverse FFT and generate the ocean surface
-void generate_ocean_surface(std::vector<std::complex<double>> &wave_heights,
-                            int N) {
-  // Perform inverse FFT
-  fftw_plan plan = fftw_plan_dft_2d(
-      N, N, reinterpret_cast<fftw_complex *>(wave_heights.data()),
-      reinterpret_cast<fftw_complex *>(wave_heights.data()), FFTW_BACKWARD,
-      FFTW_ESTIMATE);
-  fftw_execute(plan);
-  fftw_destroy_plan(plan);
-
-  // Normalize the result
-  for (auto &height : wave_heights) {
-    height /= (N * N);
-  }
+// IFFT function
+void ifft(std::vector<std::complex<float>>& a) {
+    for (auto& x : a) x = conj(x);
+    fft(a);
+    for (auto& x : a) x = conj(x);
+    for (auto& x : a) x /= a.size();
 }
-void init(EngineContext &context) {
-  int N = 256;
 
-  generateGridMesh(N, N, vertices, indices);
-  createVertexBuffer(context);
-  createIndexBuffer(context);
+void init(EngineContext& context) {
+    const int N = 256;
+    const float L = 100.f;
 
-  std::vector<float> heightData(N * N);
+    generateGridMesh(N, N, vertices, indices);
+    createVertexBuffer(context);
+    createIndexBuffer(context);
 
-  heightFieldImage =
-      std::make_unique<Image>(context, "height field image", N, N,
-                              heightData.data(), VK_FORMAT_R32_SFLOAT);
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::normal_distribution<float> dis(0.f, 1.f);
 
-  createDescriptors(context);
+    std::vector<std::complex<float>> h_tilde0(N * N);
+    std::vector<std::complex<float>> h_tilde(N * N);
 
-  createPipelineLayout(context);
-  createPipeline(context);
+    // Generate initial Fourier amplitudes
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            float kx = (i - static_cast<float>(N) / 2) * (2.0f * glm::pi<float>() / L);
+            float ky = (j - static_cast<float>(N) / 2) * (2.0f * glm::pi<float>() / L);
+            float k = sqrt(kx * kx + ky * ky);
+            float f = k / (2.0f * glm::pi<float>());
+            if (f < 0.01f || f > 1.0f) {
+                h_tilde0[i * N + j] = 0.0f;
+                continue;
+            }
+            float S = jonswapSpectrum(f);
+            float real = dis(gen) * sqrt(S / 2.0f);
+            float imag = dis(gen) * sqrt(S / 2.0f);
+            h_tilde0[i * N + j] = std::complex<float>(real, imag);
+        }
+    }
+
+    // Compute Fourier amplitudes at time t (t = 0 for initial height field)
+    std::copy(h_tilde0.begin(), h_tilde0.end(), h_tilde.begin());
+
+    // Apply the IFFT to get the height field
+    ifft(h_tilde);
+
+    // Save the height field data to a vector
+    std::vector<float> heightData(glm::pow(N, 2));
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            heightData[i * N + j] = h_tilde[i * N + j].real();
+        }
+    }
+
+    // Optionally, write the heightData to a file for visualization
+    std::ofstream height_outfile("/home/kekw/data.dat");
+    height_outfile.clear();
+    for (float f = 0.01f; f <= 1.0f; f += 0.001f) {
+        float spectrum = jonswapSpectrum(f);
+        height_outfile << f << " " << spectrum << std::endl;
+    }
+    height_outfile.close();
+
+    heightFieldImage = std::make_unique<Image>(context, "height field image", N, N, heightData.data(), VK_FORMAT_R32_SFLOAT);
+
+    createDescriptors(context);
+    createPipelineLayout(context);
+    createPipeline(context);
 }
 
 void cleanup(EngineContext &context) {

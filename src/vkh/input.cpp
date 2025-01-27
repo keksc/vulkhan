@@ -14,8 +14,8 @@ namespace vkh {
 namespace input {
 float moveSpeed{5.f};
 float lookSpeed{1.5f};
-void key_callback(GLFWwindow *window, int key, int scancode, int action,
-                  int mods) {
+void keyCallback(GLFWwindow *window, int key, int scancode, int action,
+                 int mods) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   if (key == GLFW_KEY_O && action == GLFW_PRESS) {
@@ -52,21 +52,32 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action,
   }
 }
 glm::vec2 mousePos;
-static void cursor_position_callback(GLFWwindow *window, double xpos,
-                                     double ypos) {
+static void cursorPositionCallback(GLFWwindow *window, double xpos,
+                                   double ypos) {
   mousePos.x = static_cast<float>(xpos);
   mousePos.y = static_cast<float>(ypos);
 }
 int scroll{};
-void scroll_callback(GLFWwindow *window, double xoffset, double yoffset) {
+void scrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
   scroll += static_cast<int>(yoffset);
+}
+void animateDagger() {}
+void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
+  auto context =
+      reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
+  if (button == GLFW_MOUSE_BUTTON_LEFT) {
+    animateDagger();
+  }
+  if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+  }
 }
 void init(EngineContext &context) {
   glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
   glfwSetInputMode(context.window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-  glfwSetKeyCallback(context.window, key_callback);
-  glfwSetCursorPosCallback(context.window, cursor_position_callback);
-  glfwSetScrollCallback(context.window, scroll_callback);
+  glfwSetKeyCallback(context.window, keyCallback);
+  glfwSetCursorPosCallback(context.window, cursorPositionCallback);
+  glfwSetScrollCallback(context.window, scrollCallback);
+  glfwSetMouseButtonCallback(context.window, mouseButtonCallback);
 }
 
 void moveInPlaneXZ(EngineContext &context) {

@@ -42,7 +42,22 @@
 using namespace std::string_literals;
 
 namespace vkh {
+const glm::vec3 daggerOffset = {0.5f, -0.5f, 1.2f};
 void loadObjects(EngineContext &context) {
+  auto &playerTransform = context.entities[0].transform;
+  glm::vec3 daggerOffsetWorld = playerTransform.orientation * daggerOffset;
+  glm::vec3 daggerPosition = playerTransform.position + daggerOffsetWorld;
+  glm::quat daggerOrientation =
+      playerTransform.orientation *
+      glm::angleAxis(glm::pi<float>() * -0.5f, glm::vec3(0.0f, 1.0f, 0.0f)) *
+      glm::angleAxis(glm::pi<float>() * 0.5f, glm::vec3(1.0f, 0.0f, 0.0f));
+  context.entities.push_back({context,
+                              {.position = daggerPosition,
+                               .scale = {0.5f, 0.5f, 0.5f},
+                               .orientation = daggerOrientation},
+                              "dagger",
+                              "models/dagger.obj"});
+
   context.entities.push_back(
       {context,
        {.position{-.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
@@ -70,7 +85,7 @@ void loadObjects(EngineContext &context) {
         {0.f, -1.f, 0.f});
     context.particles.push_back(
         {.position = rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f),
-         .color = glm::vec4(lightColors[i], 1.0)});
+         .color = glm::vec4(lightColors[i], 1.0f)});
   }
   /*
   model = Model::createModelFromFile(context, "cube", "models/cube.obj");
@@ -93,16 +108,28 @@ void loadObjects(EngineContext &context) {
   context.entities.push_back(
       {context,
        {.position = {0.f, GROUND_LEVEL, 1.f},
-        .orientation =
-            glm::angleAxis(glm::pi<float>(), glm::vec3(1.0f, 0.0f, 0.0f))},
+        .orientation = glm::angleAxis(glm::pi<float>() * 0.5f,
+                                      glm::vec3(1.0f, 0.0f, 0.0f)) *
+                       glm::angleAxis(glm::pi<float>() * -0.5f,
+                                      glm::vec3(0.0f, 0.0f, 1.0f))},
        "viking room",
        "models/viking_room.obj",
        "textures/viking_room.png"s});
+  context.particles.push_back({{1.0f, -2.0f, -1.0f}, {1.0f, 1.0f, 1.0f}});
+}
+void updateObjs(EngineContext &context) {
+  auto &dagger = context.entities[1];
+  auto &playerTransform = context.entities[0].transform;
+  glm::vec3 daggerOffsetWorld = playerTransform.orientation * daggerOffset;
+  glm::vec3 daggerPosition = playerTransform.position + daggerOffsetWorld;
+  glm::quat daggerOrientation =
+      playerTransform.orientation *
+      glm::angleAxis(glm::pi<float>() * -0.5f, glm::vec3(0.0f, 1.0f, 0.0f));
+  dagger.transform.position = playerTransform.position + daggerOffsetWorld;
+  dagger.transform.orientation = daggerOrientation;
 }
 void run() {
   EngineContext context{};
-  context.entities.push_back(
-      {context, {.position = {0.f, GROUND_LEVEL, 0.f}}, "player"});
   initWindow(context);
   initVulkan(context);
   initAudio();
@@ -141,6 +168,8 @@ void run() {
                         VK_SHADER_STAGE_FRAGMENT_BIT)
             .build();
 
+    context.entities.push_back(
+        {context, {.position = {0.f, GROUND_LEVEL, 0.f}}, "player"});
     loadObjects(context);
 
     entitySys::init(context);
@@ -173,7 +202,6 @@ void run() {
       fontSys::updateText(context, "FPS: "s + std::to_string(1.f / frameTime));
       currentTime = newTime;
 
-      context.frameInfo.dt = frameTime;
       input::moveInPlaneXZ(context);
       context.camera.position = context.entities[0].transform.position +
                                 glm::vec3{0.f, camera::HEIGHT, 0.f};
@@ -196,6 +224,7 @@ void run() {
         };
 
         // update
+        updateObjs(context);
         GlobalUbo ubo{};
         ubo.projection = context.camera.projectionMatrix;
         ubo.view = context.camera.viewMatrix;

@@ -30,7 +30,7 @@ layout(push_constant) uniform Push {
 } push;
 
 void main() {
-  /*vec4 color = texture(texSampler, uv);
+    /*vec4 color = texture(texSampler, uv);
   vec3 ambientLightColor = vec3(.02, .02, .02);
   vec3 diffuseLight = ambientLightColor+color.xyz;
   vec3 specularLight = vec3(0.0);
@@ -60,19 +60,10 @@ void main() {
   
   outColor = vec4(diffuseLight * fragColor + specularLight * fragColor, 1.0);*/
 
-  /*vec4 color = texture(texSampler, uv);
-  vec3 light = ubo.ambientLightColor.xyz * ubo.ambientLightColor.w;
-
-  vec3 surfaceNormal = normalize(fragNormalWorld);
-
-  vec3 cameraPosWorld = ubo.inverseView[3].xyz;
-  vec3 viewDirection = normalize(cameraPosWorld - fragPosWorld);
-  for(int i=0;i<ubo.numLights;i++) {
-    PointLight light = ubo.pointLights[i];
-    vec3 dirToLight = normalize(light.position.xyz*fragPosWorld);
-    light *= dot(surfaceNormal, dirToLight);
-  }
-  outColor = color*light;*/
-  vec4 color = texture(texSampler, uv);
-  outColor = color;
+  vec3 normal = normalize(fragNormalWorld);
+  vec3 lightPos = vec3(1.0,-2.0,-1.0);
+  vec3 dirToLight = lightPos - fragPosWorld;
+  float light = 0.0;//dot(dirToLight, normal);
+  vec4 color = texture(texSampler, uv)*0.8;
+  outColor = color+light;
 }

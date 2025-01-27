@@ -33,13 +33,14 @@ vec2 complexExp(float x) {
 }
 
 void main() {
-  //float height = texture(heightMap, uv).r*1000;// * heightScale + heightOffset;
-  float waveNumber = 1.0;
+  float height = texture(heightMap, uv).r;// * heightScale + heightOffset;
+  vec3 displacedPosition = vec3(position.x, position.y + height, position.z);
+  /*float waveNumber = 1.0;
   float angularFrequency = 1.0;
   float phase = 1.0;
   float amplitude = 1.0;
   vec2 height = amplitude*complexExp(phase)*complexExp(waveNumber*position.x+angularFrequency*push.time);
-  vec3 displacedPosition = vec3(position.x, position.y+height.y, position.z);
+  vec3 displacedPosition = vec3(position.x, position.y+height.y, position.z);*/
 
   gl_Position = ubo.projection * ubo.view * push.modelMatrix * vec4(displacedPosition, 1.0);
   fragUv = uv;
