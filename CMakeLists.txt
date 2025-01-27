@@ -13,10 +13,9 @@ find_package(glfw3 3.3 REQUIRED)
 find_package(fmt REQUIRED)
 find_package(tinyobjloader REQUIRED)
 find_package(OpenAL REQUIRED)
-find_package(FFTW3 REQUIRED)
 
 link_libraries(Vulkan::Vulkan glfw fmt::fmt tinyobjloader::tinyobjloader
-  OpenAL::OpenAL fftw3)
+  OpenAL::OpenAL)
 file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   set(FLAGS WIN32)

@@ -3,6 +3,8 @@
 #include <fmt/format.h>
 #include <vulkan/vulkan_core.h>
 
+#include <fstream>
+
 #include "swapChain.hpp"
 
 namespace vkh {
