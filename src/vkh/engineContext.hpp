@@ -4,7 +4,6 @@
 #include <GLFW/glfw3.h>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include "AudioFile.h"
 #include <AL/al.h>
 #include <AL/alc.h>
 #include <glm/glm.hpp>
