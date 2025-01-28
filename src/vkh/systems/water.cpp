@@ -195,6 +195,7 @@ void createPipeline(EngineContext &context) {
       context, "water system", "shaders/water.vert.spv",
       "shaders/water.frag.spv", pipelineConfig);
 }
+<<<<<<< HEAD
 
 const float sigma1 = 0.07f;
 const float sigma2 = 0.09f;
@@ -243,6 +244,10 @@ void ifft(std::vector<std::complex<float>>& a) {
     for (auto& x : a) x = conj(x);
     for (auto& x : a) x /= a.size();
 }
+=======
+void init(EngineContext &context) {
+  int N = 256;
+>>>>>>> 40d01d5b99deb42452665971a07a214346c9d0f7
 
 void init(EngineContext& context) {
     const int N = 256;
