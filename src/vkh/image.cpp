@@ -1,9 +1,13 @@
 #include "image.hpp"
 #include <vulkan/vulkan_core.h>
 
-#define STB_IMAGE_IMPLEMENTATION
 #include <fmt/format.h>
+#define STB_IMAGE_IMPLEMENTATION
+#ifdef WIN32
+#include <stb_image.h>
+#else
 #include <stb/stb_image.h>
+#endif
 
 #include "buffer.hpp"
 #include "debug.hpp"
