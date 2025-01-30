@@ -39,12 +39,15 @@ Image::Image(EngineContext &context, const std::string &name,
   stbi_image_free(pixels);
 
   transitionImageLayout(context, image, format, VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        VK_PIPELINE_STAGE_TRANSFER_BIT);
   copyBufferToImage(context, stagingBuffer.getBuffer(), image,
                     static_cast<uint32_t>(w), static_cast<uint32_t>(w));
-  transitionImageLayout(context, image, format,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  transitionImageLayout(
+      context, image, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
   imageView = createImageView(context, image, format);
 
@@ -63,11 +66,14 @@ Image::Image(EngineContext &context, const std::string &name, uint32_t color,
   stagingBuffer.writeToBuffer(&color);
 
   transitionImageLayout(context, image, format, VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  copyBufferToImage(context, stagingBuffer.getBuffer(), image, 1, 1);
-  transitionImageLayout(context, image, format,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        VK_PIPELINE_STAGE_TRANSFER_BIT);
+  copyBufferToImage(context, stagingBuffer.getBuffer(), image, 1, 1);
+  transitionImageLayout(
+      context, image, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
   imageView = createImageView(context, image, format);
   debug::setObjName(context, name, VK_OBJECT_TYPE_IMAGE, image);
@@ -91,11 +97,14 @@ Image::Image(EngineContext &context, const std::string &name, int w, int h,
   stagingBuffer.writeToBuffer(data);
 
   transitionImageLayout(context, image, format, VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  copyBufferToImage(context, stagingBuffer.getBuffer(), image, w, h);
-  transitionImageLayout(context, image, format,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        VK_PIPELINE_STAGE_TRANSFER_BIT);
+  copyBufferToImage(context, stagingBuffer.getBuffer(), image, w, h);
+  transitionImageLayout(
+      context, image, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
   imageView = createImageView(context, image, format);
   debug::setObjName(context, name, VK_OBJECT_TYPE_IMAGE, image);

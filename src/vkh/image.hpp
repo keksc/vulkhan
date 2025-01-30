@@ -16,6 +16,7 @@ public:
         void *data, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
 
   operator VkImage() { return image; }
+  inline const VkImage getImage() { return image; }
   inline const VkImageView getImageView() { return imageView; }
   ~Image();
 
