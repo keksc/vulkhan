@@ -15,11 +15,12 @@ pkgs.mkShell {
     tinyobjloader
     glm
     cmake
-    glslang
+    shaderc
     openal
     clang-tools
     cmake-language-server
     stb
+    simdjson
   ];
 
   shellHook = ''
