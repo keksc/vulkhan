@@ -12,10 +12,7 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-#include <complex>
-#include <fstream>
 #include <memory>
-#include <random>
 #include <stdexcept>
 
 #include <cassert>
@@ -34,6 +31,11 @@ std::unique_ptr<Pipeline> pipeline;
 VkPipelineLayout pipelineLayout;
 std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
 VkDescriptorSet descriptorSet;
+
+std::unique_ptr<Pipeline> computePipeline;
+VkPipelineLayout computePipelineLayout;
+std::unique_ptr<DescriptorSetLayout> computeDescriptorSetLayout;
+VkDescriptorSet computeDescriptorSet;
 
 struct PushConstantData {
   glm::mat4 modelMatrix{1.f};
@@ -55,36 +57,6 @@ std::unique_ptr<Buffer> vertexBuffer;
 std::unique_ptr<Buffer> indexBuffer;
 
 std::unique_ptr<Image> heightFieldImage;
-
-void generateGridMesh(int width, int height, std::vector<Vertex> &vertices,
-                      std::vector<uint32_t> &indices) {
-  for (int y = 0; y <= height; ++y) {
-    for (int x = 0; x <= width; ++x) {
-      // Reverse the Y-coordinate
-      float u = static_cast<float>(x) / width;
-      float v = static_cast<float>(height - y) / height;
-      vertices.push_back({glm::vec3(u, 0.0f, v), glm::vec2(u, v)});
-    }
-  }
-
-  // Generate indices
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
-      uint32_t topLeft = y * (width + 1) + x;
-      uint32_t topRight = y * (width + 1) + x + 1;
-      uint32_t bottomLeft = (y + 1) * (width + 1) + x;
-      uint32_t bottomRight = (y + 1) * (width + 1) + x + 1;
-
-      indices.push_back(topLeft);
-      indices.push_back(bottomLeft);
-      indices.push_back(topRight);
-
-      indices.push_back(topRight);
-      indices.push_back(bottomLeft);
-      indices.push_back(bottomRight);
-    }
-  }
-}
 
 std::vector<Vertex> vertices; /* = {{{-1.f, GROUND_LEVEL, -1.f}, {0.f, 0.f}},
                                  {{1.f, GROUND_LEVEL, -1.f}, {1.f, 0.f}},
@@ -159,6 +131,18 @@ void createDescriptors(EngineContext &context) {
   DescriptorWriter(*descriptorSetLayout, *context.vulkan.globalPool)
       .writeImage(0, &imageInfo)
       .build(descriptorSet);
+
+  computeDescriptorSetLayout =
+      DescriptorSetLayout::Builder(context)
+          .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                      VK_SHADER_STAGE_COMPUTE_BIT)
+          .build();
+  /*imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  imageInfo.imageView = heightFieldImage->getImageView();
+  imageInfo.sampler = VK_NULL_HANDLE;
+  DescriptorWriter(*computeDescriptorSetLayout, *context.vulkan.globalPool)
+      .writeImage(0, &imageInfo)
+      .build(computeDescriptorSet);*/
 }
 
 void createPipelineLayout(EngineContext &context) {
@@ -195,121 +179,50 @@ void createPipeline(EngineContext &context) {
       context, "water system", "shaders/water.vert.spv",
       "shaders/water.frag.spv", pipelineConfig);
 }
-<<<<<<< HEAD
-
-const float sigma1 = 0.07f;
-const float sigma2 = 0.09f;
-const float g = 9.81f;
-const float a = 0.013365746443f;
-const float hs = 11.f;
-const float tp = 3.874025875f;
-const float fm = 1.f / tp;
-const float peakEnhancementFactor = 3.3f;
-
-float jonswapSpectrum(float f) {
-    const float sigma = (f <= fm) ? sigma1 : sigma2;
-    float b = glm::exp(-(1.f / (2.f * glm::pow(sigma, 2))) * glm::pow(f / fm - 1, 2));
-    float spectrum = (a * glm::pow(g, 2)) * (glm::pow(2 * glm::pi<float>(), -4)) * glm::pow(f, -5) *
-                     glm::exp(-(5.f / 4.f) * glm::pow(f / fm, -4)) *
-                     glm::pow(peakEnhancementFactor, b);
-
-    return spectrum;
-}
-
-// FFT function
-void fft(std::vector<std::complex<float>>& a) {
-    int n = a.size();
-    if (n <= 1) return;
-
-    std::vector<std::complex<float>> even(n / 2), odd(n / 2);
-    for (int i = 0; i < n / 2; ++i) {
-        even[i] = a[i * 2];
-        odd[i] = a[i * 2 + 1];
+const int N = 1024;
+const float GRID_SCALE = 1000.f;
+void generateGrid() {
+  for (int i = 0; i < N; ++i) {
+    for (int j = 0; j < N; ++j) {
+      Vertex v;
+      v.position.x = ((i / (N - 1.0f)) * 2.0f - 1.0f) * GRID_SCALE;
+      v.position.z = ((j / (N - 1.0f)) * 2.0f - 1.0f) * GRID_SCALE;
+      v.position.y = GROUND_LEVEL+30.f;
+      v.uv = glm::vec2(i / (N - 1.0f), j / (N - 1.0f));
+      vertices.push_back(v);
     }
+  }
 
-    fft(even);
-    fft(odd);
+  for (int i = 0; i < N - 1; ++i) {
+    for (int j = 0; j < N - 1; ++j) {
+      uint32_t topLeft = i * N + j;
+      uint32_t topRight = topLeft + 1;
+      uint32_t bottomLeft = (i + 1) * N + j;
+      uint32_t bottomRight = bottomLeft + 1;
 
-    for (int i = 0; i < n / 2; ++i) {
-        std::complex<float> t = std::polar(1.0f, -2.0f * glm::pi<float>() * i / n) * odd[i];
-        a[i] = even[i] + t;
-        a[i + n / 2] = even[i] - t;
+      indices.insert(indices.end(), {topLeft, bottomLeft, topRight});
+      indices.insert(indices.end(), {topRight, bottomLeft, bottomRight});
     }
+  }
 }
-
-// IFFT function
-void ifft(std::vector<std::complex<float>>& a) {
-    for (auto& x : a) x = conj(x);
-    fft(a);
-    for (auto& x : a) x = conj(x);
-    for (auto& x : a) x /= a.size();
-}
-=======
 void init(EngineContext &context) {
-  int N = 256;
->>>>>>> 40d01d5b99deb42452665971a07a214346c9d0f7
 
-void init(EngineContext& context) {
-    const int N = 256;
-    const float L = 100.f;
+  generateGrid();
+  createVertexBuffer(context);
+  createIndexBuffer(context);
 
-    generateGridMesh(N, N, vertices, indices);
-    createVertexBuffer(context);
-    createIndexBuffer(context);
+  const int N = 512; // Grid resolution
+  const float PI = glm::pi<float>();
 
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::normal_distribution<float> dis(0.f, 1.f);
+  std::vector<float> heightData(N * N);
 
-    std::vector<std::complex<float>> h_tilde0(N * N);
-    std::vector<std::complex<float>> h_tilde(N * N);
+  heightFieldImage =
+      std::make_unique<Image>(context, "height field image", N, N,
+                              heightData.data(), VK_FORMAT_R32_SFLOAT);
 
-    // Generate initial Fourier amplitudes
-    for (int i = 0; i < N; ++i) {
-        for (int j = 0; j < N; ++j) {
-            float kx = (i - static_cast<float>(N) / 2) * (2.0f * glm::pi<float>() / L);
-            float ky = (j - static_cast<float>(N) / 2) * (2.0f * glm::pi<float>() / L);
-            float k = sqrt(kx * kx + ky * ky);
-            float f = k / (2.0f * glm::pi<float>());
-            if (f < 0.01f || f > 1.0f) {
-                h_tilde0[i * N + j] = 0.0f;
-                continue;
-            }
-            float S = jonswapSpectrum(f);
-            float real = dis(gen) * sqrt(S / 2.0f);
-            float imag = dis(gen) * sqrt(S / 2.0f);
-            h_tilde0[i * N + j] = std::complex<float>(real, imag);
-        }
-    }
-
-    // Compute Fourier amplitudes at time t (t = 0 for initial height field)
-    std::copy(h_tilde0.begin(), h_tilde0.end(), h_tilde.begin());
-
-    // Apply the IFFT to get the height field
-    ifft(h_tilde);
-
-    // Save the height field data to a vector
-    std::vector<float> heightData(glm::pow(N, 2));
-    for (int i = 0; i < N; ++i) {
-        for (int j = 0; j < N; ++j) {
-            heightData[i * N + j] = h_tilde[i * N + j].real();
-        }
-    }
-
-    // Optionally, write the heightData to a file for visualization
-    std::ofstream height_outfile("/home/kekw/data.dat");
-    height_outfile.clear();
-    for (float f = 0.01f; f <= 1.0f; f += 0.001f) {
-        float spectrum = jonswapSpectrum(f);
-        height_outfile << f << " " << spectrum << std::endl;
-    }
-    height_outfile.close();
-
-    heightFieldImage = std::make_unique<Image>(context, "height field image", N, N, heightData.data(), VK_FORMAT_R32_SFLOAT);
-
-    createDescriptors(context);
-    createPipelineLayout(context);
-    createPipeline(context);
+  createDescriptors(context);
+  createPipelineLayout(context);
+  createPipeline(context);
 }
 
 void cleanup(EngineContext &context) {
@@ -319,9 +232,18 @@ void cleanup(EngineContext &context) {
   heightFieldImage = nullptr;
   descriptorSetLayout = nullptr;
   vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
+
+  computePipeline = nullptr;
+  computeDescriptorSetLayout = nullptr;
+  vkDestroyPipelineLayout(context.vulkan.device, computePipelineLayout,
+                          nullptr);
 }
 
 void render(EngineContext &context) {
+  // transitionImageLayout(context, heightFieldImage->getImage(),
+  // VK_FORMAT_R32_SFLOAT, VK_IMAGE_LAYOUT_GENERAL,
+  // VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
   pipeline->bind(context.frameInfo.commandBuffer);
 
   PushConstantData push{};

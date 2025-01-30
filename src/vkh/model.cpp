@@ -213,7 +213,7 @@ Model::Model(EngineContext &context, const std::string &name,
     : context{context}, name{name}, enableTexture{enableTexture} {
   loadModel(filepath);
   if (enableTexture) {
-    image = std::make_shared<Image>(context, name, 0xff000000, 1, 1);
+    image = std::make_shared<Image>(context, name, 0xffffffff, 1, 1);
     createDescriptors();
     fmt::print("{} model {} with default black texture\n",
                fmt::styled("created", fmt::fg(fmt::color::light_green)),

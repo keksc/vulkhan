@@ -1,4 +1,5 @@
 #include "vulkhan.hpp"
+#include <vulkan/vulkan_core.h>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -138,11 +139,13 @@ void run() {
 
     context.vulkan.globalPool =
         DescriptorPool::Builder(context)
-            .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT + MAX_TEXTURES)
+            .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT + MAX_IMAGE_SAMPLERS + MAX_STORAGE_IMAGES)
             .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                          SwapChain::MAX_FRAMES_IN_FLIGHT)
             .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                         MAX_TEXTURES)
+                         MAX_IMAGE_SAMPLERS)
+            .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                         MAX_STORAGE_IMAGES)
             .build();
 
     std::vector<std::unique_ptr<Buffer>> uboBuffers(
@@ -211,7 +214,7 @@ void run() {
 
       float aspect = context.window.aspectRatio;
       camera::calcPerspectiveProjection(context, glm::radians(50.f), aspect,
-                                        0.1f, 100.f);
+                                        0.1f, 1000.f);
 
       if (auto commandBuffer = renderer::beginFrame(context)) {
         int frameIndex = renderer::getFrameIndex();

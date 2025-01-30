@@ -30,40 +30,23 @@ layout(push_constant) uniform Push {
 } push;
 
 void main() {
-    /*vec4 color = texture(texSampler, uv);
-  vec3 ambientLightColor = vec3(.02, .02, .02);
-  vec3 diffuseLight = ambientLightColor+color.xyz;
-  vec3 specularLight = vec3(0.0);
-  vec3 surfaceNormal = normalize(fragNormalWorld);
-
+  vec3 lightPos = vec3(0.0, 0.0, 1.0);
+  vec4 color = texture(texSampler, uv);
+  vec3 normal = normalize(fragNormalWorld);
+  vec3 dirToLight = lightPos - fragPosWorld;
   vec3 cameraPosWorld = ubo.inverseView[3].xyz;
   vec3 viewDirection = normalize(cameraPosWorld - fragPosWorld);
 
-  for (int i = 0; i < ubo.numParticles; i++) {
-    Particle light = ubo.particles[i];
-    vec3 directionToLight = light.position.xyz - fragPosWorld;
-    float attenuation = 1.0 / dot(directionToLight, directionToLight); // distance squared
-    directionToLight = normalize(directionToLight);
+  float attenuation = 1.0/dot(dirToLight, dirToLight);
+  // Lambertian
+  dirToLight = normalize(dirToLight);
+  float diffuseLight = max(dot(dirToLight, normal), 0.0);
 
-    float cosAngIncidence = max(dot(surfaceNormal, directionToLight), 0);
-    vec3 intensity = light.color.xyz * attenuation;
+  // Blinn-Phong
+  vec3 mid = normalize(viewDirection + dirToLight);
+  float specularLight = dot(dirToLight, mid);
+  specularLight = clamp(0, 1, specularLight);
+  specularLight = pow(specularLight, 512.0);
 
-    diffuseLight += intensity * cosAngIncidence;
-
-    // specular lighting
-    vec3 halfAngle = normalize(directionToLight + viewDirection);
-    float blinnTerm = dot(surfaceNormal, halfAngle);
-    blinnTerm = clamp(blinnTerm, 0, 1);
-    blinnTerm = pow(blinnTerm, 512.0); // higher values -> sharper highlight
-    specularLight += intensity * blinnTerm;
-  }
-  
-  outColor = vec4(diffuseLight * fragColor + specularLight * fragColor, 1.0);*/
-
-  vec3 normal = normalize(fragNormalWorld);
-  vec3 lightPos = vec3(1.0,-2.0,-1.0);
-  vec3 dirToLight = lightPos - fragPosWorld;
-  float light = 0.0;//dot(dirToLight, normal);
-  vec4 color = texture(texSampler, uv)*0.8;
-  outColor = color+light;
+  outColor = color*(diffuseLight+specularLight)*attenuation;
 }
