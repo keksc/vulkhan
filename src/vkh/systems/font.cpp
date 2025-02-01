@@ -68,18 +68,20 @@ const int maxIndexCount = maxCharCount * 6;
 VkDeviceSize maxIndexSize = sizeof(uint32_t) * 6 * maxCharCount;
 
 void createBuffers(EngineContext &context) {
-  vertexBuffer = std::make_unique<Buffer>(
-      context, "font vertex buffer", sizeof(Vertex), maxVertexCount,
-      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  BufferCreateInfo bufInfo{};
+  bufInfo.instanceSize = sizeof(Vertex);
+  bufInfo.instanceCount = maxVertexCount;
+  bufInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  vertexBuffer = std::make_unique<Buffer>(context, bufInfo);
   vertexBuffer->map();
 
+  bufInfo.instanceSize = sizeof(uint32_t);
+  bufInfo.instanceCount = maxIndexCount;
+  bufInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
   indexBuffer =
-      std::make_unique<Buffer>(context, "font index buffer", sizeof(uint32_t),
-                               maxIndexCount, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      std::make_unique<Buffer>(context, bufInfo);
   indexBuffer->map();
 }
 void createDescriptors(EngineContext &context) {
@@ -166,9 +168,13 @@ void createGlyphs(EngineContext &context) {
   }
   stbtt_PackEnd(&packContext);
 
+  ImageCreateInfo imageInfo{};
+  imageInfo.format = VK_FORMAT_R8_UNORM;
+  imageInfo.w = bitmapExtent.x;
+  imageInfo.h = bitmapExtent.y;
+  imageInfo.data = atlasData;
   fontAtlas =
-      std::make_shared<Image>(context, "font atlas", bitmapExtent.x,
-                              bitmapExtent.y, atlasData, VK_FORMAT_R8_UNORM);
+      std::make_shared<Image>(context, imageInfo);
 
   for (int i = 0; i < charInfo.size(); i++) {
     char c = i + 32;
@@ -240,12 +246,14 @@ void updateText(EngineContext &context, std::string text) {
     cursorX +=
         ch.advance / context.vulkan.swapChain->getSwapChainExtent().width;
   }
-  vertexBuffer->writeToBuffer(vertices.data());
-  indexBuffer->writeToBuffer(indices.data());
+  vertexBuffer->write(vertices.data());
+  indexBuffer->write(indices.data());
 }
 
 void cleanup(EngineContext &context) {
+  vertexBuffer->unmap();
   vertexBuffer = nullptr;
+  indexBuffer->unmap();
   indexBuffer = nullptr;
   pipeline = nullptr;
   glyphs.clear();
@@ -265,12 +273,12 @@ void render(EngineContext &context) {
 
   // model->bind(context, context.frameInfo.commandBuffer, pipelineLayout);
   // model->draw(context.frameInfo.commandBuffer);
-  VkBuffer buffers[] = {vertexBuffer->getBuffer()};
+  VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(context.frameInfo.commandBuffer, 0, 1, buffers,
                          offsets);
   vkCmdBindIndexBuffer(context.frameInfo.commandBuffer,
-                       indexBuffer->getBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                       *indexBuffer, 0, VK_INDEX_TYPE_UINT32);
   VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
                                        descriptorSet};
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
