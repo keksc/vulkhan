@@ -10,103 +10,72 @@
 #endif
 
 #include "buffer.hpp"
-#include "debug.hpp"
 #include "deviceHelpers.hpp"
 
 namespace vkh {
-Image::Image(EngineContext &context, const std::string &name,
-             const std::string &path, VkFormat format)
+Image::Image(EngineContext &context, const std::string &path, bool enableAlpha, VkFormat format)
     : context{context} {
   int w, h, texChannels;
-  stbi_uc *pixels =
-      stbi_load(path.c_str(), &w, &h, &texChannels, STBI_rgb_alpha);
+  stbi_uc *pixels = stbi_load(path.c_str(), &w, &h, &texChannels,
+                              enableAlpha ? STBI_rgb_alpha : STBI_rgb);
   VkDeviceSize imageSize = w * h * 4;
 
   if (!pixels) {
     throw std::runtime_error(
-        fmt::format("failed to load texture image: {}!", name));
+        fmt::format("failed to load texture image: {}!", path));
   }
 
   image = createImage(context, w, h, imageMemory, format);
 
-  Buffer stagingBuffer(context, name, imageSize, 1,
-                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  BufferCreateInfo bufInfo{};
+  bufInfo.instanceSize = imageSize;
+  bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  Buffer stagingBuffer(context, bufInfo);
   stagingBuffer.map();
-  stagingBuffer.writeToBuffer(pixels);
+  stagingBuffer.write(pixels);
 
   stbi_image_free(pixels);
 
   transitionImageLayout(context, image, format, VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  copyBufferToImage(context, stagingBuffer, image, static_cast<uint32_t>(w),
+                    static_cast<uint32_t>(w));
+  transitionImageLayout(context, image, format,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                        VK_PIPELINE_STAGE_TRANSFER_BIT);
-  copyBufferToImage(context, stagingBuffer.getBuffer(), image,
-                    static_cast<uint32_t>(w), static_cast<uint32_t>(w));
-  transitionImageLayout(
-      context, image, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   imageView = createImageView(context, image, format);
-
-  debug::setObjName(context, name, VK_OBJECT_TYPE_IMAGE, image);
 }
-Image::Image(EngineContext &context, const std::string &name, uint32_t color,
-             int w, int h, VkFormat format)
+Image::Image(EngineContext &context, const ImageCreateInfo &createInfo)
     : context{context} {
-  image = createImage(context, w, h, imageMemory, format);
+  VkFormat format = createInfo.format;
+  VkDeviceSize imageSize = createInfo.w * createInfo.h * 4;
+  image = createImage(context, createInfo.w, createInfo.h, imageMemory, createInfo.format);
 
-  Buffer stagingBuffer(context, name, sizeof(uint32_t), 1,
-                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  uint32_t color = 0xffffffff;
+  BufferCreateInfo bufInfo{};
+  bufInfo.instanceSize = (createInfo.data) ? imageSize : sizeof(uint32_t);
+  bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  Buffer stagingBuffer(context, bufInfo);
   stagingBuffer.map();
-  stagingBuffer.writeToBuffer(&color);
+  stagingBuffer.write((createInfo.data) ? createInfo.data : &color);
 
   transitionImageLayout(context, image, format, VK_IMAGE_LAYOUT_UNDEFINED,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  copyBufferToImage(context, stagingBuffer, image, createInfo.w, createInfo.h);
+  transitionImageLayout(context, image, format,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                        VK_PIPELINE_STAGE_TRANSFER_BIT);
-  copyBufferToImage(context, stagingBuffer.getBuffer(), image, 1, 1);
-  transitionImageLayout(
-      context, image, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   imageView = createImageView(context, image, format);
-  debug::setObjName(context, name, VK_OBJECT_TYPE_IMAGE, image);
 }
 Image::~Image() {
   vkDestroyImage(context.vulkan.device, image, nullptr);
   vkDestroyImageView(context.vulkan.device, imageView, nullptr);
   vkFreeMemory(context.vulkan.device, imageMemory, nullptr);
-}
-Image::Image(EngineContext &context, const std::string &name, int w, int h,
-             void *data, VkFormat format)
-    : context{context} {
-  VkDeviceSize imageSize = w * h * 4;
-  image = createImage(context, w, h, imageMemory, format);
-
-  Buffer stagingBuffer(context, name, imageSize, 1,
-                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  stagingBuffer.map();
-  stagingBuffer.writeToBuffer(data);
-
-  transitionImageLayout(context, image, format, VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                        VK_PIPELINE_STAGE_TRANSFER_BIT);
-  copyBufferToImage(context, stagingBuffer.getBuffer(), image, w, h);
-  transitionImageLayout(
-      context, image, format, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-
-  imageView = createImageView(context, image, format);
-  debug::setObjName(context, name, VK_OBJECT_TYPE_IMAGE, image);
 }
 } // namespace vkh

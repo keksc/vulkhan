@@ -1,64 +1,54 @@
 #pragma once
 
-#include <string>
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 
 #include "engineContext.hpp"
 
 namespace vkh {
+struct BufferCreateInfo {
+  VkDeviceSize instanceSize;
+  uint32_t instanceCount = 1;
+  VkBufferUsageFlags usage;
+  VkMemoryPropertyFlags memoryProperties;
+};
+class Buffer {
+public:
+  Buffer(EngineContext &context, const BufferCreateInfo &createInfo);
+  ~Buffer();
 
-    class Buffer {
-    public:
-        Buffer(
-            EngineContext& context,
-            std::string name,
-            VkDeviceSize instanceSize,
-            uint32_t instanceCount,
-            VkBufferUsageFlags usageFlags,
-            VkMemoryPropertyFlags memoryPropertyFlags,
-            VkDeviceSize minOffsetAlignment = 1);
-        ~Buffer();
+  Buffer(const Buffer &) = delete;
+  Buffer &operator=(const Buffer &) = delete;
 
-        Buffer(const Buffer&) = delete;
-        Buffer& operator=(const Buffer&) = delete;
+  void map(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
+  void unmap();
 
-        VkResult map(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
-        void unmap();
+  void write(void *data, VkDeviceSize size = VK_WHOLE_SIZE,
+                     VkDeviceSize offset = 0);
+  VkResult flush(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
+  VkDescriptorBufferInfo descriptorInfo(VkDeviceSize size = VK_WHOLE_SIZE,
+                                        VkDeviceSize offset = 0);
+  VkResult invalidate(VkDeviceSize size = VK_WHOLE_SIZE,
+                      VkDeviceSize offset = 0);
 
-        void writeToBuffer(void* data, VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
-        VkResult flush(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
-        VkDescriptorBufferInfo descriptorInfo(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
-        VkResult invalidate(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
+  void writeToIndex(void *data, int index);
+  VkResult flushIndex(int index);
+  VkDescriptorBufferInfo descriptorInfoForIndex(int index);
+  VkResult invalidateIndex(int index);
 
-        void writeToIndex(void* data, int index);
-        VkResult flushIndex(int index);
-        VkDescriptorBufferInfo descriptorInfoForIndex(int index);
-        VkResult invalidateIndex(int index);
+  operator VkBuffer() { return buf; }
 
-        VkBuffer getBuffer() const { return buffer; }
-        void* getMappedMemory() const { return mapped; }
-        uint32_t getInstanceCount() const { return instanceCount; }
-        VkDeviceSize getInstanceSize() const { return instanceSize; }
-        VkDeviceSize getAlignmentSize() const { return instanceSize; }
-        VkBufferUsageFlags getUsageFlags() const { return usageFlags; }
-        VkMemoryPropertyFlags getMemoryPropertyFlags() const { return memoryPropertyFlags; }
-        VkDeviceSize getBufferSize() const { return bufferSize; }
+private:
+  static VkDeviceSize getAlignment(VkDeviceSize instanceSize,
+                                   VkDeviceSize minOffsetAlignment);
 
-    private:
-        static VkDeviceSize getAlignment(VkDeviceSize instanceSize, VkDeviceSize minOffsetAlignment);
+  EngineContext &context;
 
-        EngineContext& context;
-        std::string name;
-
-        void* mapped = nullptr;
-        VkBuffer buffer = VK_NULL_HANDLE;
-        VkDeviceMemory memory = VK_NULL_HANDLE;
-
-        VkDeviceSize bufferSize;
-        uint32_t instanceCount;
-        VkDeviceSize instanceSize;
-        VkDeviceSize alignmentSize;
-        VkBufferUsageFlags usageFlags;
-        VkMemoryPropertyFlags memoryPropertyFlags;
-    };
-
-}
+  void *mapped = nullptr;
+  VkBuffer buf;
+  VkDeviceMemory memory;
+  VkDeviceSize bufSize;
+  VkDeviceSize instanceSize;
+  VkDeviceSize alignmentSize;
+};
+} // namespace vkh
