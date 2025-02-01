@@ -1,14 +1,6 @@
-/*
- * Encapsulates a vulkan buffer
- *
- * Initially based off VulkanBuffer by Sascha Willems -
- * https://github.com/SaschaWillems/Vulkan/blob/master/base/VulkanBuffer.h
- */
-
 #include "buffer.hpp"
 
 #include <fmt/format.h>
-#include <fmt/color.h>
 
 #include "deviceHelpers.hpp"
 
@@ -16,7 +8,6 @@
 #include <cstring>
 
 namespace vkh {
-
 /**
  * Returns the minimum instance size required to be compatible with devices
  * minOffsetAlignment
@@ -28,96 +19,46 @@ namespace vkh {
  * @return VkResult of the buffer mapping call
  */
 VkDeviceSize Buffer::getAlignment(VkDeviceSize instanceSize,
-                                     VkDeviceSize minOffsetAlignment) {
+                                  VkDeviceSize minOffsetAlignment) {
   if (minOffsetAlignment > 0) {
     return (instanceSize + minOffsetAlignment - 1) & ~(minOffsetAlignment - 1);
   }
   return instanceSize;
 }
-
-Buffer::Buffer(EngineContext &context, std::string name,
-                     VkDeviceSize instanceSize, uint32_t instanceCount,
-                     VkBufferUsageFlags usageFlags,
-                     VkMemoryPropertyFlags memoryPropertyFlags,
-                     VkDeviceSize minOffsetAlignment)
-    : context{context}, name{name}, instanceSize{instanceSize},
-      instanceCount{instanceCount}, usageFlags{usageFlags},
-      memoryPropertyFlags{memoryPropertyFlags} {
-  alignmentSize = getAlignment(instanceSize, minOffsetAlignment);
-  bufferSize = alignmentSize * instanceCount;
-  createBuffer(context, bufferSize, usageFlags, memoryPropertyFlags, buffer,
-               memory);
-  fmt::print("{} buffer {}\n", fmt::styled("created", fmt::fg(fmt::color::light_green)), fmt::styled(name, fg(fmt::color::yellow)));
+Buffer::Buffer(EngineContext &context, const BufferCreateInfo &createInfo)
+    : context{context} {
+  alignmentSize = getAlignment(createInfo.instanceSize, 1);
+  bufSize = alignmentSize * createInfo.instanceCount;
+  instanceSize = createInfo.instanceSize;
+  createBuffer(context, bufSize, createInfo.usage, createInfo.memoryProperties,
+               buf, memory);
 }
-
 Buffer::~Buffer() {
   unmap();
-  vkDestroyBuffer(context.vulkan.device, buffer, nullptr);
+  vkDestroyBuffer(context.vulkan.device, buf, nullptr);
   vkFreeMemory(context.vulkan.device, memory, nullptr);
-  fmt::print("{} buffer {}\n", fmt::styled("destroyed", fmt::fg(fmt::color::red)), fmt::styled(name, fg(fmt::color::yellow)));
 }
-
-/**
- * Map a memory range of this buffer. If successful, mapped points to the
- * specified buffer range.
- *
- * @param size (Optional) Size of the memory range to map. Pass VK_WHOLE_SIZE to
- * map the complete buffer range.
- * @param offset (Optional) Byte offset from beginning
- *
- * @return VkResult of the buffer mapping call
- */
-VkResult Buffer::map(VkDeviceSize size, VkDeviceSize offset) {
-  assert(buffer && memory && "Called map on buffer before create");
-  return vkMapMemory(context.vulkan.device, memory, offset, size, 0, &mapped);
+void Buffer::map(VkDeviceSize size, VkDeviceSize offset) {
+  assert(buf && memory && "Called map on buffer before create");
+  vkMapMemory(context.vulkan.device, memory, offset, size, 0, &mapped);
 }
-
-/**
- * Unmap a mapped memory range
- *
- * @note Does not return a result as vkUnmapMemory can't fail
- */
 void Buffer::unmap() {
   if (mapped) {
     vkUnmapMemory(context.vulkan.device, memory);
     mapped = nullptr;
   }
 }
-
-/**
- * Copies the specified data to the mapped buffer. Default value writes whole
- * buffer range
- *
- * @param data Pointer to the data to copy
- * @param size (Optional) Size of the data to copy. Pass VK_WHOLE_SIZE to flush
- * the complete buffer range.
- * @param offset (Optional) Byte offset from beginning of mapped region
- *
- */
-void Buffer::writeToBuffer(void *data, VkDeviceSize size,
-                              VkDeviceSize offset) {
+void Buffer::write(void *data, VkDeviceSize size, VkDeviceSize offset) {
   assert(mapped && "Cannot copy to unmapped buffer");
 
   if (size == VK_WHOLE_SIZE) {
-    memcpy(mapped, data, bufferSize);
+    memcpy(mapped, data, bufSize);
   } else {
     char *memOffset = (char *)mapped;
     memOffset += offset;
     memcpy(memOffset, data, size);
   }
 }
-
-/**
- * Flush a memory range of the buffer to make it visible to the device
- *
- * @note Only required for non-coherent memory
- *
- * @param size (Optional) Size of the memory range to flush. Pass VK_WHOLE_SIZE
- * to flush the complete buffer range.
- * @param offset (Optional) Byte offset from beginning
- *
- * @return VkResult of the flush call
- */
 VkResult Buffer::flush(VkDeviceSize size, VkDeviceSize offset) {
   VkMappedMemoryRange mappedRange = {};
   mappedRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
@@ -126,18 +67,6 @@ VkResult Buffer::flush(VkDeviceSize size, VkDeviceSize offset) {
   mappedRange.size = size;
   return vkFlushMappedMemoryRanges(context.vulkan.device, 1, &mappedRange);
 }
-
-/**
- * Invalidate a memory range of the buffer to make it visible to the host
- *
- * @note Only required for non-coherent memory
- *
- * @param size (Optional) Size of the memory range to invalidate. Pass
- * VK_WHOLE_SIZE to invalidate the complete buffer range.
- * @param offset (Optional) Byte offset from beginning
- *
- * @return VkResult of the invalidate call
- */
 VkResult Buffer::invalidate(VkDeviceSize size, VkDeviceSize offset) {
   VkMappedMemoryRange mappedRange = {};
   mappedRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
@@ -146,67 +75,23 @@ VkResult Buffer::invalidate(VkDeviceSize size, VkDeviceSize offset) {
   mappedRange.size = size;
   return vkInvalidateMappedMemoryRanges(context.vulkan.device, 1, &mappedRange);
 }
-
-/**
- * Create a buffer info descriptor
- *
- * @param size (Optional) Size of the memory range of the descriptor
- * @param offset (Optional) Byte offset from beginning
- *
- * @return VkDescriptorBufferInfo of specified offset and range
- */
 VkDescriptorBufferInfo Buffer::descriptorInfo(VkDeviceSize size,
-                                                 VkDeviceSize offset) {
+                                              VkDeviceSize offset) {
   return VkDescriptorBufferInfo{
-      buffer,
+      buf,
       offset,
-      size,
+      VK_WHOLE_SIZE,
   };
 }
-
-/**
- * Copies "instanceSize" bytes of data to the mapped buffer at an offset of
- * index * alignmentSize
- *
- * @param data Pointer to the data to copy
- * @param index Used in offset calculation
- *
- */
 void Buffer::writeToIndex(void *data, int index) {
-  writeToBuffer(data, instanceSize, index * alignmentSize);
+  write(data, instanceSize, index * alignmentSize);
 }
-
-/**
- *  Flush the memory range at index * alignmentSize of the buffer to make it
- * visible to the device
- *
- * @param index Used in offset calculation
- *
- */
 VkResult Buffer::flushIndex(int index) {
   return flush(alignmentSize, index * alignmentSize);
 }
-
-/**
- * Create a buffer info descriptor
- *
- * @param index Specifies the region given by index * alignmentSize
- *
- * @return VkDescriptorBufferInfo for instance at index
- */
 VkDescriptorBufferInfo Buffer::descriptorInfoForIndex(int index) {
   return descriptorInfo(alignmentSize, index * alignmentSize);
 }
-
-/**
- * Invalidate a memory range of the buffer to make it visible to the host
- *
- * @note Only required for non-coherent memory
- *
- * @param index Specifies the region to invalidate: index * alignmentSize
- *
- * @return VkResult of the invalidate call
- */
 VkResult Buffer::invalidateIndex(int index) {
   return invalidate(alignmentSize, index * alignmentSize);
 }

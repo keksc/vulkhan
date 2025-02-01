@@ -1,5 +1,4 @@
 #include "vulkhan.hpp"
-#include <vulkan/vulkan_core.h>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -51,24 +50,13 @@ void loadObjects(EngineContext &context) {
       playerTransform.orientation *
       glm::angleAxis(glm::pi<float>() * -0.5f, glm::vec3(0.0f, 1.0f, 0.0f)) *
       glm::angleAxis(glm::pi<float>() * 0.5f, glm::vec3(1.0f, 0.0f, 0.0f));
+  ModelCreateInfo modelInfo{};
+  modelInfo.filepath = "models/dagger.obj";
   context.entities.push_back({context,
                               {.position = daggerPosition,
                                .scale = {0.5f, 0.5f, 0.5f},
                                .orientation = daggerOrientation},
-                              "dagger",
-                              "models/dagger.obj"});
-
-  context.entities.push_back(
-      {context,
-       {.position{-.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
-       "flat vase",
-       "models/flat_vase.obj"});
-
-  context.entities.push_back(
-      {context,
-       {.position{.5f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
-       "flat vase",
-       "models/smooth_vase.obj"});
+                              modelInfo});
 
   /*model = Model::createModelFromFile(context, "floor", "models/quad.obj");
   context.entities.push_back(
@@ -105,6 +93,8 @@ void loadObjects(EngineContext &context) {
                               {.position = {0.f, GROUND_LEVEL, 1.f}},
                               "living room",
                               "models/mainRoom.obj"});*/
+  modelInfo.filepath = "models/viking_room.obj";
+  modelInfo.texturepath = "textures/viking_room.png";
   context.entities.push_back(
       {context,
        {.position = {0.f, GROUND_LEVEL, 1.f},
@@ -112,9 +102,7 @@ void loadObjects(EngineContext &context) {
                                       glm::vec3(1.0f, 0.0f, 0.0f)) *
                        glm::angleAxis(glm::pi<float>() * -0.5f,
                                       glm::vec3(0.0f, 0.0f, 1.0f))},
-       "viking room",
-       "models/viking_room.obj",
-       "textures/viking_room.png"s});
+       modelInfo});
   context.particles.push_back({{1.0f, -2.0f, -1.0f}, {1.0f, 1.0f, 1.0f}});
 }
 void updateObjs(EngineContext &context) {
@@ -139,22 +127,22 @@ void run() {
 
     context.vulkan.globalPool =
         DescriptorPool::Builder(context)
-            .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT + MAX_IMAGE_SAMPLERS + MAX_STORAGE_IMAGES)
+            .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT + MAX_TEXTURES)
             .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
                          SwapChain::MAX_FRAMES_IN_FLIGHT)
             .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                         MAX_IMAGE_SAMPLERS)
-            .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                         MAX_STORAGE_IMAGES)
+                         MAX_TEXTURES)
             .build();
 
     std::vector<std::unique_ptr<Buffer>> uboBuffers(
         SwapChain::MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < uboBuffers.size(); i++) {
+      BufferCreateInfo bufInfo{};
+      bufInfo.instanceSize = sizeof(GlobalUbo);
+      bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+      bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
       uboBuffers[i] = std::make_unique<Buffer>(
-          context, fmt::format("ubo #{}", i), sizeof(GlobalUbo), 1,
-          VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+          context, bufInfo);
       uboBuffers[i]->map();
     }
 
@@ -171,7 +159,7 @@ void run() {
             .build();
 
     context.entities.push_back(
-        {context, {.position = {0.f, GROUND_LEVEL, 0.f}}, "player"});
+        {context, {.position = {0.f, GROUND_LEVEL, 0.f}}});
     loadObjects(context);
 
     entitySys::init(context);
@@ -235,7 +223,7 @@ void run() {
         if (glfwGetKey(context.window, GLFW_KEY_G))
           physicsSys::update(context);
         particleSys::update(context, ubo);
-        uboBuffers[frameIndex]->writeToBuffer(&ubo);
+        uboBuffers[frameIndex]->write(&ubo);
         uboBuffers[frameIndex]->flush();
 
         // render

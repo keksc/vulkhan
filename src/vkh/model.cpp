@@ -1,12 +1,15 @@
 #include "model.hpp"
 #include <memory>
 
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <fmt/color.h>
 #include <glm/gtx/hash.hpp>
 
+#include "buffer.hpp"
 #include "descriptors.hpp"
 #include "deviceHelpers.hpp"
 #include "image.hpp"
@@ -27,39 +30,32 @@ template <> struct hash<vkh::Model::Vertex> {
 } // namespace std
 
 namespace vkh {
-
-Model::~Model() {
-  fmt::print("{} model {}\n",
-             fmt::styled("destroyed", fmt::fg(fmt::color::red)),
-             fmt::styled(name, fg(fmt::color::yellow)));
-}
-
 void Model::createVertexBuffer(const std::vector<Vertex> &vertices) {
   vertexCount = static_cast<uint32_t>(vertices.size());
   assert(vertexCount >= 3 && "Vertex count must be at least 3");
   VkDeviceSize bufferSize = sizeof(vertices[0]) * vertexCount;
   uint32_t vertexSize = sizeof(vertices[0]);
 
+  BufferCreateInfo bufInfo{};
+  bufInfo.instanceSize = vertexSize;
+  bufInfo.instanceCount = vertexCount;
+  bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
   Buffer stagingBuffer{
       context,
-      fmt::format("{} vertex buffer staging", name),
-      vertexSize,
-      vertexCount,
-      VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      bufInfo,
   };
 
   stagingBuffer.map();
-  stagingBuffer.writeToBuffer((void *)vertices.data());
+  stagingBuffer.write((void *)vertices.data());
 
-  vertexBuffer = std::make_unique<Buffer>(
-      context, fmt::format("{} vertex buffer", name), vertexSize, vertexCount,
-      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  bufInfo.usage =
+      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+  vertexBuffer = std::make_unique<Buffer>(context, bufInfo);
 
-  copyBuffer(context, stagingBuffer.getBuffer(), vertexBuffer->getBuffer(),
-             bufferSize);
+  copyBuffer(context, stagingBuffer, *vertexBuffer, bufferSize);
 }
 
 void Model::createIndexBuffer(const std::vector<uint32_t> &indices) {
@@ -72,26 +68,29 @@ void Model::createIndexBuffer(const std::vector<uint32_t> &indices) {
   VkDeviceSize bufferSize = sizeof(indices[0]) * indexCount;
   uint32_t indexSize = sizeof(indices[0]);
 
+  BufferCreateInfo bufInfo{};
+  bufInfo.instanceSize = indexSize;
+  bufInfo.instanceCount = indexCount;
+  bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
   Buffer stagingBuffer{
       context,
-      fmt::format("{} index buffer staging", name),
-      indexSize,
-      indexCount,
-      VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      bufInfo,
   };
 
   stagingBuffer.map();
-  stagingBuffer.writeToBuffer((void *)indices.data());
+  stagingBuffer.write((void *)indices.data());
 
-  indexBuffer = std::make_unique<Buffer>(
-      context, fmt::format("{} index buffer", name), indexSize, indexCount,
-      VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  BufferCreateInfo bufInfo2;
+  bufInfo2.instanceSize = indexSize;
+  bufInfo2.instanceCount = indexCount;
+  bufInfo.usage =
+      VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+  indexBuffer = std::make_unique<Buffer>(context, bufInfo);
 
-  copyBuffer(context, stagingBuffer.getBuffer(), indexBuffer->getBuffer(),
-             bufferSize);
+  copyBuffer(context, stagingBuffer, *indexBuffer, bufferSize);
 }
 
 void Model::draw(VkCommandBuffer commandBuffer) {
@@ -103,13 +102,12 @@ void Model::draw(VkCommandBuffer commandBuffer) {
 
 void Model::bind(EngineContext &context, VkCommandBuffer commandBuffer,
                  VkPipelineLayout pipelineLayout) {
-  VkBuffer buffers[] = {vertexBuffer->getBuffer()};
+  VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(commandBuffer, 0, 1, buffers, offsets);
 
   if (hasIndexBuffer) {
-    vkCmdBindIndexBuffer(commandBuffer, indexBuffer->getBuffer(), 0,
-                         VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(commandBuffer, *indexBuffer, 0, VK_INDEX_TYPE_UINT32);
   }
   if (enableTexture) {
     VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
@@ -208,52 +206,18 @@ void Model::createDescriptors() {
       .writeImage(0, &imageInfo)
       .build(textureDescriptorSet);
 }
-Model::Model(EngineContext &context, const std::string &name,
-             const std::string &filepath, bool enableTexture)
-    : context{context}, name{name}, enableTexture{enableTexture} {
-  loadModel(filepath);
-  if (enableTexture) {
-    image = std::make_shared<Image>(context, name, 0xffffffff, 1, 1);
-    createDescriptors();
-    fmt::print("{} model {} with default black texture\n",
-               fmt::styled("created", fmt::fg(fmt::color::light_green)),
-               fmt::styled(name, fg(fmt::color::yellow)));
-  } else {
-    fmt::print("{} model {} without a texture\n",
-               fmt::styled("created", fmt::fg(fmt::color::light_green)),
-               fmt::styled(name, fg(fmt::color::yellow)));
-  }
-}
-Model::Model(EngineContext &context, const std::string &name,
-             const std::string &filepath, const std::string &texturepath)
-    : context{context}, name{name} {
-  image = std::make_shared<Image>(context, name, texturepath);
-  loadModel(filepath);
+Model::Model(EngineContext &context, const ModelCreateInfo &createInfo)
+    : context{context} {
+  createInfo.filepath.empty()
+      ? createBuffers(createInfo.vertices, createInfo.indices)
+      : loadModel(createInfo.filepath);
+
+  // Texture Hierarchy: texturepath > existing image > default
+  image = createInfo.image ? createInfo.image
+          : !createInfo.texturepath.empty()
+              ? std::make_shared<Image>(context, createInfo.texturepath)
+              : std::make_shared<Image>(context, ImageCreateInfo{});
+
   createDescriptors();
-  fmt::print("{} model {} with texture {}\n",
-             fmt::styled("created", fmt::fg(fmt::color::light_green)),
-             fmt::styled(name, fg(fmt::color::yellow)),
-             fmt::styled(texturepath, fg(fmt::color::azure)));
-}
-Model::Model(EngineContext &context, const std::string &name,
-             std::vector<Vertex> vertices, std::vector<uint32_t> indices)
-    : context{context}, name{name}, enableTexture{false} {
-  createVertexBuffer(vertices);
-  createIndexBuffer(indices);
-  fmt::print("{} model {} without a texture from vertices and indices\n",
-             fmt::styled("created", fmt::fg(fmt::color::light_green)),
-             fmt::styled(name, fg(fmt::color::yellow)));
-}
-Model::Model(EngineContext &context, const std::string &name,
-             std::vector<Vertex> vertices, std::vector<uint32_t> indices,
-             std::shared_ptr<Image> image)
-    : context{context}, name{name}, image{image} {
-  createVertexBuffer(vertices);
-  createIndexBuffer(indices);
-  createDescriptors();
-  fmt::print(
-      "{} model {} without a texture from vertices and indices with an image\n",
-      fmt::styled("created", fmt::fg(fmt::color::light_green)),
-      fmt::styled(name, fg(fmt::color::yellow)));
 }
 } // namespace vkh

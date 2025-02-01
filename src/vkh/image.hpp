@@ -6,14 +6,16 @@
 #include "engineContext.hpp"
 
 namespace vkh {
+struct ImageCreateInfo {
+  VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
+  int w = 1;
+  int h = 1;
+  void *data = nullptr;
+};
 class Image {
 public:
-  Image(EngineContext &context, const std::string &name,
-        const std::string &path, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
-  Image(EngineContext &context, const std::string &name, uint32_t color, int w,
-        int h, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
-  Image(EngineContext &context, const std::string &name, int w, int h,
-        void *data, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
+  Image(EngineContext &context, const ImageCreateInfo &createInfo);
+  Image(EngineContext &context, const std::string &path, bool enableAlpha = true, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
 
   operator VkImage() { return image; }
   inline const VkImage getImage() { return image; }

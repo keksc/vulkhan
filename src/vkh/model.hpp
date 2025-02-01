@@ -13,6 +13,7 @@
 #include <vector>
 
 namespace vkh {
+struct ModelCreateInfo;
 class Model {
 public:
   struct Vertex {
@@ -32,16 +33,7 @@ public:
   };
   void loadModel(const std::string &filepath);
 
-  Model(EngineContext &context, const std::string &name,
-        const std::string &filepath, bool disableTexture = false);
-  Model(EngineContext &context, const std::string &name,
-        const std::string &filepath, const std::string &texturepath);
-  Model(EngineContext &context, const std::string &name,
-        std::vector<Vertex> vertices, std::vector<uint32_t> indices);
-  Model(EngineContext &context, const std::string &name,
-        std::vector<Vertex> vertices, std::vector<uint32_t> indices,
-        std::shared_ptr<Image> image);
-  ~Model();
+  Model(EngineContext &context, const ModelCreateInfo &createInfo);
 
   Model(const Model &) = delete;
   Model &operator=(const Model &) = delete;
@@ -50,11 +42,14 @@ public:
             VkPipelineLayout pipelineLayout);
   void draw(VkCommandBuffer commandBuffer);
 
-  std::string name;
-
 private:
   void createVertexBuffer(const std::vector<Vertex> &vertices);
   void createIndexBuffer(const std::vector<uint32_t> &indices);
+  inline void createBuffers(const std::vector<Vertex> &vertices,
+                                   const std::vector<uint32_t> &indices) {
+    createVertexBuffer(vertices);
+    createIndexBuffer(indices);
+  }
   void createDescriptors();
 
   EngineContext &context;
@@ -70,5 +65,12 @@ private:
 
   std::shared_ptr<Image> image;
   VkDescriptorSet textureDescriptorSet;
+};
+struct ModelCreateInfo {
+  std::string filepath;
+  std::string texturepath;
+  std::vector<Model::Vertex> vertices;
+  std::vector<uint32_t> indices;
+  std::shared_ptr<Image> image;
 };
 } // namespace vkh

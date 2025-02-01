@@ -66,57 +66,52 @@ std::vector<Vertex> vertices; /* = {{{-1.f, GROUND_LEVEL, -1.f}, {0.f, 0.f}},
 std::vector<uint32_t> indices; // = {0, 2, 1, 1, 2, 3};
 
 void createVertexBuffer(EngineContext &context) {
-  uint32_t vertexCount = static_cast<uint32_t>(vertices.size());
-  assert(vertexCount >= 3 && "Vertex count must be at least 3");
-  VkDeviceSize bufferSize = sizeof(vertices[0]) * vertexCount;
-  uint32_t vertexSize = sizeof(vertices[0]);
+  uint32_t count = static_cast<uint32_t>(vertices.size());
+  assert(count >= 3 && "Vertex count must be at least 3");
+  VkDeviceSize bufSize = sizeof(vertices[0]) * count;
+  uint32_t size = sizeof(vertices[0]);
 
-  Buffer stagingBuffer{
-      context,
-      "water vertex buffer staging",
-      vertexSize,
-      vertexCount,
-      VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-  };
-
+  BufferCreateInfo bufInfo{};
+  bufInfo.instanceSize = size;
+  bufInfo.instanceCount = count;
+  bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  Buffer stagingBuffer(context, bufInfo);
   stagingBuffer.map();
-  stagingBuffer.writeToBuffer((void *)vertices.data());
+  stagingBuffer.write(vertices.data());
+  stagingBuffer.unmap();
 
-  vertexBuffer = std::make_unique<Buffer>(
-      context, "water vertex buffer", vertexSize, vertexCount,
-      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  bufInfo.usage =
+      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+  vertexBuffer = std::make_unique<Buffer>(context, bufInfo);
 
-  copyBuffer(context, stagingBuffer.getBuffer(), vertexBuffer->getBuffer(),
-             bufferSize);
+  copyBuffer(context, stagingBuffer, *vertexBuffer, bufSize);
 }
 void createIndexBuffer(EngineContext &context) {
-  uint32_t indexCount = indices.size();
-  VkDeviceSize bufferSize = sizeof(indices[0]) * indexCount;
-  uint32_t indexSize = sizeof(indices[0]);
+  uint32_t count = indices.size();
+  VkDeviceSize bufSize = sizeof(indices[0]) * count;
+  uint32_t size = sizeof(indices[0]);
 
-  Buffer stagingBuffer{
-      context,
-      "water index buffer staging",
-      indexSize,
-      indexCount,
-      VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-  };
-
+  BufferCreateInfo bufInfo{};
+  bufInfo.instanceSize = size;
+  bufInfo.instanceCount = count;
+  bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  Buffer stagingBuffer(context, bufInfo);
   stagingBuffer.map();
-  stagingBuffer.writeToBuffer((void *)indices.data());
+  stagingBuffer.write(indices.data());
+  stagingBuffer.unmap();
 
-  indexBuffer = std::make_unique<Buffer>(
-      context, "water index buffer", indexSize, indexCount,
-      VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+  bufInfo.usage =
+      VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+  indexBuffer = std::make_unique<Buffer>(context, bufInfo);
 
-  copyBuffer(context, stagingBuffer.getBuffer(), indexBuffer->getBuffer(),
-             bufferSize);
+  copyBuffer(context, stagingBuffer, *indexBuffer,
+             bufSize);
 }
 void createDescriptors(EngineContext &context) {
   descriptorSetLayout =
@@ -187,7 +182,7 @@ void generateGrid() {
       Vertex v;
       v.position.x = ((i / (N - 1.0f)) * 2.0f - 1.0f) * GRID_SCALE;
       v.position.z = ((j / (N - 1.0f)) * 2.0f - 1.0f) * GRID_SCALE;
-      v.position.y = GROUND_LEVEL+30.f;
+      v.position.y = GROUND_LEVEL + 30.f;
       v.uv = glm::vec2(i / (N - 1.0f), j / (N - 1.0f));
       vertices.push_back(v);
     }
@@ -216,9 +211,11 @@ void init(EngineContext &context) {
 
   std::vector<float> heightData(N * N);
 
-  heightFieldImage =
-      std::make_unique<Image>(context, "height field image", N, N,
-                              heightData.data(), VK_FORMAT_R32_SFLOAT);
+  ImageCreateInfo imageInfo{};
+  imageInfo.w = imageInfo.h = N;
+  imageInfo.data = heightData.data();
+  imageInfo.format = VK_FORMAT_R32_SFLOAT;
+  heightFieldImage = std::make_unique<Image>(context, imageInfo);
 
   createDescriptors(context);
   createPipelineLayout(context);
@@ -257,12 +254,12 @@ void render(EngineContext &context) {
 
   // model->bind(context, context.frameInfo.commandBuffer, pipelineLayout);
   // model->draw(context.frameInfo.commandBuffer);
-  VkBuffer buffers[] = {vertexBuffer->getBuffer()};
+  VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(context.frameInfo.commandBuffer, 0, 1, buffers,
                          offsets);
   vkCmdBindIndexBuffer(context.frameInfo.commandBuffer,
-                       indexBuffer->getBuffer(), 0, VK_INDEX_TYPE_UINT32);
+                       *indexBuffer, 0, VK_INDEX_TYPE_UINT32);
   VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
                                        descriptorSet};
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,

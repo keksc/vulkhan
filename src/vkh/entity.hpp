@@ -33,20 +33,14 @@ struct RigidBody {
 };
 
 struct Entity {
-    Transform transform;
-    RigidBody rigidBody;
-    std::unique_ptr<Model> model;
+  Transform transform;
+  RigidBody rigidBody;
+  std::unique_ptr<Model> model;
 
-    // Modified constructors to accept const references
-    Entity(EngineContext& context, Transform transform, const std::string& name,
-           RigidBody rigidBody = {});
-    
-    Entity(EngineContext& context, Transform transform, const std::string& name,
-           const std::string& modelFilepath, bool modelEnableTexture = true, RigidBody rigidBody = {});
-    
-    Entity(EngineContext& context, Transform transform, const std::string& name,
-           const std::string& modelFilepath, const std::string& modelTextureFilepath,
-           RigidBody rigidBody = {});
+  Entity(EngineContext &context, Transform transform, RigidBody rigidBody = {});
+
+  Entity(EngineContext &context, Transform transform,
+         const ModelCreateInfo &modelInfo, RigidBody rigidBody = {});
 };
 
 } // namespace vkh

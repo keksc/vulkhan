@@ -8,8 +8,6 @@
 #include <unordered_set>
 #include <vector>
 
-#define DEBUG_IMPLEMENTATION
-#include "debug.hpp"
 #include "deviceHelpers.hpp"
 
 namespace vkh {
@@ -362,7 +360,6 @@ void createSamplers(EngineContext &context) {
 void initVulkan(EngineContext &context) {
   createInstance(context);
   setupDebugMessenger(context);
-  debug::init(context);
   glfwCreateWindowSurface(context.vulkan.instance, context.window, nullptr,
                           &context.vulkan.surface);
   pickPhysicalDevice(context);
