@@ -1,8 +1,8 @@
 #version 450
 
-layout (location = 1) in vec3 fragPosWorld;
-layout (location = 2) in vec3 fragNormalWorld;
-layout (location = 3) in vec2 uv;
+layout(location = 0) in vec3 pos;
+layout(location = 1) in vec3 normal;
+layout(location = 2) in vec2 uv;
 
 layout (location = 0) out vec4 outColor;
 
@@ -31,11 +31,10 @@ layout(push_constant) uniform Push {
 
 void main() {
   vec3 lightPos = vec3(0.0, 0.0, 1.0);
-  vec4 color = texture(texSampler, uv);
-  vec3 normal = normalize(fragNormalWorld);
-  vec3 dirToLight = lightPos - fragPosWorld;
+  vec3 normal = normalize(pos);
+  vec3 dirToLight = lightPos - pos;
   vec3 cameraPosWorld = ubo.inverseView[3].xyz;
-  vec3 viewDirection = normalize(cameraPosWorld - fragPosWorld);
+  vec3 viewDirection = normalize(cameraPosWorld - pos);
 
   float attenuation = 1.0/dot(dirToLight, dirToLight);
   // Lambertian
@@ -48,5 +47,7 @@ void main() {
   specularLight = clamp(0, 1, specularLight);
   specularLight = pow(specularLight, 512.0);
 
-  outColor = color*(diffuseLight+specularLight)*attenuation;
+  float ambientLight = 1.0;
+
+  outColor = texture(texSampler, uv)*((diffuseLight+specularLight)*attenuation+ambientLight);
 }

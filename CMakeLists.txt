@@ -13,12 +13,11 @@ find_package(glfw3 3.3 REQUIRED)
 find_package(fmt REQUIRED)
 find_package(tinyobjloader REQUIRED)
 find_package(OpenAL REQUIRED)
-find_package(simdjson REQUIRED)
 
 add_subdirectory(3rdparty/fastgltf)
 
 link_libraries(Vulkan::Vulkan glfw fmt::fmt tinyobjloader::tinyobjloader
-  OpenAL::OpenAL)
+  OpenAL::OpenAL fastgltf::fastgltf)
 file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   set(FLAGS WIN32)

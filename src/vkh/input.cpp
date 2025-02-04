@@ -2,11 +2,12 @@
 #include "engineContext.hpp"
 
 #include <GLFW/glfw3.h>
+#include <chrono>
 #include <fmt/format.h>
-
-#include <glm/fwd.hpp>
 #include <glm/gtc/quaternion.hpp>
+
 #include <limits>
+#include <thread>
 
 #include "entity.hpp"
 
@@ -61,12 +62,19 @@ int scroll{};
 void scrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
   scroll += static_cast<int>(yoffset);
 }
-void animateDagger() {}
+void animateSword(EngineContext *context) {
+  Entity &sword = context->entities[1];
+  for (float i = 0.0; i < 0.5; i += 0.01) {
+    sword.transform.orientation =
+        glm::angleAxis(glm::pi<float>() * i, glm::vec3(0.0f, 0.0f, 1.0f));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+}
 void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
-  if (button == GLFW_MOUSE_BUTTON_LEFT) {
-    animateDagger();
+  if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+    std::thread(animateSword, context).detach();
   }
   if (button == GLFW_MOUSE_BUTTON_RIGHT) {
   }
