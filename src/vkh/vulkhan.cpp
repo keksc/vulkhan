@@ -44,18 +44,18 @@ namespace vkh {
 const glm::vec3 daggerOffset = {0.5f, -0.5f, 1.2f};
 void loadObjects(EngineContext &context) {
   auto &playerTransform = context.entities[0].transform;
-  glm::vec3 daggerOffsetWorld = playerTransform.orientation * daggerOffset;
+  /*glm::vec3 daggerOffsetWorld = playerTransform.orientation * daggerOffset;
   glm::vec3 daggerPosition = playerTransform.position + daggerOffsetWorld;
   glm::quat daggerOrientation =
       playerTransform.orientation *
       glm::angleAxis(glm::pi<float>() * -0.5f, glm::vec3(0.0f, 1.0f, 0.0f)) *
-      glm::angleAxis(glm::pi<float>() * 0.5f, glm::vec3(1.0f, 0.0f, 0.0f));
+      glm::angleAxis(glm::pi<float>() * 0.5f, glm::vec3(1.0f, 0.0f, 0.0f));*/
   ModelCreateInfo modelInfo{};
-  modelInfo.filepath = "models/dagger.obj";
+  modelInfo.filepath = "models/sword.glb";
   context.entities.push_back({context,
-                              {.position = daggerPosition,
-                               .scale = {0.5f, 0.5f, 0.5f},
-                               .orientation = daggerOrientation},
+                              {.position = {0.5, -0.5, 0.5}/*daggerPosition*/,
+                               .scale = {0.5f, 0.5f, 0.5f}/*,
+                               .orientation = daggerOrientation*/},
                               modelInfo});
 
   /*model = Model::createModelFromFile(context, "floor", "models/quad.obj");
@@ -75,38 +75,40 @@ void loadObjects(EngineContext &context) {
         {.position = rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f),
          .color = glm::vec4(lightColors[i], 1.0f)});
   }
-  /*
-  model = Model::createModelFromFile(context, "cube", "models/cube.obj");
+  modelInfo.filepath = "models/corridor.glb";
   context.entities.push_back(
-      {.transform = {.position = {5.f, -.5f, 0.f}, .scale = {.5f, .5f, .5f}},
-       .model = model});*/
-  /*for (int i = 0; i < 30; i++) {
-    std::random_device rd;  // Seed generator
-    std::mt19937 gen(rd()); // Mersenne Twister engine
-    std::uniform_int_distribution<> dist(0.f, 9.f);
-    context.entities.push_back(
-        {.transform = {.position = {2.f + dist(gen), -1.f, 2.f + dist(gen)},
-                       .scale = {.5f, .5f, .5f}},
-         .model = model});
-  }*/
-  /*context.entities.push_back({context,
-                              {.position = {0.f, GROUND_LEVEL, 1.f}},
-                              "living room",
-                              "models/mainRoom.obj"});*/
-  modelInfo.filepath = "models/viking_room.obj";
-  modelInfo.texturepath = "textures/viking_room.png";
+      {context, {.position = {0.f, GROUND_LEVEL, 0.f}}, modelInfo});
+  modelInfo.filepath = "models/mujina.glb";
   context.entities.push_back(
       {context,
        {.position = {0.f, GROUND_LEVEL, 1.f},
         .orientation = glm::angleAxis(glm::pi<float>() * 0.5f,
-                                      glm::vec3(1.0f, 0.0f, 0.0f)) *
-                       glm::angleAxis(glm::pi<float>() * -0.5f,
+                                      glm::vec3(0.0f, 1.0f, 0.0f)) *
+                       glm::angleAxis(glm::pi<float>() * 1.f,
+                                      glm::vec3(0.0f, 0.0f, 1.0f))},
+       modelInfo});
+  modelInfo.filepath = "models/ghostface.glb";
+  context.entities.push_back(
+      {context,
+       {.position = {5.f, GROUND_LEVEL, 1.f},
+        .orientation = glm::angleAxis(glm::pi<float>() * 0.5f,
+                                      glm::vec3(0.0f, 1.0f, 0.0f)) *
+                       glm::angleAxis(glm::pi<float>() * 1.f,
+                                      glm::vec3(0.0f, 0.0f, 1.0f))},
+       modelInfo});
+  modelInfo.filepath = "models/ghost.glb";
+  context.entities.push_back(
+      {context,
+       {.position = {0.f, GROUND_LEVEL, 5.f},
+        .orientation = glm::angleAxis(glm::pi<float>() * 0.5f,
+                                      glm::vec3(0.0f, 1.0f, 0.0f)) *
+                       glm::angleAxis(glm::pi<float>() * 1.f,
                                       glm::vec3(0.0f, 0.0f, 1.0f))},
        modelInfo});
   context.particles.push_back({{1.0f, -2.0f, -1.0f}, {1.0f, 1.0f, 1.0f}});
 }
 void updateObjs(EngineContext &context) {
-  auto &dagger = context.entities[1];
+  /*auto &dagger = context.entities[1];
   auto &playerTransform = context.entities[0].transform;
   glm::vec3 daggerOffsetWorld = playerTransform.orientation * daggerOffset;
   glm::vec3 daggerPosition = playerTransform.position + daggerOffsetWorld;
@@ -114,7 +116,7 @@ void updateObjs(EngineContext &context) {
       playerTransform.orientation *
       glm::angleAxis(glm::pi<float>() * -0.5f, glm::vec3(0.0f, 1.0f, 0.0f));
   dagger.transform.position = playerTransform.position + daggerOffsetWorld;
-  dagger.transform.orientation = daggerOrientation;
+  dagger.transform.orientation = daggerOrientation;*/
 }
 void run() {
   EngineContext context{};
@@ -141,8 +143,7 @@ void run() {
       bufInfo.instanceSize = sizeof(GlobalUbo);
       bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
       bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
-      uboBuffers[i] = std::make_unique<Buffer>(
-          context, bufInfo);
+      uboBuffers[i] = std::make_unique<Buffer>(context, bufInfo);
       uboBuffers[i]->map();
     }
 

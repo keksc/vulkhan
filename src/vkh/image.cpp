@@ -13,16 +13,11 @@
 #include "deviceHelpers.hpp"
 
 namespace vkh {
-Image::Image(EngineContext &context, const std::string &path, bool enableAlpha, VkFormat format)
-    : context{context} {
-  int w, h, texChannels;
-  stbi_uc *pixels = stbi_load(path.c_str(), &w, &h, &texChannels,
-                              enableAlpha ? STBI_rgb_alpha : STBI_rgb);
+void Image::createImageFromPixels(void *pixels, int w, int h, VkFormat format) {
   VkDeviceSize imageSize = w * h * 4;
 
   if (!pixels) {
-    throw std::runtime_error(
-        fmt::format("failed to load texture image: {}!", path));
+    throw std::runtime_error("failed to load texture image from memory !");
   }
 
   image = createImage(context, w, h, imageMemory, format);
@@ -48,11 +43,29 @@ Image::Image(EngineContext &context, const std::string &path, bool enableAlpha, 
 
   imageView = createImageView(context, image, format);
 }
+Image::Image(EngineContext &context, const void *data, int len,
+             bool enableAlpha, VkFormat format)
+    : context{context} {
+  int w, h, texChannels;
+  stbi_uc *pixels =
+      stbi_load_from_memory((const stbi_uc *)data, len, &w, &h, &texChannels,
+                            enableAlpha ? STBI_rgb_alpha : STBI_rgb);
+  createImageFromPixels(pixels, w, h, format);
+}
+Image::Image(EngineContext &context, const std::string &path, bool enableAlpha,
+             VkFormat format)
+    : context{context} {
+  int w, h, texChannels;
+  stbi_uc *pixels = stbi_load(path.c_str(), &w, &h, &texChannels,
+                              enableAlpha ? STBI_rgb_alpha : STBI_rgb);
+  createImageFromPixels(pixels, w, h, format);
+}
 Image::Image(EngineContext &context, const ImageCreateInfo &createInfo)
     : context{context} {
   VkFormat format = createInfo.format;
   VkDeviceSize imageSize = createInfo.w * createInfo.h * 4;
-  image = createImage(context, createInfo.w, createInfo.h, imageMemory, createInfo.format);
+  image = createImage(context, createInfo.w, createInfo.h, imageMemory,
+                      createInfo.format);
 
   uint32_t color = 0xffffffff;
   BufferCreateInfo bufInfo{};

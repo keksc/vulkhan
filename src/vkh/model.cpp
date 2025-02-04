@@ -1,10 +1,12 @@
 #include "model.hpp"
+#include "fastgltf/tools.hpp"
 #include <memory>
+#include <stdexcept>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-#define TINYOBJLOADER_IMPLEMENTATION
-#include <tiny_obj_loader.h>
+#include <fastgltf/core.hpp>
+#include <fastgltf/glm_element_traits.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <fmt/color.h>
 #include <glm/gtx/hash.hpp>
@@ -13,21 +15,9 @@
 #include "descriptors.hpp"
 #include "deviceHelpers.hpp"
 #include "image.hpp"
-#include "utils.hpp"
 
 #include <cassert>
 #include <cstring>
-#include <unordered_map>
-
-namespace std {
-template <> struct hash<vkh::Model::Vertex> {
-  size_t operator()(vkh::Model::Vertex const &vertex) const {
-    size_t seed = 0;
-    vkh::hashCombine(seed, vertex.position, vertex.normal, vertex.uv);
-    return seed;
-  }
-};
-} // namespace std
 
 namespace vkh {
 void Model::createVertexBuffer(const std::vector<Vertex> &vertices) {
@@ -143,63 +133,115 @@ Model::Vertex::getAttributeDescriptions() {
 
   return attributeDescriptions;
 }
-
-void Model::loadModel(const std::string &filepath) {
-  tinyobj::attrib_t attrib;
-  std::vector<tinyobj::shape_t> shapes;
-  std::vector<tinyobj::material_t> materials;
-  std::string warn, err;
-
-  if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
-                        filepath.c_str())) {
-    throw std::runtime_error(warn + err);
+void Model::loadModel(const std::filesystem::path &path) {
+  auto gltfFile = fastgltf::GltfDataBuffer::FromPath(path);
+  if (gltfFile.error() != fastgltf::Error::None) {
+    throw std::runtime_error(
+        fmt::format("failed to load {}: {}", path.string(),
+                    fastgltf::getErrorMessage(gltfFile.error())));
   }
+  fastgltf::Parser parser;
+  auto asset = parser.loadGltfBinary(gltfFile.get(), path.parent_path(),
+                                     fastgltf::Options::None);
+  if (asset.error() != fastgltf::Error::None) {
+    throw std::runtime_error(fmt::format(
+        "Failed to parse GLB: {}", fastgltf::getErrorMessage(asset.error())));
+  }
+  auto gltf = std::move(asset.get());
 
   std::vector<Vertex> vertices;
   std::vector<uint32_t> indices;
+  auto &mesh = gltf.meshes[0];
 
-  std::unordered_map<Vertex, uint32_t> uniqueVertices{};
-  for (const auto &shape : shapes) {
-    for (const auto &index : shape.mesh.indices) {
-      Vertex vertex{};
+  for (auto &&p : mesh.primitives) {
+    size_t initial_vtx = vertices.size();
+    // load indexes
+    {
+      fastgltf::Accessor &indexaccessor =
+          gltf.accessors[p.indicesAccessor.value()];
+      indices.reserve(indices.size() + indexaccessor.count);
 
-      if (index.vertex_index >= 0) {
-        vertex.position = {
-            attrib.vertices[3 * index.vertex_index + 0],
-            attrib.vertices[3 * index.vertex_index + 1],
-            attrib.vertices[3 * index.vertex_index + 2],
-        };
-      }
+      fastgltf::iterateAccessor<std::uint32_t>(
+          gltf, indexaccessor,
+          [&](std::uint32_t idx) { indices.push_back(idx + initial_vtx); });
+    }
 
-      if (index.normal_index >= 0) {
-        vertex.normal = {
-            attrib.normals[3 * index.normal_index + 0],
-            attrib.normals[3 * index.normal_index + 1],
-            attrib.normals[3 * index.normal_index + 2],
-        };
-      }
+    // load vertex positions
+    {
+      fastgltf::Accessor &posAccessor =
+          gltf.accessors[p.findAttribute("POSITION")->accessorIndex];
+      vertices.resize(vertices.size() + posAccessor.count);
 
-      if (index.texcoord_index >= 0) {
-        vertex.uv = {
-            attrib.texcoords[2 * index.texcoord_index + 0],
-            1.0 - attrib.texcoords[2 * index.texcoord_index + 1],
-        };
-      }
+      fastgltf::iterateAccessorWithIndex<glm::vec3>(
+          gltf, posAccessor, [&](glm::vec3 v, size_t index) {
+            Vertex newvtx;
+            newvtx.position = v;
+            vertices[initial_vtx + index] = newvtx;
+          });
+    }
 
-      if (uniqueVertices.count(vertex) == 0) {
-        uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
-        vertices.push_back(vertex);
-      }
-      indices.push_back(uniqueVertices[vertex]);
+    // load vertex normals
+    auto normals = p.findAttribute("NORMAL");
+    if (normals != p.attributes.end()) {
+
+      fastgltf::iterateAccessorWithIndex<glm::vec3>(
+          gltf, gltf.accessors[(*normals).accessorIndex],
+          [&](glm::vec3 v, size_t index) {
+            vertices[initial_vtx + index].normal = v;
+          });
+    }
+
+    // load UVs
+    auto uv = p.findAttribute("TEXCOORD_0");
+    if (uv != p.attributes.end()) {
+
+      fastgltf::iterateAccessorWithIndex<glm::vec2>(
+          gltf, gltf.accessors[(*uv).accessorIndex],
+          [&](glm::vec2 v, size_t index) {
+            vertices[initial_vtx + index].uv.x = v.x;
+            vertices[initial_vtx + index].uv.y = v.y;
+          });
     }
   }
+  if (gltf.images.empty()) {
+    throw std::runtime_error(fmt::format("no image in GLB {}", path.string()));
+  }
+  auto &image = gltf.images[0];
+  std::visit(
+      fastgltf::visitor{
+          [](auto &arg) {},
+          [&](fastgltf::sources::BufferView &view) {
+            auto &bufferView = gltf.bufferViews[view.bufferViewIndex];
+            auto &buffer = gltf.buffers[bufferView.bufferIndex];
+            // Yes, we've already loaded every buffer into some GL buffer.
+            // However, with GL it's simpler to just copy the buffer data
+            // again for the texture. Besides, this is just an example.
+            std::visit(
+                fastgltf::visitor{
+                    // We only care about VectorWithMime here, because we
+                    // specify LoadExternalBuffers, meaning
+                    // all buffers are already loaded into a vector.
+                    [](auto &arg) {},
+                    [&](fastgltf::sources::Array &vector) {
+                      int width, height, nrChannels;
+                      texture = std::make_unique<Image>(
+                          context,
+                          reinterpret_cast<const void *>(vector.bytes.data() +
+                                                         bufferView.byteOffset),
+                          static_cast<int>(bufferView.byteLength));
+                    }},
+                buffer.data);
+          },
+      },
+      image.data);
+
   createIndexBuffer(indices);
   createVertexBuffer(vertices);
 }
 void Model::createDescriptors() {
   VkDescriptorImageInfo imageInfo{};
   imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  imageInfo.imageView = image->getImageView();
+  imageInfo.imageView = texture->getImageView();
   imageInfo.sampler = context.vulkan.modelSampler;
   DescriptorWriter(*context.vulkan.modelDescriptorSetLayout,
                    *context.vulkan.globalPool)
@@ -211,12 +253,6 @@ Model::Model(EngineContext &context, const ModelCreateInfo &createInfo)
   createInfo.filepath.empty()
       ? createBuffers(createInfo.vertices, createInfo.indices)
       : loadModel(createInfo.filepath);
-
-  // Texture Hierarchy: texturepath > existing image > default
-  image = createInfo.image ? createInfo.image
-          : !createInfo.texturepath.empty()
-              ? std::make_shared<Image>(context, createInfo.texturepath)
-              : std::make_shared<Image>(context, ImageCreateInfo{});
 
   createDescriptors();
 }
