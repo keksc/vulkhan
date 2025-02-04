@@ -11,6 +11,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <filesystem>
 
 namespace vkh {
 struct ModelCreateInfo;
@@ -31,7 +32,7 @@ public:
              uv == other.uv;
     }
   };
-  void loadModel(const std::string &filepath);
+  void loadModel(const std::filesystem::path &path);
 
   Model(EngineContext &context, const ModelCreateInfo &createInfo);
 
@@ -63,14 +64,12 @@ private:
 
   bool enableTexture = true;
 
-  std::shared_ptr<Image> image;
+  std::unique_ptr<Image> texture;
   VkDescriptorSet textureDescriptorSet;
 };
 struct ModelCreateInfo {
   std::string filepath;
-  std::string texturepath;
   std::vector<Model::Vertex> vertices;
   std::vector<uint32_t> indices;
-  std::shared_ptr<Image> image;
 };
 } // namespace vkh

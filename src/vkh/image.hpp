@@ -15,14 +15,17 @@ struct ImageCreateInfo {
 class Image {
 public:
   Image(EngineContext &context, const ImageCreateInfo &createInfo);
-  Image(EngineContext &context, const std::string &path, bool enableAlpha = true, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
+  Image(EngineContext &context, const std::string &path,
+        bool enableAlpha = true, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
+  Image(EngineContext &context, const void *data, int len,
+        bool enableAlpha = true, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
 
   operator VkImage() { return image; }
-  inline const VkImage getImage() { return image; }
   inline const VkImageView getImageView() { return imageView; }
   ~Image();
 
 private:
+  void createImageFromPixels(void *pixels, int w, int h, VkFormat format);
   EngineContext &context;
   VkImage image;
   VkImageView imageView;
