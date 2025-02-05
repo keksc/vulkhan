@@ -75,9 +75,12 @@ void loadObjects(EngineContext &context) {
         {.position = rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f),
          .color = glm::vec4(lightColors[i], 1.0f)});
   }
-  modelInfo.filepath = "models/corridor.glb";
+  modelInfo.filepath = "models/core.glb";
   context.entities.push_back(
       {context, {.position = {0.f, GROUND_LEVEL, 0.f}}, modelInfo});
+  modelInfo.filepath = "models/corridor_west.glb";
+  context.entities.push_back(
+      {context, {.position = {50.f, GROUND_LEVEL, 0.f}}, modelInfo});
   modelInfo.filepath = "models/mujina.glb";
   context.entities.push_back(
       {context,
