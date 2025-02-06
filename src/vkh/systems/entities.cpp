@@ -60,9 +60,9 @@ void createPipeline(EngineContext &context) {
   pipelineConfig.attributeDescriptions =
       Model::Vertex::getAttributeDescriptions();
   pipelineConfig.bindingDescriptions = Model::Vertex::getBindingDescriptions();
-  pipeline = std::make_unique<Pipeline>(
-      context, "entity system", "shaders/entities.vert.spv",
-      "shaders/entities.frag.spv", pipelineConfig);
+  pipeline =
+      std::make_unique<Pipeline>(context, "shaders/entities.vert.spv",
+                                 "shaders/entities.frag.spv", pipelineConfig);
 }
 void init(EngineContext &context) {
   createPipelineLayout(context);
@@ -75,7 +75,7 @@ void cleanup(EngineContext &context) {
 }
 
 void render(EngineContext &context) {
-  pipeline->bind(context.frameInfo.commandBuffer);
+  pipeline->bindGraphics(context.frameInfo.commandBuffer);
 
   /*vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,

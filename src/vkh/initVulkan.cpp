@@ -289,7 +289,6 @@ std::string deviceTypeToString(VkPhysicalDeviceType type) {
   }
 }
 void displayInitInfo(EngineContext &context) {
-  fmt::print("Vulkan Initialization Info:\n");
   fmt::print("{:=<60}\n", ""); // Table border
 
   // Header row
@@ -300,19 +299,10 @@ void displayInitInfo(EngineContext &context) {
   fmt::print("{:<30} {:<25}\n", "Selected GPU",
              context.vulkan.physicalDeviceProperties.deviceName);
   fmt::print(
-      "{:<30} {:<25}\n", "Device Type",
-      deviceTypeToString(context.vulkan.physicalDeviceProperties.deviceType));
-  fmt::print(
       "{:<30} {}.{}.{}\n", "API Version",
       VK_VERSION_MAJOR(context.vulkan.physicalDeviceProperties.apiVersion),
       VK_VERSION_MINOR(context.vulkan.physicalDeviceProperties.apiVersion),
       VK_VERSION_PATCH(context.vulkan.physicalDeviceProperties.apiVersion));
-
-  // Window Info
-  fmt::print("{:<30} {:<25}\n", "Window Resolution",
-             fmt::format("{}x{}", context.window.width, context.window.height));
-  fmt::print("{:<30} {:<25}\n", "Window Aspect Ratio",
-             context.window.aspectRatio);
 
   fmt::print("{:=<60}\n", ""); // Table border
 }

@@ -15,7 +15,8 @@
 
 namespace vkh {
 struct Entity;
-const int MAX_TEXTURES = 600;
+const int MAX_SAMPLERS = 50;
+const int MAX_STORAGE_IMAGES = 10;
 class DescriptorPool;
 class DescriptorSetLayout;
 
