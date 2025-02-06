@@ -31,7 +31,7 @@ void calcViewDirection(EngineContext &context, glm::vec3 direction,
   const glm::vec3 u{glm::normalize(glm::cross(w, up))};
   const glm::vec3 v{glm::cross(w, u)};
 
-  /*context.camera.viewMatrix = glm::mat4{1.f};
+  context.camera.viewMatrix = glm::mat4{1.f};
   context.camera.viewMatrix[0][0] = u.x;
   context.camera.viewMatrix[1][0] = u.y;
   context.camera.viewMatrix[2][0] = u.z;
@@ -57,7 +57,7 @@ void calcViewDirection(EngineContext &context, glm::vec3 direction,
   context.camera.inverseViewMatrix[2][2] = w.z;
   context.camera.inverseViewMatrix[3][0] = context.camera.position.x;
   context.camera.inverseViewMatrix[3][1] = context.camera.position.y;
-  context.camera.inverseViewMatrix[3][2] = context.camera.position.z;*/
+  context.camera.inverseViewMatrix[3][2] = context.camera.position.z;
 }
 
 void calcViewTarget(EngineContext &context, glm::vec3 target, glm::vec3 up) {

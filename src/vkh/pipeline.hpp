@@ -2,6 +2,7 @@
 
 #include "engineContext.hpp"
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -54,33 +55,33 @@ struct PipelineConfigInfo {
   VkRenderPass renderPass = nullptr;
   uint32_t subpass = 0;
 };
+/*struct PipelineCreateInfo {
+  PipelineCreateInfo() = default;
+  PipelineCreateInfo(const PipelineCreateInfo &) = delete;
+  PipelineCreateInfo &operator=(const PipelineCreateInfo &) = delete;
+};*/
 
 class Pipeline {
 public:
-  Pipeline(EngineContext &context, std::string name,
-           const std::string &vertFilepath, const std::string &fragFilepath,
+  Pipeline(EngineContext &context,
+                     const std::filesystem::path &vertpath,
+                     const std::filesystem::path fragpath,
+                     const PipelineConfigInfo &configInfo);
+  Pipeline(EngineContext &context, const std::filesystem::path &comppath,
            const PipelineConfigInfo &configInfo);
   ~Pipeline();
 
   Pipeline(const Pipeline &) = delete;
   Pipeline &operator=(const Pipeline &) = delete;
 
-  void bind(VkCommandBuffer commandBuffer);
+  void bindGraphics(VkCommandBuffer commandBuffer);
 
   static void enableAlphaBlending(PipelineConfigInfo &configInfo);
 
 private:
-  void createGraphicsPipeline(const std::string &vertFilepath,
-                              const std::string &fragFilepath,
-                              const PipelineConfigInfo &configInfo);
-
   EngineContext &context;
 
-  std::string name;
-
   VkPipeline graphicsPipeline;
-  VkShaderModule vertShaderModule;
-  VkShaderModule fragShaderModule;
 };
 class ComputePipeline {
   ComputePipeline(const ComputePipeline &) = delete;

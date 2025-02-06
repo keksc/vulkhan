@@ -32,33 +32,16 @@ layout(push_constant) uniform Push {
 
 const float PI = 3.141592653589793;
 
-const float amplitude = 0.8f;   // Wave height
-const float wavelength = 20.0f; // Distance between crests
-const float steepness = 0.75f;  // Peak sharpness (0-1)
-const vec2 direction = normalize(vec2(1.0f, 0.2f)); // Wave direction
-const float speed = 2.0f; // Wave propagation speed
+const float amplitude = 24.5;   // Wave height
+const float wavelength = 20.0; // Distance between crests
+const float steepness = 0.66;  // Peak sharpness (0-1)
+const vec2 direction = normalize(vec2(1.0, 0.2)); // Wave direction
+const float speed = 2.12f; // Wave propagation speed
                             //
 void main() {
   float height = texture(heightMap, uv).r;
-  float k = 2 * PI / wavelength;
-  float Q = steepness / (k * amplitude);
-  float frequency = sqrt(9.8 * k);
-  
-  // Base position
   vec3 pos = position;
-  
-  // Gerstner wave calculations
-  float phase = k * dot(direction, pos.xz) - frequency * push.time;
-  vec2 horizontalOffset = Q * amplitude * direction * cos(phase);
-  
-  pos.x += horizontalOffset.x;
-  pos.z += horizontalOffset.y;
-  pos.y += amplitude * sin(phase);
-
-  // Calculate normals using partial derivatives
-  vec3 tangent = vec3(1.0, k * amplitude * cos(phase), 0.0);
-  vec3 bitangent = vec3(0.0, k * amplitude * cos(phase), 1.0);
-  fragNormal = normalize(cross(tangent, bitangent));
+  pos.y += height;
 
   // Transform final position
   gl_Position = ubo.projection * ubo.view * push.modelMatrix * vec4(pos, 1.0);

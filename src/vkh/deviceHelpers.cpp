@@ -274,11 +274,11 @@ VkImageView createTextureImageView(EngineContext &context, VkImage image) {
   return createImageView(context, image,
                          context.vulkan.swapChain->getSwapChainImageFormat());
 }
-std::vector<char> readFile(const std::string &filepath) {
+std::vector<char> readFile(const std::filesystem::path &filepath) {
   std::ifstream file{filepath, std::ios::ate | std::ios::binary};
 
   if (!file.is_open()) {
-    throw std::runtime_error("failed to open file: " + filepath);
+    throw std::runtime_error("failed to open file: " + filepath.string());
   }
 
   size_t fileSize = static_cast<size_t>(file.tellg());

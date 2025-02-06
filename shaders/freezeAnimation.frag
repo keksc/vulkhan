@@ -26,7 +26,7 @@ layout(push_constant) uniform Push {
 
 //xy is pos, z is initial angle
 vec3 snowflakes[] = {
-  vec3(-0.8, -0.6, 0.0),
+  vec3(0.0, 0.0, 0.0),
   vec3(-0.8, -0.55, 0.0),
   vec3(0.8, -0.7, 0.0),
   vec3(0.9, -0.6, 2.0),
@@ -37,7 +37,7 @@ vec3 snowflakes[] = {
 void main() {
   vec2 uv = inPos;
   uv.x *= ubo.aspectRatio;
-  uv *= 1.0 / min(pow(push.time * 0.5, 2.0) + 0.5, 1.0);
+  /*uv *= 1.0 / min(pow(push.time * 0.5, 2.0) + 0.5, 1.0);
 
   // Adjust snowflakes array positions for aspect ratio
   vec3 closestSnowflake = vec3(snowflakes[0].x * ubo.aspectRatio, snowflakes[0].yz);
@@ -50,12 +50,12 @@ void main() {
       closestSnowflakeDist = dist;
       closestSnowflake = adjustedSnowflake;
     }
-  }
+  }*/
 
-  vec2 pos = closestSnowflake.xy - uv;
+  vec2 pos = snowflakes[0].xy - uv;
 
   float radius = length(pos)*6.0;
-  float angle = atan(pos.y, pos.x)+closestSnowflake.z;
+  float angle = atan(pos.y, pos.x)+snowflakes[0].z;
 
   float func = pow(abs(cos(angle * 12.0) * sin(angle * 3.0)) * 0.8 + 0.1, 4);
 

@@ -53,7 +53,7 @@ void createPipeline(EngineContext &context) {
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipeline = std::make_unique<Pipeline>(
-      context, "freezeAnimation system", "shaders/freezeAnimation.vert.spv",
+      context, "shaders/freezeAnimation.vert.spv",
       "shaders/freezeAnimation.frag.spv", pipelineConfig);
 }
 void init(EngineContext &context) {
@@ -67,7 +67,7 @@ void cleanup(EngineContext &context) {
 }
 
 void render(EngineContext &context) {
-  pipeline->bind(context.frameInfo.commandBuffer);
+  pipeline->bindGraphics(context.frameInfo.commandBuffer);
 
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,

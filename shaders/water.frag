@@ -27,7 +27,6 @@ layout(set = 1, binding = 0) uniform sampler2D heightMap;
 const vec3 lightPos = vec3(2.0, -3.0, -1.0);
 
 void main() {
-  vec3 dirToLight = normalize(lightPos - position);
   float h = texture(heightMap, uv).r;
-  outColor = vec4(vec3(dot(normalize(normal), dirToLight)), 1.0);
+  outColor = vec4(vec3(h), 1.0);
 }
