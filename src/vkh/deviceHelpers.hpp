@@ -5,6 +5,7 @@
 
 #include "engineContext.hpp"
 
+#include <filesystem>
 #include <vector>
 
 namespace vkh {
@@ -51,7 +52,7 @@ void copyBufferToImage(EngineContext &context, VkBuffer buffer, VkImage image,
                        uint32_t width, uint32_t height);
 VkImageView createImageView(EngineContext &context, VkImage image,
                             VkFormat format);
-std::vector<char> readFile(const std::string &filepath);
+std::vector<char> readFile(const std::filesystem::path &filepath);
 uint32_t findMemoryType(EngineContext &context, uint32_t typeFilter,
                         VkMemoryPropertyFlags properties);
 VkImage createImage(EngineContext &context, int w, int h,

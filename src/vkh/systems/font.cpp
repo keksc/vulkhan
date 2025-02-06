@@ -80,8 +80,7 @@ void createBuffers(EngineContext &context) {
   bufInfo.instanceSize = sizeof(uint32_t);
   bufInfo.instanceCount = maxIndexCount;
   bufInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-  indexBuffer =
-      std::make_unique<Buffer>(context, bufInfo);
+  indexBuffer = std::make_unique<Buffer>(context, bufInfo);
   indexBuffer->map();
 }
 void createDescriptors(EngineContext &context) {
@@ -137,9 +136,9 @@ void createPipeline(EngineContext &context) {
       .depthWriteEnable = false,
       .depthCompareOp = VK_COMPARE_OP_LESS};
   Pipeline::enableAlphaBlending(pipelineConfig);
-  pipeline = std::make_unique<Pipeline>(
-      context, "font system", "shaders/font.vert.spv", "shaders/font.frag.spv",
-      pipelineConfig);
+  pipeline =
+      std::make_unique<Pipeline>(context, "shaders/font.vert.spv",
+                                 "shaders/font.frag.spv", pipelineConfig);
 }
 void initFont() {
   fontDataChar = readFile("fonts/Roboto-Regular.ttf");
@@ -173,8 +172,7 @@ void createGlyphs(EngineContext &context) {
   imageInfo.w = bitmapExtent.x;
   imageInfo.h = bitmapExtent.y;
   imageInfo.data = atlasData;
-  fontAtlas =
-      std::make_shared<Image>(context, imageInfo);
+  fontAtlas = std::make_shared<Image>(context, imageInfo);
 
   for (int i = 0; i < charInfo.size(); i++) {
     char c = i + 32;
@@ -263,7 +261,7 @@ void cleanup(EngineContext &context) {
 }
 
 void render(EngineContext &context) {
-  pipeline->bind(context.frameInfo.commandBuffer);
+  pipeline->bindGraphics(context.frameInfo.commandBuffer);
 
   /*PushConstantData push{};
 
@@ -277,8 +275,8 @@ void render(EngineContext &context) {
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(context.frameInfo.commandBuffer, 0, 1, buffers,
                          offsets);
-  vkCmdBindIndexBuffer(context.frameInfo.commandBuffer,
-                       *indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+  vkCmdBindIndexBuffer(context.frameInfo.commandBuffer, *indexBuffer, 0,
+                       VK_INDEX_TYPE_UINT32);
   VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
                                        descriptorSet};
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,

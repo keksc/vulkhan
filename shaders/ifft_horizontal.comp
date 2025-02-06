@@ -1,0 +1,27 @@
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// Read from frequency image (RG32F), write to intermediate image (RG32F)
+layout(binding = 0, rgba32f) uniform readonly image2D freqImage;
+layout(binding = 1, rgba32f) uniform writeonly image2D interImage;
+
+const float PI = 3.14159265359;
+
+void main() {
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(freqImage);
+    if(gid.x >= size.x || gid.y >= size.y) return;
+
+    vec2 sum = vec2(0.0);
+    // Naïve summation over the row (horizontal direction)
+    for (int n = 0; n < size.x; n++) {
+        float angle = 2.0 * PI * float(gid.x * n) / float(size.x);
+        vec2 twiddle = vec2(cos(angle), sin(angle));
+        vec4 sample = imageLoad(freqImage, ivec2(n, gid.y));
+        vec2 c = sample.xy;
+        sum += vec2(c.x * twiddle.x - c.y * twiddle.y,
+                    c.x * twiddle.y + c.y * twiddle.x);
+    }
+    imageStore(interImage, gid, vec4(sum, 0.0, 1.0));
+}
+

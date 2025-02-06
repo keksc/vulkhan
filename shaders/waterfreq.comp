@@ -1,0 +1,70 @@
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// Frequency image: RG32F (R = real, G = imaginary)
+layout(binding = 0, rgba32f) uniform image2D freqImage;
+
+layout(push_constant) uniform ComputePushConstants {
+    float time;
+    float windSpeed;
+    float A;
+} pc;
+
+const float PI = 3.14159265359;
+const float g  = 9.81;
+
+// Simple hash & Gaussian functions
+float hash(ivec2 p) {
+    uint n = uint(p.x + p.y * 57);
+    n = (n << 13u) ^ n;
+    return float(1u + ((n * (n * n * 15731u + 789221u) + 1376312589u) & 0x7fffffffu))
+         / float(0x7fffffffu);
+}
+
+vec2 gaussianRandom(ivec2 seed) {
+    float u1 = hash(seed);
+    float u2 = hash(seed + ivec2(1,1));
+    float r = sqrt(-2.0 * log(u1));
+    float theta = 2.0 * PI * u2;
+    return r * vec2(cos(theta), sin(theta));
+}
+
+float jonswapSpectrum(vec2 k) {
+    float k_len = length(k);
+    if(k_len < 0.0001) return 0.0;
+    float omega_p = 0.84 * g / pc.windSpeed;
+    float sigma = (abs(sqrt(g * k_len) - omega_p) < 0.0001) ? 0.07 : 0.09;
+    float r = exp(-pow(sqrt(g * k_len) - omega_p, 2) / (2.0 * sigma * sigma * omega_p * omega_p));
+    float gamma = 3.3;
+    return pc.A * exp(-1.25 * pow(omega_p / sqrt(g * k_len), 4)) * pow(gamma, r);
+}
+
+void main() {
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(freqImage);
+
+    // Map grid coordinate to wavevector k. Adjust k_max as needed.
+    float k_max = 10.0;
+    vec2 k;
+    k.x = (float(gid.x) - float(size.x)/2.0) / float(size.x) * 2.0 * k_max;
+    k.y = (float(gid.y) - float(size.y)/2.0) / float(size.y) * 2.0 * k_max;
+
+    float omega = sqrt(g * length(k));
+    float S = jonswapSpectrum(k);
+    float amplitude = sqrt(S * 0.5);
+    vec2 h0 = amplitude * gaussianRandom(gid);
+
+    // Compute h0(-k) using a complementary seed.
+    vec2 h0_neg = amplitude * gaussianRandom(ivec2(size.x - gid.x, size.y - gid.y));
+
+    float cos_t = cos(omega * pc.time);
+    float sin_t = sin(omega * pc.time);
+    vec2 term1 = vec2(h0.x * cos_t - h0.y * sin_t,
+                      h0.x * sin_t + h0.y * cos_t);
+    vec2 h0_neg_conj = vec2(h0_neg.x, -h0_neg.y);
+    vec2 term2 = vec2(h0_neg_conj.x * cos_t - h0_neg_conj.y * (-sin_t),
+                      h0_neg_conj.x * (-sin_t) + h0_neg_conj.y * cos_t);
+    vec2 freq = term1 + term2;
+
+    imageStore(freqImage, gid, vec4(freq, 0.0, 1.0));
+}

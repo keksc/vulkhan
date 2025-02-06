@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <vulkan/vulkan_core.h>
 
 #include "deviceHelpers.hpp"
 
@@ -25,39 +26,16 @@ void createShaderModule(EngineContext &context, const std::vector<char> &code,
     throw std::runtime_error("failed to create shader module");
   }
 }
-Pipeline::Pipeline(EngineContext &context, std::string name,
-                   const std::string &vertFilepath,
-                   const std::string &fragFilepath,
+Pipeline::Pipeline(EngineContext &context,
+                   const std::filesystem::path &vertpath,
+                   const std::filesystem::path fragpath,
                    const PipelineConfigInfo &configInfo)
-    : name{name}, context{context} {
-  createGraphicsPipeline(vertFilepath, fragFilepath, configInfo);
-  fmt::print("{} pipeline {}\n",
-             fmt::styled("created", fmt::fg(fmt::color::light_green)),
-             fmt::styled(name, fg(fmt::color::yellow)));
-}
+    : context{context} {
+  auto vertCode = readFile(vertpath);
+  auto fragCode = readFile(fragpath);
 
-Pipeline::~Pipeline() {
-  vkDestroyShaderModule(context.vulkan.device, vertShaderModule, nullptr);
-  vkDestroyShaderModule(context.vulkan.device, fragShaderModule, nullptr);
-  vkDestroyPipeline(context.vulkan.device, graphicsPipeline, nullptr);
-  fmt::print("{} pipeline {}\n",
-             fmt::styled("destroyed", fmt::fg(fmt::color::red)),
-             fmt::styled(name, fg(fmt::color::yellow)));
-}
-
-void Pipeline::createGraphicsPipeline(const std::string &vertFilepath,
-                                      const std::string &fragFilepath,
-                                      const PipelineConfigInfo &configInfo) {
-  assert(configInfo.pipelineLayout != VK_NULL_HANDLE &&
-         "Cannot create graphics pipeline: no pipelineLayout provided in "
-         "configInfo");
-  assert(
-      configInfo.renderPass != VK_NULL_HANDLE &&
-      "Cannot create graphics pipeline: no renderPass provided in configInfo");
-
-  auto vertCode = readFile(vertFilepath);
-  auto fragCode = readFile(fragFilepath);
-
+  VkShaderModule vertShaderModule;
+  VkShaderModule fragShaderModule;
   createShaderModule(context, vertCode, &vertShaderModule);
   createShaderModule(context, fragCode, &fragShaderModule);
 
@@ -108,9 +86,42 @@ void Pipeline::createGraphicsPipeline(const std::string &vertFilepath,
                                 &graphicsPipeline) != VK_SUCCESS) {
     throw std::runtime_error("failed to create graphics pipeline");
   }
+
+  vkDestroyShaderModule(context.vulkan.device, vertShaderModule, nullptr);
+  vkDestroyShaderModule(context.vulkan.device, fragShaderModule, nullptr);
 }
 
-void Pipeline::bind(VkCommandBuffer commandBuffer) {
+Pipeline::Pipeline(EngineContext &context,
+                   const std::filesystem::path &comppath,
+                   const PipelineConfigInfo &configInfo)
+    : context{context} {
+  auto fragCode = readFile(comppath);
+
+  VkShaderModule shaderModule;
+  createShaderModule(context, fragCode, &shaderModule);
+
+  VkComputePipelineCreateInfo pipelineInfo{};
+  /*pipelineInfo.layout = */
+  pipelineInfo.stage = {.sType =
+                            VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                        .stage = VK_SHADER_STAGE_VERTEX_BIT,
+                        .module = shaderModule,
+                        .pName = "main"};
+  pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+  pipelineInfo.basePipelineIndex = -1;
+  pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+  if (vkCreateComputePipelines(context.vulkan.device, VK_NULL_HANDLE, 1,
+                               &pipelineInfo, nullptr,
+                               &graphicsPipeline) != VK_SUCCESS) {
+    throw std::runtime_error("failed to create graphics pipeline");
+  }
+  vkDestroyShaderModule(context.vulkan.device, shaderModule, nullptr);
+}
+Pipeline::~Pipeline() {
+  vkDestroyPipeline(context.vulkan.device, graphicsPipeline, nullptr);
+}
+
+void Pipeline::bindGraphics(VkCommandBuffer commandBuffer) {
   vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     graphicsPipeline);
 }

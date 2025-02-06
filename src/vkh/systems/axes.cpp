@@ -2,16 +2,16 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
-#include <fmt/format.h>
 
 #include <cassert>
 #include <stdexcept>
 
+#include "../descriptors.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
-#include "../descriptors.hpp"
 
 namespace vkh {
 namespace axesSys {
@@ -19,7 +19,8 @@ std::unique_ptr<Pipeline> pipeline;
 VkPipelineLayout pipelineLayout;
 
 void createPipelineLayout(EngineContext &context) {
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout()};
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
+      context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout()};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -40,9 +41,9 @@ void createPipeline(EngineContext &context) {
   pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
-  pipeline = std::make_unique<Pipeline>(
-      context, "axes system", "shaders/axes.vert.spv", "shaders/axes.frag.spv",
-      pipelineConfig);
+  pipeline =
+      std::make_unique<Pipeline>(context, "shaders/axes.vert.spv",
+                                 "shaders/axes.frag.spv", pipelineConfig);
 }
 void init(EngineContext &context) {
   createPipelineLayout(context);
@@ -55,7 +56,7 @@ void cleanup(EngineContext &context) {
 }
 
 void render(EngineContext &context) {
-  pipeline->bind(context.frameInfo.commandBuffer);
+  pipeline->bindGraphics(context.frameInfo.commandBuffer);
 
   auto projectionView =
       context.camera.projectionMatrix * context.camera.viewMatrix;

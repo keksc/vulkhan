@@ -4,13 +4,16 @@
 
 #include <stdexcept>
 
+#include "terrainGen.hpp"
+
 #if defined(WIN32) && defined(NDEBUG)
 #include <windows.h>
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-    PSTR lpCmdLine, int nCmdShow) {
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine,
+                   int nCmdShow) {
 #else
 int main() {
 #endif
+  generateMansion();
   try {
     vkh::run();
   } catch (const std::exception &e) {

@@ -1,0 +1,29 @@
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// Read from intermediate image (RG32F) and write height field (R32F)
+layout(binding = 0, rgba32f) uniform readonly image2D interImage;
+layout(binding = 1, r32f) uniform writeonly image2D heightField;
+
+const float PI = 3.14159265359;
+
+void main() {
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(interImage);
+    if(gid.x >= size.x || gid.y >= size.y) return;
+
+    vec2 sum = vec2(0.0);
+    // Naïve vertical summation over the column
+    for (int n = 0; n < size.y; n++) {
+        float angle = 2.0 * PI * float(gid.y * n) / float(size.y);
+        vec2 twiddle = vec2(cos(angle), sin(angle));
+        vec4 sample = imageLoad(interImage, ivec2(gid.x, n));
+        vec2 c = sample.xy;
+        sum += vec2(c.x * twiddle.x - c.y * twiddle.y,
+                    c.x * twiddle.y + c.y * twiddle.x);
+    }
+    // Write the normalized real part as the final height.
+    float height = sum.x / (float(size.x) * float(size.y));
+    imageStore(heightField, gid, vec4(height, 0.0, 0.0, 1.0));
+}
+
