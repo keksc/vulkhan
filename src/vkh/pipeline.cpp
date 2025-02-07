@@ -1,19 +1,16 @@
 #include "pipeline.hpp"
 
-#include "model.hpp"
 #include <fmt/color.h>
 #include <fmt/format.h>
-
-#include <cassert>
-#include <fstream>
-#include <iostream>
-#include <stdexcept>
 #include <vulkan/vulkan_core.h>
+
+#include <stdexcept>
 
 #include "deviceHelpers.hpp"
 
 namespace vkh {
 
+Pipeline::Pipeline(EngineContext &context) : context{context} {}
 void createShaderModule(EngineContext &context, const std::vector<char> &code,
                         VkShaderModule *shaderModule) {
   VkShaderModuleCreateInfo createInfo{};
@@ -26,11 +23,11 @@ void createShaderModule(EngineContext &context, const std::vector<char> &code,
     throw std::runtime_error("failed to create shader module");
   }
 }
-Pipeline::Pipeline(EngineContext &context,
-                   const std::filesystem::path &vertpath,
-                   const std::filesystem::path fragpath,
-                   const PipelineConfigInfo &configInfo)
-    : context{context} {
+GraphicsPipeline::GraphicsPipeline(EngineContext &context,
+                                   const std::filesystem::path &vertpath,
+                                   const std::filesystem::path &fragpath,
+                                   const PipelineCreateInfo &configInfo)
+    : Pipeline{context} {
   auto vertCode = readFile(vertpath);
   auto fragCode = readFile(fragpath);
 
@@ -83,7 +80,7 @@ Pipeline::Pipeline(EngineContext &context,
 
   if (vkCreateGraphicsPipelines(context.vulkan.device, VK_NULL_HANDLE, 1,
                                 &pipelineInfo, nullptr,
-                                &graphicsPipeline) != VK_SUCCESS) {
+                                &pipeline) != VK_SUCCESS) {
     throw std::runtime_error("failed to create graphics pipeline");
   }
 
@@ -91,20 +88,20 @@ Pipeline::Pipeline(EngineContext &context,
   vkDestroyShaderModule(context.vulkan.device, fragShaderModule, nullptr);
 }
 
-Pipeline::Pipeline(EngineContext &context,
-                   const std::filesystem::path &comppath,
-                   const PipelineConfigInfo &configInfo)
-    : context{context} {
-  auto fragCode = readFile(comppath);
+ComputePipeline::ComputePipeline(EngineContext &context,
+                                 const std::filesystem::path &shaderpath,
+                                 VkPipelineLayout pipelineLayout)
+    : Pipeline{context} {
+  auto shaderCode = readFile(shaderpath);
 
   VkShaderModule shaderModule;
-  createShaderModule(context, fragCode, &shaderModule);
+  createShaderModule(context, shaderCode, &shaderModule);
 
   VkComputePipelineCreateInfo pipelineInfo{};
-  /*pipelineInfo.layout = */
+  pipelineInfo.layout = pipelineLayout;
   pipelineInfo.stage = {.sType =
                             VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                        .stage = VK_SHADER_STAGE_VERTEX_BIT,
+                        .stage = VK_SHADER_STAGE_COMPUTE_BIT,
                         .module = shaderModule,
                         .pName = "main"};
   pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
@@ -112,21 +109,20 @@ Pipeline::Pipeline(EngineContext &context,
   pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
   if (vkCreateComputePipelines(context.vulkan.device, VK_NULL_HANDLE, 1,
                                &pipelineInfo, nullptr,
-                               &graphicsPipeline) != VK_SUCCESS) {
+                               &pipeline) != VK_SUCCESS) {
     throw std::runtime_error("failed to create graphics pipeline");
   }
   vkDestroyShaderModule(context.vulkan.device, shaderModule, nullptr);
 }
 Pipeline::~Pipeline() {
-  vkDestroyPipeline(context.vulkan.device, graphicsPipeline, nullptr);
+  vkDestroyPipeline(context.vulkan.device, pipeline, nullptr);
 }
 
-void Pipeline::bindGraphics(VkCommandBuffer commandBuffer) {
-  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    graphicsPipeline);
+void Pipeline::bind(VkCommandBuffer commandBuffer) {
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 }
 
-void Pipeline::enableAlphaBlending(PipelineConfigInfo &configInfo) {
+void GraphicsPipeline::enableAlphaBlending(PipelineCreateInfo &configInfo) {
   configInfo.colorBlendAttachment.blendEnable = VK_TRUE;
 
   configInfo.colorBlendAttachment.colorWriteMask =

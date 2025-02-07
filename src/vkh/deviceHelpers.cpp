@@ -184,6 +184,79 @@ void copyBuffer(EngineContext &context, VkBuffer srcBuffer, VkBuffer dstBuffer,
 
   endSingleTimeCommands(context, commandBuffer);
 }
+struct TransitionParams {
+  VkAccessFlags srcAccessMask;
+  VkAccessFlags dstAccessMask;
+  VkPipelineStageFlags srcStage;
+  VkPipelineStageFlags dstStage;
+};
+
+TransitionParams getTransitionParams(VkImageLayout oldLayout,
+                                     VkImageLayout newLayout) {
+  TransitionParams params{};
+  if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+      newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+    params.srcAccessMask = 0;
+    params.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+             newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+    params.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    params.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  }
+  // NEW: Support transition from TRANSFER_DST_OPTIMAL to GENERAL (e.g. for
+  // compute usage)
+  else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+           newLayout == VK_IMAGE_LAYOUT_GENERAL) {
+    params.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    params.dstAccessMask =
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+             newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+    params.srcAccessMask = 0;
+    params.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                           VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+             newLayout == VK_IMAGE_LAYOUT_GENERAL) {
+    params.srcAccessMask = 0;
+    params.dstAccessMask =
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_GENERAL &&
+             newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+    params.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    params.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+             newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+    params.srcAccessMask = 0;
+    params.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL &&
+             newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+    params.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    params.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  } else {
+    throw std::invalid_argument("Unsupported layout transition!");
+  }
+  return params;
+}
+bool hasStencilComponent(VkFormat format) {
+  return (format == VK_FORMAT_D32_SFLOAT_S8_UINT) ||
+         (format == VK_FORMAT_D24_UNORM_S8_UINT);
+}
 void transitionImageLayout(EngineContext &context, VkImage image,
                            VkFormat format, VkImageLayout oldLayout,
                            VkImageLayout newLayout) {
@@ -196,34 +269,27 @@ void transitionImageLayout(EngineContext &context, VkImage image,
   barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   barrier.image = image;
-  barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   barrier.subresourceRange.baseMipLevel = 0;
   barrier.subresourceRange.levelCount = 1;
   barrier.subresourceRange.baseArrayLayer = 0;
   barrier.subresourceRange.layerCount = 1;
 
-  VkPipelineStageFlags sourceStage;
-  VkPipelineStageFlags destinationStage;
-
-  if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
-      newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-    barrier.srcAccessMask = 0;
-    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-    sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-    destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-  } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
-             newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-    sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  // Set aspect mask based on format and intended usage.
+  if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+      newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL) {
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    if (hasStencilComponent(format)) {
+      barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+    }
   } else {
-    throw std::invalid_argument("unsupported layout transition!");
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   }
 
-  vkCmdPipelineBarrier(commandBuffer, sourceStage, destinationStage, 0, 0,
+  TransitionParams params = getTransitionParams(oldLayout, newLayout);
+  barrier.srcAccessMask = params.srcAccessMask;
+  barrier.dstAccessMask = params.dstAccessMask;
+
+  vkCmdPipelineBarrier(commandBuffer, params.srcStage, params.dstStage, 0, 0,
                        nullptr, 0, nullptr, 1, &barrier);
 
   endSingleTimeCommands(context, commandBuffer);
@@ -289,50 +355,6 @@ std::vector<char> readFile(const std::filesystem::path &filepath) {
 
   file.close();
   return buffer;
-}
-VkImage createImage(EngineContext &context, int w, int h,
-                    VkDeviceMemory &imageMemory, VkFormat format) {
-  VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-                              .imageType = VK_IMAGE_TYPE_2D,
-                              .format = format,
-                              .mipLevels = 1,
-                              .arrayLayers = 1,
-                              .samples = VK_SAMPLE_COUNT_1_BIT,
-                              .tiling = VK_IMAGE_TILING_OPTIMAL,
-                              .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                       VK_IMAGE_USAGE_SAMPLED_BIT,
-                              .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-                              .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
-  imageInfo.extent.width = w;
-  imageInfo.extent.height = h;
-  imageInfo.extent.depth = 1;
-
-  VkImage image;
-  if (vkCreateImage(context.vulkan.device, &imageInfo, nullptr, &image) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("failed to create image!");
-  }
-  VkMemoryRequirements memRequirements;
-  vkGetImageMemoryRequirements(context.vulkan.device, image, &memRequirements);
-
-  VkMemoryAllocateInfo allocInfo{};
-  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  allocInfo.allocationSize = memRequirements.size;
-  allocInfo.memoryTypeIndex =
-      findMemoryType(context, memRequirements.memoryTypeBits,
-                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-  if (vkAllocateMemory(context.vulkan.device, &allocInfo, nullptr,
-                       &imageMemory) != VK_SUCCESS) {
-    throw std::runtime_error("failed to allocate image memory!");
-  }
-
-  if (vkBindImageMemory(context.vulkan.device, image, imageMemory, 0) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("failed to bind image memory!");
-  }
-
-  return image;
 }
 VkImage createImageWithInfo(EngineContext &context,
                             const VkImageCreateInfo &imageInfo,

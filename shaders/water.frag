@@ -28,5 +28,5 @@ const vec3 lightPos = vec3(2.0, -3.0, -1.0);
 
 void main() {
   float h = texture(heightMap, uv).r;
-  outColor = vec4(vec3(h), 1.0);
+  outColor = vec4(h, 0.0, 0.0, 1.0);
 }

@@ -1,25 +1,23 @@
 #include "particles.hpp"
-#include <memory>
-#include <vulkan/vulkan_core.h>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
+#include <vulkan/vulkan_core.h>
 
 #include <fmt/format.h>
 
-#include <cassert>
+#include <memory>
 #include <stdexcept>
 
 #include "../descriptors.hpp"
-#include "../model.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
 
 namespace vkh {
 namespace particleSys {
-std::unique_ptr<Pipeline> pipeline;
+std::unique_ptr<GraphicsPipeline> pipeline;
 VkPipelineLayout pipelineLayout;
 
 struct PushConstantData {
@@ -49,17 +47,14 @@ void createPipelineLayout(EngineContext &context) {
   }
 }
 void createPipeline(EngineContext &context) {
-  assert(pipelineLayout != nullptr &&
-         "Cannot create pipeline before pipeline layout");
-
-  PipelineConfigInfo pipelineConfig{};
-  Pipeline::enableAlphaBlending(pipelineConfig);
+  PipelineCreateInfo pipelineConfig{};
+  GraphicsPipeline::enableAlphaBlending(pipelineConfig);
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-  pipeline =
-      std::make_unique<Pipeline>(context, "shaders/particles.vert.spv",
-                                 "shaders/particles.frag.spv", pipelineConfig);
+  pipeline = std::make_unique<GraphicsPipeline>(
+      context, "shaders/particles.vert.spv", "shaders/particles.frag.spv",
+      pipelineConfig);
 }
 void init(EngineContext &context) {
   createPipelineLayout(context);
@@ -93,7 +88,7 @@ void update(EngineContext &context, GlobalUbo &ubo) {
 }
 
 void render(EngineContext &context) {
-  pipeline->bindGraphics(context.frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.commandBuffer);
 
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,

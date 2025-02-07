@@ -1,7 +1,6 @@
 #pragma once
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
+#include <vulkan/vulkan_core.h>
 
 #include <filesystem>
 
@@ -10,6 +9,8 @@
 namespace vkh {
 struct ImageCreateInfo {
   VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
+  VkImageUsageFlags usage =
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
   int w = 1;
   int h = 1;
   void *data = nullptr;
@@ -29,7 +30,11 @@ public:
 
 private:
   void createImageFromPixels(void *pixels, int w, int h, VkFormat format);
+  VkImage createImage(EngineContext &context, int w, int h,
+                      VkImageUsageFlags usage, VkFormat format);
+
   EngineContext &context;
+
   VkImage image;
   VkImageView imageView;
   VkDeviceMemory imageMemory;
