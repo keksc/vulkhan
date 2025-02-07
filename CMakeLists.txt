@@ -27,7 +27,7 @@ add_executable(vulkhan ${FLAGS} ${SOURCES})
 
 file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/shaders")
 find_program(
-  GLSL_VALIDATOR glslangValidator
+  GLSLC glslc
   HINTS ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE}
         /usr/bin
         /usr/local/bin
@@ -45,7 +45,7 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
   set(SPIRV "${PROJECT_BINARY_DIR}/shaders/${FILE_NAME}.spv")
   add_custom_command(
     OUTPUT ${SPIRV}
-    COMMAND ${GLSL_VALIDATOR} -V ${GLSL} -o ${SPIRV}
+    COMMAND ${GLSLC} -V ${GLSL} -o ${SPIRV}
     DEPENDS ${GLSL})
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach(GLSL)
