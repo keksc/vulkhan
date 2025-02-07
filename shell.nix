@@ -24,7 +24,5 @@ pkgs.mkShell {
 
   shellHook = ''
     export VK_LAYER_PATH=${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d
-    export VK_DRIVER_FILES=/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.x86_64.json
-    export FFTW3_DIR=${pkgs.fftw.dev}/lib/cmake/fftw3
   '';
 }
