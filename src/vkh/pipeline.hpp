@@ -3,15 +3,14 @@
 #include "engineContext.hpp"
 
 #include <filesystem>
-#include <string>
 #include <vector>
 
 namespace vkh {
 
-struct PipelineConfigInfo {
-  PipelineConfigInfo() = default;
-  PipelineConfigInfo(const PipelineConfigInfo &) = delete;
-  PipelineConfigInfo &operator=(const PipelineConfigInfo &) = delete;
+struct PipelineCreateInfo {
+  PipelineCreateInfo() = default;
+  PipelineCreateInfo(const PipelineCreateInfo &) = delete;
+  PipelineCreateInfo &operator=(const PipelineCreateInfo &) = delete;
 
   std::vector<VkVertexInputBindingDescription> bindingDescriptions;
   std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
@@ -55,43 +54,35 @@ struct PipelineConfigInfo {
   VkRenderPass renderPass = nullptr;
   uint32_t subpass = 0;
 };
-/*struct PipelineCreateInfo {
-  PipelineCreateInfo() = default;
-  PipelineCreateInfo(const PipelineCreateInfo &) = delete;
-  PipelineCreateInfo &operator=(const PipelineCreateInfo &) = delete;
-};*/
 
 class Pipeline {
 public:
-  Pipeline(EngineContext &context,
-                     const std::filesystem::path &vertpath,
-                     const std::filesystem::path fragpath,
-                     const PipelineConfigInfo &configInfo);
-  Pipeline(EngineContext &context, const std::filesystem::path &comppath,
-           const PipelineConfigInfo &configInfo);
+  Pipeline(EngineContext &context);
   ~Pipeline();
 
   Pipeline(const Pipeline &) = delete;
   Pipeline &operator=(const Pipeline &) = delete;
 
-  void bindGraphics(VkCommandBuffer commandBuffer);
+  void bind(VkCommandBuffer commandBuffer);
 
-  static void enableAlphaBlending(PipelineConfigInfo &configInfo);
-
-private:
+protected:
   EngineContext &context;
 
-  VkPipeline graphicsPipeline;
+  VkPipeline pipeline;
 };
-class ComputePipeline {
-  ComputePipeline(const ComputePipeline &) = delete;
-  ComputePipeline &operator=(const ComputePipeline &) = delete;
 
-private:
-  std::string name;
+class GraphicsPipeline : public Pipeline {
+public:
+  GraphicsPipeline(EngineContext &context,
+                   const std::filesystem::path &vertpath,
+                   const std::filesystem::path &fragpath,
+                   const PipelineCreateInfo &configInfo);
 
-  VkPipeline graphicsPipeline;
-  VkShaderModule vertShaderModule;
-  VkShaderModule fragShaderModule;
+  static void enableAlphaBlending(PipelineCreateInfo &configInfo);
+};
+class ComputePipeline : public Pipeline {
+public:
+  ComputePipeline(EngineContext &context, const std::filesystem::path &shaderpath,
+                  VkPipelineLayout pipelineLayout);
 };
 } // namespace vkh

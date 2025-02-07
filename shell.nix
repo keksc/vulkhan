@@ -12,7 +12,6 @@ pkgs.mkShell {
     vulkan-headers
     glfw
     fmt
-    tinyobjloader
     glm
     cmake
     shaderc

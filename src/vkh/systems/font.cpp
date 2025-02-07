@@ -1,6 +1,3 @@
-#include <memory>
-#include <vulkan/vulkan_core.h>
-
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <fmt/format.h>
@@ -13,21 +10,23 @@
 #else
 #include <stb/stb_truetype.h>
 #endif
+#include <vulkan/vulkan_core.h>
+
+#include <memory>
 #include <stdexcept>
 #include <vector>
-
-#include <cassert>
 
 #include "../buffer.hpp"
 #include "../descriptors.hpp"
 #include "../deviceHelpers.hpp"
 #include "../image.hpp"
 #include "../pipeline.hpp"
+#include "../swapChain.hpp"
 #include "../renderer.hpp"
 
 namespace vkh {
 namespace fontSys {
-std::unique_ptr<Pipeline> pipeline;
+std::unique_ptr<GraphicsPipeline> pipeline;
 std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
 VkDescriptorSet descriptorSet;
 struct Vertex {
@@ -122,10 +121,7 @@ void createPipelineLayout(EngineContext &context) {
     throw std::runtime_error("failed to create pipeline layout!");
 }
 void createPipeline(EngineContext &context) {
-  assert(pipelineLayout != nullptr &&
-         "Cannot create pipeline before pipeline layout");
-
-  PipelineConfigInfo pipelineConfig{};
+  PipelineCreateInfo pipelineConfig{};
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.attributeDescriptions = attributeDescriptions;
@@ -135,10 +131,10 @@ void createPipeline(EngineContext &context) {
       .depthTestEnable = false,
       .depthWriteEnable = false,
       .depthCompareOp = VK_COMPARE_OP_LESS};
-  Pipeline::enableAlphaBlending(pipelineConfig);
-  pipeline =
-      std::make_unique<Pipeline>(context, "shaders/font.vert.spv",
-                                 "shaders/font.frag.spv", pipelineConfig);
+  GraphicsPipeline::enableAlphaBlending(pipelineConfig);
+  pipeline = std::make_unique<GraphicsPipeline>(
+      context, "shaders/font.vert.spv", "shaders/font.frag.spv",
+      pipelineConfig);
 }
 void initFont() {
   fontDataChar = readFile("fonts/Roboto-Regular.ttf");
@@ -261,7 +257,7 @@ void cleanup(EngineContext &context) {
 }
 
 void render(EngineContext &context) {
-  pipeline->bindGraphics(context.frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.commandBuffer);
 
   /*PushConstantData push{};
 

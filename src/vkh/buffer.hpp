@@ -1,7 +1,6 @@
 #pragma once
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
+#include <vulkan/vulkan_core.h>
 
 #include "engineContext.hpp"
 
@@ -24,7 +23,7 @@ public:
   void unmap();
 
   void write(void *data, VkDeviceSize size = VK_WHOLE_SIZE,
-                     VkDeviceSize offset = 0);
+             VkDeviceSize offset = 0);
   VkResult flush(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
   VkDescriptorBufferInfo descriptorInfo(VkDeviceSize size = VK_WHOLE_SIZE,
                                         VkDeviceSize offset = 0);
