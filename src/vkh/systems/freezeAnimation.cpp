@@ -5,18 +5,17 @@
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
+#include <vulkan/vulkan_core.h>
 
-#include <cassert>
 #include <stdexcept>
 
 #include "../descriptors.hpp"
-#include "../model.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
 
 namespace vkh {
 namespace freezeAnimationSys {
-std::unique_ptr<Pipeline> pipeline;
+std::unique_ptr<GraphicsPipeline> pipeline;
 VkPipelineLayout pipelineLayout;
 
 struct PushConstantData {
@@ -45,14 +44,11 @@ void createPipelineLayout(EngineContext &context) {
   }
 }
 void createPipeline(EngineContext &context) {
-  assert(pipelineLayout != nullptr &&
-         "Cannot create pipeline before pipeline layout");
-
-  PipelineConfigInfo pipelineConfig{};
-  Pipeline::enableAlphaBlending(pipelineConfig);
+  PipelineCreateInfo pipelineConfig{};
+  GraphicsPipeline::enableAlphaBlending(pipelineConfig);
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
-  pipeline = std::make_unique<Pipeline>(
+  pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/freezeAnimation.vert.spv",
       "shaders/freezeAnimation.frag.spv", pipelineConfig);
 }
@@ -67,7 +63,7 @@ void cleanup(EngineContext &context) {
 }
 
 void render(EngineContext &context) {
-  pipeline->bindGraphics(context.frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.commandBuffer);
 
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,

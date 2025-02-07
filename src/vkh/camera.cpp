@@ -1,21 +1,16 @@
 #include "camera.hpp"
 
-#include <cassert>
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/trigonometric.hpp>
 
 #include "engineContext.hpp"
 
-#include <limits>
-
 namespace vkh {
 
 namespace camera {
 void calcPerspectiveProjection(EngineContext &context, float fovy, float aspect,
                                float near, float far) {
-  assert(aspect > std::numeric_limits<float>::epsilon());
-
   const float tanHalfFovy = tan(fovy / 2.f);
 
   context.camera.projectionMatrix =

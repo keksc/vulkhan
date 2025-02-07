@@ -1,7 +1,9 @@
 #include "initVulkan.hpp"
 
+#include <GLFW/glfw3.h>
 #include <fmt/core.h>
 #include <fmt/format.h>
+#include <vulkan/vulkan_core.h>
 
 #include <set>
 #include <stdexcept>

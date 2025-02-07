@@ -1,4 +1,7 @@
 #pragma once
 
+#include <glm/glm.hpp>
 
-void generateMansion();
+#include <vector>
+
+std::vector<glm::ivec2> generateMansion();

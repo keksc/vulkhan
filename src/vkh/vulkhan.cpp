@@ -1,7 +1,6 @@
 #include "vulkhan.hpp"
 #include <vulkan/vulkan_core.h>
 
-#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -22,6 +21,7 @@
 #include "initVulkan.hpp"
 #include "input.hpp"
 #include "renderer.hpp"
+#include "swapChain.hpp"
 #include "systems/axes.hpp"
 #include "systems/entities.hpp"
 #include "systems/font.hpp"
@@ -32,7 +32,6 @@
 #include "window.hpp"
 
 #include <array>
-#include <cassert>
 #include <chrono>
 #include <memory>
 #include <random>
@@ -76,7 +75,8 @@ void loadObjects(EngineContext &context) {
         {.position = rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f),
          .color = glm::vec4(lightColors[i], 1.0f)});
   }
-  modelInfo.filepath = "models/mujina.glb";
+
+  /*modelInfo.filepath = "models/mujina.glb";
   context.entities.push_back(
       {context,
        {.position = {0.f, GROUND_LEVEL, 1.f},
@@ -103,7 +103,7 @@ void loadObjects(EngineContext &context) {
                        glm::angleAxis(glm::pi<float>() * 1.f,
                                       glm::vec3(0.0f, 0.0f, 1.0f))},
        modelInfo});
-  context.particles.push_back({{1.0f, -2.0f, -1.0f}, {1.0f, 1.0f, 1.0f}});
+  context.particles.push_back({{1.0f, -2.0f, -1.0f}, {1.0f, 1.0f, 1.0f}});*/
 }
 void updateObjs(EngineContext &context) {
   /*auto &dagger = context.entities[1];
@@ -132,8 +132,7 @@ void run() {
                          SwapChain::MAX_FRAMES_IN_FLIGHT)
             .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                          MAX_SAMPLERS)
-            .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                         MAX_STORAGE_IMAGES)
+            .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, MAX_STORAGE_IMAGES)
             .build();
 
     std::vector<std::unique_ptr<Buffer>> uboBuffers(

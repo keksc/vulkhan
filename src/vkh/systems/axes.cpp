@@ -15,7 +15,7 @@
 
 namespace vkh {
 namespace axesSys {
-std::unique_ptr<Pipeline> pipeline;
+std::unique_ptr<GraphicsPipeline> pipeline;
 VkPipelineLayout pipelineLayout;
 
 void createPipelineLayout(EngineContext &context) {
@@ -36,14 +36,14 @@ void createPipeline(EngineContext &context) {
   assert(pipelineLayout != nullptr &&
          "Cannot create pipeline before pipeline layout");
 
-  PipelineConfigInfo pipelineConfig{};
-  Pipeline::enableAlphaBlending(pipelineConfig);
+  PipelineCreateInfo pipelineConfig{};
+  GraphicsPipeline::enableAlphaBlending(pipelineConfig);
   pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.pipelineLayout = pipelineLayout;
-  pipeline =
-      std::make_unique<Pipeline>(context, "shaders/axes.vert.spv",
-                                 "shaders/axes.frag.spv", pipelineConfig);
+  pipeline = std::make_unique<GraphicsPipeline>(
+      context, "shaders/axes.vert.spv", "shaders/axes.frag.spv",
+      pipelineConfig);
 }
 void init(EngineContext &context) {
   createPipelineLayout(context);
@@ -56,7 +56,7 @@ void cleanup(EngineContext &context) {
 }
 
 void render(EngineContext &context) {
-  pipeline->bindGraphics(context.frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.commandBuffer);
 
   auto projectionView =
       context.camera.projectionMatrix * context.camera.viewMatrix;

@@ -44,7 +44,7 @@ void main() {
   pos.y += height;
 
   // Transform final position
-  gl_Position = ubo.projection * ubo.view * push.modelMatrix * vec4(pos, 1.0);
+  gl_Position = ubo.projection * ubo.view * push.modelMatrix * vec4(position, 1.0);
   fragPosition = pos;
   fragUv = uv;
 }

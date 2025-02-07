@@ -1,12 +1,10 @@
 #include "model.hpp"
-#include "fastgltf/tools.hpp"
 #include <memory>
 #include <stdexcept>
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 #include <fastgltf/core.hpp>
 #include <fastgltf/glm_element_traits.hpp>
+#include <vulkan/vulkan_core.h>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <fmt/color.h>
 #include <glm/gtx/hash.hpp>

@@ -6,11 +6,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <vulkan/vulkan_core.h>
 
 #include <stdexcept>
 #include <vector>
-
-#include <cassert>
 
 #include "../descriptors.hpp"
 #include "../entity.hpp"
@@ -20,7 +19,7 @@
 
 namespace vkh {
 namespace entitySys {
-std::unique_ptr<Pipeline> pipeline;
+std::unique_ptr<GraphicsPipeline> pipeline;
 VkPipelineLayout pipelineLayout;
 
 struct PushConstantData {
@@ -51,18 +50,15 @@ void createPipelineLayout(EngineContext &context) {
     throw std::runtime_error("failed to create pipeline layout!");
 }
 void createPipeline(EngineContext &context) {
-  assert(pipelineLayout != nullptr &&
-         "Cannot create pipeline before pipeline layout");
-
-  PipelineConfigInfo pipelineConfig{};
+  PipelineCreateInfo pipelineConfig{};
   pipelineConfig.pipelineLayout = pipelineLayout;
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.attributeDescriptions =
       Model::Vertex::getAttributeDescriptions();
   pipelineConfig.bindingDescriptions = Model::Vertex::getBindingDescriptions();
-  pipeline =
-      std::make_unique<Pipeline>(context, "shaders/entities.vert.spv",
-                                 "shaders/entities.frag.spv", pipelineConfig);
+  pipeline = std::make_unique<GraphicsPipeline>(
+      context, "shaders/entities.vert.spv", "shaders/entities.frag.spv",
+      pipelineConfig);
 }
 void init(EngineContext &context) {
   createPipelineLayout(context);
@@ -75,7 +71,7 @@ void cleanup(EngineContext &context) {
 }
 
 void render(EngineContext &context) {
-  pipeline->bindGraphics(context.frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.commandBuffer);
 
   /*vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,

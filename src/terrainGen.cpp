@@ -2,16 +2,31 @@
 
 #include <fmt/core.h>
 
-#include <glm/glm.hpp>
 #include <random>
+#include <vector>
 
-void generateMansion() {
+std::vector<glm::ivec2> generateMansion() {
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_int_distribution<> distrib(0, 3);
 
   // West generation
-  glm::vec2 cursor = {0.f, 0.f}; // where does west wing start ?
-  for (int i = 0; i < 10; i++)
-    distrib(gen);
+  int N = 10;
+  std::vector<glm::ivec2> tiles(N);
+  glm::ivec2 cursor = {0, 0}; // where does west wing start ?
+  for (int i = 0; i < N; i++) {
+    switch (distrib(gen)) {
+    case 0: // Left
+      cursor.x--;
+      break;
+    case 1: // Right
+      cursor.x++;
+      break;
+    case 2: // Forward
+      cursor.y++;
+      break;
+    };
+    tiles[i] = cursor;
+  }
+  return tiles;
 }

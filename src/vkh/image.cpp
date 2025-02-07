@@ -15,6 +15,48 @@
 #include "deviceHelpers.hpp"
 
 namespace vkh {
+VkImage Image::createImage(EngineContext &context, int w, int h,
+                           VkImageUsageFlags usage, VkFormat format) {
+  VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                              .imageType = VK_IMAGE_TYPE_2D,
+                              .format = format,
+                              .mipLevels = 1,
+                              .arrayLayers = 1,
+                              .samples = VK_SAMPLE_COUNT_1_BIT,
+                              .tiling = VK_IMAGE_TILING_OPTIMAL,
+                              .usage = usage,
+                              .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                              .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
+  imageInfo.extent.width = w;
+  imageInfo.extent.height = h;
+  imageInfo.extent.depth = 1;
+
+  VkImage image;
+  if (vkCreateImage(context.vulkan.device, &imageInfo, nullptr, &image) !=
+      VK_SUCCESS) {
+    throw std::runtime_error("failed to create image!");
+  }
+  VkMemoryRequirements memRequirements;
+  vkGetImageMemoryRequirements(context.vulkan.device, image, &memRequirements);
+
+  VkMemoryAllocateInfo allocInfo{};
+  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.allocationSize = memRequirements.size;
+  allocInfo.memoryTypeIndex =
+      findMemoryType(context, memRequirements.memoryTypeBits,
+                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+  if (vkAllocateMemory(context.vulkan.device, &allocInfo, nullptr,
+                       &imageMemory) != VK_SUCCESS) {
+    throw std::runtime_error("failed to allocate image memory!");
+  }
+
+  if (vkBindImageMemory(context.vulkan.device, image, imageMemory, 0) !=
+      VK_SUCCESS) {
+    throw std::runtime_error("failed to bind image memory!");
+  }
+  return image;
+}
 void Image::createImageFromPixels(void *pixels, int w, int h, VkFormat format) {
   VkDeviceSize imageSize = w * h * 4;
 
@@ -22,7 +64,9 @@ void Image::createImageFromPixels(void *pixels, int w, int h, VkFormat format) {
     throw std::runtime_error("failed to load texture image from memory !");
   }
 
-  image = createImage(context, w, h, imageMemory, format);
+  image = createImage(
+      context, w, h,
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, format);
 
   BufferCreateInfo bufInfo{};
   bufInfo.instanceSize = imageSize;
@@ -194,8 +238,7 @@ Image::Image(EngineContext &context, const ImageCreateInfo &createInfo)
     : context{context} {
   VkFormat format = createInfo.format;
   VkDeviceSize imageSize = getImageSize(createInfo.w, createInfo.h, format);
-  image = createImage(context, createInfo.w, createInfo.h, imageMemory,
-                      createInfo.format);
+  image = createImage(context, createInfo.w, createInfo.h, createInfo.usage, createInfo.format);
 
   uint32_t color = 0xffffffff;
   BufferCreateInfo bufInfo{};

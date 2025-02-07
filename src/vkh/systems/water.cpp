@@ -1,21 +1,18 @@
 #include "water.hpp"
 
-#include <GLFW/glfw3.h>
-#include <fmt/core.h>
-
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <GLFW/glfw3.h>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <vulkan/vulkan_core.h>
 
 #include <complex>
 #include <memory>
 #include <random>
 #include <stdexcept>
-
-#include <cassert>
 
 #include "../buffer.hpp"
 #include "../descriptors.hpp"
@@ -27,15 +24,15 @@
 
 namespace vkh {
 namespace waterSys {
-std::unique_ptr<Pipeline> pipeline;
-VkPipelineLayout pipelineLayout;
-std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
-VkDescriptorSet descriptorSet;
+std::unique_ptr<GraphicsPipeline> graphicsPipeline;
+VkPipelineLayout graphicsPipelineLayout;
+std::unique_ptr<DescriptorSetLayout> graphicsDescriptorSetLayout;
+VkDescriptorSet graphicsDescriptorSet;
 
-/*std::unique_ptr<Pipeline> computePipeline;
+std::unique_ptr<Pipeline> computePipeline;
 VkPipelineLayout computePipelineLayout;
 std::unique_ptr<DescriptorSetLayout> computeDescriptorSetLayout;
-VkDescriptorSet computeDescriptorSet;*/
+VkDescriptorSet computeDescriptorSet;
 
 struct PushConstantData {
   glm::mat4 modelMatrix{1.f};
@@ -63,7 +60,7 @@ std::unique_ptr<Buffer> vertexBuffer;
 std::unique_ptr<Buffer> indexBuffer;
 
 std::unique_ptr<Image> frequencyImage;
-std::unique_ptr<Image> intermediateImage;
+std::unique_ptr<Image> fftImage;
 std::unique_ptr<Image> heightFieldImage;
 
 std::vector<Vertex> vertices;
@@ -72,7 +69,6 @@ std::vector<uint32_t> indices;
 
 void createVertexBuffer(EngineContext &context) {
   uint32_t count = static_cast<uint32_t>(vertices.size());
-  assert(count >= 3 && "Vertex count must be at least 3");
   VkDeviceSize bufSize = sizeof(vertices[0]) * count;
   uint32_t size = sizeof(vertices[0]);
 
@@ -118,7 +114,7 @@ void createIndexBuffer(EngineContext &context) {
   copyBuffer(context, stagingBuffer, *indexBuffer, bufSize);
 }
 void createDescriptors(EngineContext &context) {
-  descriptorSetLayout =
+  graphicsDescriptorSetLayout =
       DescriptorSetLayout::Builder(context)
           .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
@@ -127,21 +123,21 @@ void createDescriptors(EngineContext &context) {
   imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   imageInfo.imageView = frequencyImage->getImageView();
   imageInfo.sampler = context.vulkan.fontSampler;
-  DescriptorWriter(*descriptorSetLayout, *context.vulkan.globalPool)
+  DescriptorWriter(*graphicsDescriptorSetLayout, *context.vulkan.globalPool)
       .writeImage(0, &imageInfo)
-      .build(descriptorSet);
+      .build(graphicsDescriptorSet);
 
-  /*computeDescriptorSetLayout =
+  computeDescriptorSetLayout =
       DescriptorSetLayout::Builder(context)
           .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                       VK_SHADER_STAGE_COMPUTE_BIT)
           .build();
+  imageInfo.imageView = fftImage->getImageView();
   imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   imageInfo.sampler = VK_NULL_HANDLE;
   DescriptorWriter(*computeDescriptorSetLayout, *context.vulkan.globalPool)
       .writeImage(0, &imageInfo)
       .build(computeDescriptorSet);
-  exit(1);*/
 }
 
 void createPipelineLayout(EngineContext &context) {
@@ -152,7 +148,7 @@ void createPipelineLayout(EngineContext &context) {
 
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
       context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout(),
-      descriptorSetLayout->getDescriptorSetLayout()};
+      graphicsDescriptorSetLayout->getDescriptorSetLayout()};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -162,10 +158,10 @@ void createPipelineLayout(EngineContext &context) {
   pipelineLayoutInfo.pushConstantRangeCount = 1;
   pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
   if (vkCreatePipelineLayout(context.vulkan.device, &pipelineLayoutInfo,
-                             nullptr, &pipelineLayout) != VK_SUCCESS)
+                             nullptr, &graphicsPipelineLayout) != VK_SUCCESS)
     throw std::runtime_error("failed to create pipeline layout!");
 
-  /*pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   pushConstantRange.size = sizeof(ComputePushConstantData);
 
   descriptorSetLayouts.clear();
@@ -177,20 +173,20 @@ void createPipelineLayout(EngineContext &context) {
   pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
   if (vkCreatePipelineLayout(context.vulkan.device, &pipelineLayoutInfo,
                              nullptr, &computePipelineLayout) != VK_SUCCESS)
-    throw std::runtime_error("failed to create compute pipeline layout!");*/
+    throw std::runtime_error("failed to create compute pipeline layout!");
 }
 void createPipeline(EngineContext &context) {
-  assert(pipelineLayout != nullptr &&
-         "Cannot create pipeline before pipeline layout");
-
-  PipelineConfigInfo pipelineConfig{};
-  pipelineConfig.pipelineLayout = pipelineLayout;
+  PipelineCreateInfo pipelineConfig{};
+  pipelineConfig.pipelineLayout = graphicsPipelineLayout;
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.attributeDescriptions = attributeDescriptions;
   pipelineConfig.bindingDescriptions = bindingDescriptions;
-  pipeline =
-      std::make_unique<Pipeline>(context, "shaders/water.vert.spv",
-                                 "shaders/water.frag.spv", pipelineConfig);
+  graphicsPipeline = std::make_unique<GraphicsPipeline>(
+      context, "shaders/water.vert.spv", "shaders/water.frag.spv",
+      pipelineConfig);
+
+  computePipeline = std::make_unique<ComputePipeline>(
+      context, "shaders/waterfreq.comp.spv", computePipelineLayout);
 }
 constexpr int N = 512;
 const float GRID_SCALE = 10.f;
@@ -315,7 +311,11 @@ void createImages(EngineContext &context) {
   calculateInitialSpectrum(H0, windSpeed);
   imageInfo.data = convertSpectrumToImageData(H0).data();
   frequencyImage = std::make_unique<Image>(context, imageInfo);
-  intermediateImage = std::make_unique<Image>(context, imageInfo);
+  imageInfo.layout = VK_IMAGE_LAYOUT_GENERAL;
+  imageInfo.usage =
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+  fftImage = std::make_unique<Image>(context, imageInfo);
+  imageInfo.format = VK_FORMAT_R32_SFLOAT;
   heightFieldImage = std::make_unique<Image>(context, imageInfo);
 }
 void init(EngineContext &context) {
@@ -334,30 +334,36 @@ void init(EngineContext &context) {
 void cleanup(EngineContext &context) {
   vertexBuffer = nullptr;
   indexBuffer = nullptr;
-  pipeline = nullptr;
+  graphicsPipeline = nullptr;
   frequencyImage = nullptr;
-  descriptorSetLayout = nullptr;
-  vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
+  fftImage = nullptr;
+  heightFieldImage = nullptr;
+  graphicsDescriptorSetLayout = nullptr;
+  vkDestroyPipelineLayout(context.vulkan.device, graphicsPipelineLayout,
+                          nullptr);
 
-  /*computePipeline = nullptr;
+  computePipeline = nullptr;
   computeDescriptorSetLayout = nullptr;
   vkDestroyPipelineLayout(context.vulkan.device, computePipelineLayout,
-                          nullptr);*/
+                          nullptr);
 }
 
+void dispatchCompute(EngineContext &context) {
+  computePipeline->bind(context.frameInfo.commandBuffer);
+}
 void render(EngineContext &context) {
   // transitionImageLayout(context, heightFieldImage->getImage(),
   // VK_FORMAT_R32_SFLOAT, VK_IMAGE_LAYOUT_GENERAL,
   // VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-  pipeline->bindGraphics(context.frameInfo.commandBuffer);
+  graphicsPipeline->bind(context.frameInfo.commandBuffer);
 
   PushConstantData push{};
   Transform transform{.position = {5.f, GROUND_LEVEL, 0.f}};
   push.modelMatrix = transform.mat4();
   push.time = glfwGetTime();
 
-  vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
+  vkCmdPushConstants(context.frameInfo.commandBuffer, graphicsPipelineLayout,
                      VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(PushConstantData),
                      &push);
 
@@ -370,10 +376,10 @@ void render(EngineContext &context) {
   vkCmdBindIndexBuffer(context.frameInfo.commandBuffer, *indexBuffer, 0,
                        VK_INDEX_TYPE_UINT32);
   VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
-                                       descriptorSet};
-  vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 2,
-                          descriptorSets, 0, nullptr);
+                                       graphicsDescriptorSet};
+  vkCmdBindDescriptorSets(
+      context.frameInfo.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+      graphicsPipelineLayout, 0, 2, descriptorSets, 0, nullptr);
 
   vkCmdDrawIndexed(context.frameInfo.commandBuffer, indices.size(), 1, 0, 0, 0);
 }
