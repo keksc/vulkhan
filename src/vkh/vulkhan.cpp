@@ -120,7 +120,7 @@ void run() {
   EngineContext context{};
   initWindow(context);
   initVulkan(context);
-  initAudio();
+  // initAudio();
   renderer::init(context);
   { // {} to handle call destructors of buffers before vulkah is cleaned up
     input::init(context);
@@ -198,7 +198,7 @@ void run() {
       context.camera.orientation = context.entities[0].transform.orientation;
       camera::calcViewYXZ(context);
 
-      updateAudio(context);
+      // updateAudio(context);
 
       float aspect = context.window.aspectRatio;
       camera::calcPerspectiveProjection(context, glm::radians(50.f), aspect,
@@ -260,6 +260,6 @@ void run() {
   renderer::cleanup(context);
   cleanupVulkan(context);
   cleanupWindow(context);
-  cleanupAudio();
+  // cleanupAudio();
 }
 } // namespace vkh
