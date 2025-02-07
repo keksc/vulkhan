@@ -54,9 +54,7 @@ add_custom_target(Shaders DEPENDS ${SPIRV_BINARY_FILES})
 
 add_dependencies(vulkhan Shaders)
 
-file(COPY "${PROJECT_SOURCE_DIR}/sounds" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/models" DESTINATION "${PROJECT_BINARY_DIR}")
-file(COPY "${PROJECT_SOURCE_DIR}/textures" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/fonts" DESTINATION "${PROJECT_BINARY_DIR}")
 
 install(TARGETS vulkhan DESTINATION bin)
