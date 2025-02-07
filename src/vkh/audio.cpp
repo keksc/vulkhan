@@ -49,7 +49,7 @@ void initAudio() {
   }
 
   AudioFile<float> audioFile;
-  if (!audioFile.load("sounds/the-yanderes-puppet-show.wav")) {
+  if (!audioFile.load("sounds/lobby.wav")) {
     throw std::runtime_error("Failed to load WAV file.");
   }
 
