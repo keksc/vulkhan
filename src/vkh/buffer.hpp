@@ -22,7 +22,7 @@ public:
   void map(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
   void unmap();
 
-  void write(void *data, VkDeviceSize size = VK_WHOLE_SIZE,
+  void write(const void *data, VkDeviceSize size = VK_WHOLE_SIZE,
              VkDeviceSize offset = 0);
   VkResult flush(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
   VkDescriptorBufferInfo descriptorInfo(VkDeviceSize size = VK_WHOLE_SIZE,

@@ -10,7 +10,7 @@
 
 namespace vkh {
 
-Pipeline::Pipeline(EngineContext &context) : context{context} {}
+Pipeline::Pipeline(EngineContext &context, VkPipelineBindPoint bindPoint) : context{context}, bindPoint{bindPoint} {}
 void createShaderModule(EngineContext &context, const std::vector<char> &code,
                         VkShaderModule *shaderModule) {
   VkShaderModuleCreateInfo createInfo{};
@@ -27,7 +27,7 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
                                    const std::filesystem::path &vertpath,
                                    const std::filesystem::path &fragpath,
                                    const PipelineCreateInfo &configInfo)
-    : Pipeline{context} {
+    : Pipeline{context, VK_PIPELINE_BIND_POINT_GRAPHICS} {
   auto vertCode = readFile(vertpath);
   auto fragCode = readFile(fragpath);
 
@@ -91,7 +91,7 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
 ComputePipeline::ComputePipeline(EngineContext &context,
                                  const std::filesystem::path &shaderpath,
                                  VkPipelineLayout pipelineLayout)
-    : Pipeline{context} {
+    : Pipeline{context, VK_PIPELINE_BIND_POINT_COMPUTE} {
   auto shaderCode = readFile(shaderpath);
 
   VkShaderModule shaderModule;
@@ -119,7 +119,7 @@ Pipeline::~Pipeline() {
 }
 
 void Pipeline::bind(VkCommandBuffer commandBuffer) {
-  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+  vkCmdBindPipeline(commandBuffer, bindPoint, pipeline);
 }
 
 void GraphicsPipeline::enableAlphaBlending(PipelineCreateInfo &configInfo) {

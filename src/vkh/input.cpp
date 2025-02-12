@@ -62,8 +62,8 @@ int scroll{};
 void scrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
   scroll += static_cast<int>(yoffset);
 }
-void animateSword(EngineContext *context) {
-  Entity &sword = context->entities[1];
+void animateSword(EngineContext &context) {
+  Entity &sword = context.entities[1];
   for (float i = 0.0; i < 0.5; i += 0.01) {
     sword.transform.orientation =
         glm::angleAxis(glm::pi<float>() * i, glm::vec3(0.0f, 0.0f, 1.0f));
@@ -74,7 +74,7 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-    std::thread(animateSword, context).detach();
+    std::thread(animateSword, std::ref(*context)).detach();
   }
   if (button == GLFW_MOUSE_BUTTON_RIGHT) {
   }
