@@ -16,7 +16,7 @@
 
 namespace vkh {
 VkImage Image::createImage(EngineContext &context, int w, int h,
-                           VkImageUsageFlags usage, VkFormat format) {
+                           VkImageUsageFlags usage) {
   VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
                               .imageType = VK_IMAGE_TYPE_2D,
                               .format = format,
@@ -57,16 +57,16 @@ VkImage Image::createImage(EngineContext &context, int w, int h,
   }
   return image;
 }
-void Image::createImageFromPixels(void *pixels, int w, int h, VkFormat format) {
+void Image::createImageFromPixels(void *pixels, int w, int h) {
   VkDeviceSize imageSize = w * h * 4;
 
   if (!pixels) {
     throw std::runtime_error("failed to load texture image from memory !");
   }
 
-  image = createImage(
-      context, w, h,
-      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, format);
+  image =
+      createImage(context, w, h,
+                  VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
   BufferCreateInfo bufInfo{};
   bufInfo.instanceSize = imageSize;
@@ -79,32 +79,31 @@ void Image::createImageFromPixels(void *pixels, int w, int h, VkFormat format) {
 
   stbi_image_free(pixels);
 
-  transitionImageLayout(context, image, format, VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  transitionLayout(VK_IMAGE_LAYOUT_UNDEFINED,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   copyBufferToImage(context, stagingBuffer, image, static_cast<uint32_t>(w),
                     static_cast<uint32_t>(w));
-  transitionImageLayout(context, image, format,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  transitionLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   imageView = createImageView(context, image, format);
 }
 Image::Image(EngineContext &context, const void *data, int len,
              bool enableAlpha, VkFormat format)
-    : context{context} {
+    : context{context}, format{format} {
   int w, h, texChannels;
   stbi_uc *pixels =
       stbi_load_from_memory((const stbi_uc *)data, len, &w, &h, &texChannels,
                             enableAlpha ? STBI_rgb_alpha : STBI_rgb);
-  createImageFromPixels(pixels, w, h, format);
+  createImageFromPixels(pixels, w, h);
 }
 Image::Image(EngineContext &context, const std::filesystem::path &path,
              bool enableAlpha, VkFormat format)
-    : context{context} {
+    : context{context}, format{format} {
   int w, h, texChannels;
   stbi_uc *pixels = stbi_load(path.c_str(), &w, &h, &texChannels,
                               enableAlpha ? STBI_rgb_alpha : STBI_rgb);
-  createImageFromPixels(pixels, w, h, format);
+  createImageFromPixels(pixels, w, h);
 }
 static const std::unordered_map<VkFormat, uint32_t> formatBytesPerPixel = {
     // 8-bit formats (1 byte per pixel)
@@ -235,33 +234,148 @@ VkDeviceSize getImageSize(int w, int h, VkFormat format) {
   return w * h * bytesPerPixel;
 }
 Image::Image(EngineContext &context, const ImageCreateInfo &createInfo)
-    : context{context} {
-  VkFormat format = createInfo.format;
-  VkDeviceSize imageSize = getImageSize(createInfo.w, createInfo.h, format);
-  image = createImage(context, createInfo.w, createInfo.h, createInfo.usage, createInfo.format);
+    : context{context}, format{createInfo.format} {
+  image = createImage(context, createInfo.w, createInfo.h, createInfo.usage);
+  imageView = createImageView(context, image, format);
+  if (!createInfo.data && !createInfo.color.has_value()) {
+    return;
+  }
 
-  uint32_t color = 0xffffffff;
+  void *data;
+  VkDeviceSize size;
+  if (createInfo.data) {
+    data = createInfo.data;
+    size = getImageSize(createInfo.w, createInfo.h, createInfo.format);
+  } else {
+    uint32_t color = createInfo.color.value();
+    data = static_cast<void *>(&color);
+    size = sizeof(uint32_t);
+  }
   BufferCreateInfo bufInfo{};
-  bufInfo.instanceSize = (createInfo.data) ? imageSize : sizeof(uint32_t);
+  bufInfo.instanceSize = size;
   bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
   bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
   Buffer stagingBuffer(context, bufInfo);
   stagingBuffer.map();
-  stagingBuffer.write((createInfo.data) ? createInfo.data : &color);
+  stagingBuffer.write(data);
 
-  transitionImageLayout(context, image, format, VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  transitionLayout(VK_IMAGE_LAYOUT_UNDEFINED,
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   copyBufferToImage(context, stagingBuffer, image, createInfo.w, createInfo.h);
-  transitionImageLayout(context, image, format,
-                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                        createInfo.layout);
-
-  imageView = createImageView(context, image, format);
+  transitionLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, createInfo.layout);
 }
 Image::~Image() {
   vkDestroyImage(context.vulkan.device, image, nullptr);
   vkDestroyImageView(context.vulkan.device, imageView, nullptr);
   vkFreeMemory(context.vulkan.device, imageMemory, nullptr);
+}
+struct TransitionParams {
+  VkAccessFlags srcAccessMask;
+  VkAccessFlags dstAccessMask;
+  VkPipelineStageFlags srcStage;
+  VkPipelineStageFlags dstStage;
+};
+
+TransitionParams getTransitionParams(VkImageLayout oldLayout,
+                                     VkImageLayout newLayout) {
+  TransitionParams params{};
+  if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+      newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+    params.srcAccessMask = 0;
+    params.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+             newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+    params.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    params.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  }
+  // NEW: Support transition from TRANSFER_DST_OPTIMAL to GENERAL (e.g. for
+  // compute usage)
+  else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+           newLayout == VK_IMAGE_LAYOUT_GENERAL) {
+    params.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    params.dstAccessMask =
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+             newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+    params.srcAccessMask = 0;
+    params.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                           VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+             newLayout == VK_IMAGE_LAYOUT_GENERAL) {
+    params.srcAccessMask = 0;
+    params.dstAccessMask =
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_GENERAL &&
+             newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+    params.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    params.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+             newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+    params.srcAccessMask = 0;
+    params.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL &&
+             newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+    params.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    params.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  } else {
+    throw std::invalid_argument("Unsupported layout transition!");
+  }
+  return params;
+}
+bool hasStencilComponent(VkFormat format) {
+  return (format == VK_FORMAT_D32_SFLOAT_S8_UINT) ||
+         (format == VK_FORMAT_D24_UNORM_S8_UINT);
+}
+void Image::transitionLayout(VkImageLayout oldLayout, VkImageLayout newLayout) {
+  VkCommandBuffer commandBuffer = beginSingleTimeCommands(context);
+
+  VkImageMemoryBarrier barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  barrier.oldLayout = oldLayout;
+  barrier.newLayout = newLayout;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.image = image;
+  barrier.subresourceRange.baseMipLevel = 0;
+  barrier.subresourceRange.levelCount = 1;
+  barrier.subresourceRange.baseArrayLayer = 0;
+  barrier.subresourceRange.layerCount = 1;
+
+  // Set aspect mask based on format and intended usage.
+  if (newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL ||
+      newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL) {
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    if (hasStencilComponent(format)) {
+      barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+    }
+  } else {
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  }
+
+  TransitionParams params = getTransitionParams(oldLayout, newLayout);
+  barrier.srcAccessMask = params.srcAccessMask;
+  barrier.dstAccessMask = params.dstAccessMask;
+
+  vkCmdPipelineBarrier(commandBuffer, params.srcStage, params.dstStage, 0, 0,
+                       nullptr, 0, nullptr, 1, &barrier);
+
+  endSingleTimeCommands(context, commandBuffer);
 }
 } // namespace vkh
