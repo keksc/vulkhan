@@ -158,7 +158,7 @@ VkCommandBuffer beginSingleTimeCommands(EngineContext &context) {
 }
 
 void endSingleTimeCommands(EngineContext &context,
-                           VkCommandBuffer commandBuffer) {
+                           VkCommandBuffer commandBuffer, VkQueue queue) {
   vkEndCommandBuffer(commandBuffer);
 
   VkSubmitInfo submitInfo{};
@@ -166,8 +166,8 @@ void endSingleTimeCommands(EngineContext &context,
   submitInfo.commandBufferCount = 1;
   submitInfo.pCommandBuffers = &commandBuffer;
 
-  vkQueueSubmit(context.vulkan.graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
-  vkQueueWaitIdle(context.vulkan.graphicsQueue);
+  vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+  vkQueueWaitIdle(queue);
 
   vkFreeCommandBuffers(context.vulkan.device, context.vulkan.commandPool, 1,
                        &commandBuffer);
@@ -182,7 +182,7 @@ void copyBuffer(EngineContext &context, VkBuffer srcBuffer, VkBuffer dstBuffer,
   copyRegion.size = size;
   vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
 
-  endSingleTimeCommands(context, commandBuffer);
+  endSingleTimeCommands(context, commandBuffer, context.vulkan.graphicsQueue);
 }
 void copyBufferToImage(EngineContext &context, VkBuffer buffer, VkImage image,
                        uint32_t width, uint32_t height) {
@@ -204,7 +204,7 @@ void copyBufferToImage(EngineContext &context, VkBuffer buffer, VkImage image,
   vkCmdCopyBufferToImage(commandBuffer, buffer, image,
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-  endSingleTimeCommands(context, commandBuffer);
+  endSingleTimeCommands(context, commandBuffer, context.vulkan.graphicsQueue);
 }
 VkImageView createImageView(EngineContext &context, VkImage image,
                             VkFormat format) {
