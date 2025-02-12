@@ -1,3 +1,6 @@
 [submodule "3rdparty/fastgltf"]
 	path = 3rdparty/fastgltf
 	url = https://github.com/spnda/fastgltf.git
+[submodule "shaders/lygia"]
+	path = shaders/lygia
+	url = https://github.com/patriciogonzalezvivo/lygia

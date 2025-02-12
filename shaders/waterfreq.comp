@@ -1,70 +1,72 @@
 #version 450
 layout(local_size_x = 16, local_size_y = 16) in;
 
-// Frequency image: RG32F (R = real, G = imaginary)
-layout(binding = 0, rgba32f) uniform image2D freqImage;
+layout(binding = 0, rgba32f) uniform writeonly image2D img;  // Output frequency texture
 
-layout(push_constant) uniform ComputePushConstants {
+layout(push_constant) uniform PushConstants {
     float time;
-    float windSpeed;
-    float A;
-} pc;
+} push;
 
-const float PI = 3.14159265359;
-const float g  = 9.81;
+#include "lygia/math/const.glsl"
 
-// Simple hash & Gaussian functions
-float hash(ivec2 p) {
-    uint n = uint(p.x + p.y * 57);
-    n = (n << 13u) ^ n;
-    return float(1u + ((n * (n * n * 15731u + 789221u) + 1376312589u) & 0x7fffffffu))
-         / float(0x7fffffffu);
+const int N = 512;
+const float L = 1000.0;
+const float g = 9.81;
+const float dk = (2.0 * PI) / L;
+
+vec2 complexMultiply(vec2 a, vec2 b) {
+    return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
 }
 
-vec2 gaussianRandom(ivec2 seed) {
-    float u1 = hash(seed);
-    float u2 = hash(seed + ivec2(1,1));
-    float r = sqrt(-2.0 * log(u1));
-    float theta = 2.0 * PI * u2;
-    return r * vec2(cos(theta), sin(theta));
-}
+float jonswap(vec2 k) {
+    float kLength = length(k);
+    if (kLength < EPSILON) return 0.0;
 
-float jonswapSpectrum(vec2 k) {
-    float k_len = length(k);
-    if(k_len < 0.0001) return 0.0;
-    float omega_p = 0.84 * g / pc.windSpeed;
-    float sigma = (abs(sqrt(g * k_len) - omega_p) < 0.0001) ? 0.07 : 0.09;
-    float r = exp(-pow(sqrt(g * k_len) - omega_p, 2) / (2.0 * sigma * sigma * omega_p * omega_p));
-    float gamma = 3.3;
-    return pc.A * exp(-1.25 * pow(omega_p / sqrt(g * k_len), 4)) * pow(gamma, r);
-}
+    float omega = sqrt(g * kLength);
+    float f = omega / (2.0 * PI);
+    float f_m = 0.25;
+    float sigma = (f <= f_m) ? 0.07 : 0.09;
 
+    float b = exp(-pow((f/f_m - 1.0), 2.0) / (2.0 * pow(sigma, 2.0)));
+    return 1.0 * pow(g, 2.0) / (16.0 * pow(PI, 4.0)) * 
+           pow(f, -5.0) * exp(-5.0/4.0 * pow(f_m/f, 4.0)) * 
+           pow(3.3, b);
+}
+vec2 hash2(vec2 p) {
+    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+    return fract(sin(p) * 43758.5453);
+}
 void main() {
     ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size = imageSize(freqImage);
-
-    // Map grid coordinate to wavevector k. Adjust k_max as needed.
-    float k_max = 10.0;
-    vec2 k;
-    k.x = (float(gid.x) - float(size.x)/2.0) / float(size.x) * 2.0 * k_max;
-    k.y = (float(gid.y) - float(size.y)/2.0) / float(size.y) * 2.0 * k_max;
-
+    
+    // Calculate wave vector components
+    float kx = (float(gid.x) - N/2.0) * dk;
+    float ky = (float(gid.y) - N/2.0) * dk;
+    vec2 k = vec2(kx, ky);
+    
+    // Generate Gaussian random numbers with Box-Muller transform
+    vec2 seed = hash2(gid);
+    float theta = 2.0 * PI * seed.x;
+    float r = sqrt(-2.0 * log(seed.y));
+    vec2 xi = vec2(r * cos(theta), r * sin(theta));
+    
+    // Calculate JONSWAP spectrum
+    float S = jonswap(k);
+    
+    // Create initial spectrum component
+    vec2 H0 = xi * sqrt(S * dk * dk / 2.0);
+    
+    // Calculate dispersion relation
     float omega = sqrt(g * length(k));
-    float S = jonswapSpectrum(k);
-    float amplitude = sqrt(S * 0.5);
-    vec2 h0 = amplitude * gaussianRandom(gid);
-
-    // Compute h0(-k) using a complementary seed.
-    vec2 h0_neg = amplitude * gaussianRandom(ivec2(size.x - gid.x, size.y - gid.y));
-
-    float cos_t = cos(omega * pc.time);
-    float sin_t = sin(omega * pc.time);
-    vec2 term1 = vec2(h0.x * cos_t - h0.y * sin_t,
-                      h0.x * sin_t + h0.y * cos_t);
-    vec2 h0_neg_conj = vec2(h0_neg.x, -h0_neg.y);
-    vec2 term2 = vec2(h0_neg_conj.x * cos_t - h0_neg_conj.y * (-sin_t),
-                      h0_neg_conj.x * (-sin_t) + h0_neg_conj.y * cos_t);
-    vec2 freq = term1 + term2;
-
-    imageStore(freqImage, gid, vec4(freq, 0.0, 1.0));
+    
+    // Time evolution factors
+    float phase = omega * push.time;
+    vec2 exp_iwt = vec2(cos(phase), sin(phase));
+    vec2 exp_neg_iwt = vec2(cos(phase), -sin(phase));
+    
+    // Calculate time-evolved spectrum
+    vec2 H = complexMultiply(H0, exp_neg_iwt);
+    
+    // Store real and imaginary parts in output texture
+    imageStore(img, gid, vec4(H, 0.0, 1.0));
 }

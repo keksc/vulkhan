@@ -1,4 +1,6 @@
 #include "vulkhan.hpp"
+#include "AxisAlignedBoundingBox.hpp"
+#include "model.hpp"
 #include <vulkan/vulkan_core.h>
 
 #include <GLFW/glfw3.h>
@@ -16,6 +18,7 @@
 #include "camera.hpp"
 #include "cleanupVulkan.hpp"
 #include "descriptors.hpp"
+#include "dungeonGenerator.hpp"
 #include "engineContext.hpp"
 #include "entity.hpp"
 #include "initVulkan.hpp"
@@ -31,37 +34,21 @@
 #include "systems/water.hpp"
 #include "window.hpp"
 
-#include <array>
 #include <chrono>
 #include <memory>
-#include <random>
-#include <stdexcept>
+#include <thread>
 #include <vector>
-
-using namespace std::string_literals;
 
 namespace vkh {
 const glm::vec3 daggerOffset = {0.5f, -0.5f, 1.2f};
 void loadObjects(EngineContext &context) {
   auto &playerTransform = context.entities[0].transform;
-  /*glm::vec3 daggerOffsetWorld = playerTransform.orientation * daggerOffset;
-  glm::vec3 daggerPosition = playerTransform.position + daggerOffsetWorld;
-  glm::quat daggerOrientation =
-      playerTransform.orientation *
-      glm::angleAxis(glm::pi<float>() * -0.5f, glm::vec3(0.0f, 1.0f, 0.0f)) *
-      glm::angleAxis(glm::pi<float>() * 0.5f, glm::vec3(1.0f, 0.0f, 0.0f));*/
   ModelCreateInfo modelInfo{};
   modelInfo.filepath = "models/sword.glb";
-  context.entities.push_back({context,
-                              {.position = {0.5, -0.5, 0.5}/*daggerPosition*/,
-                               .scale = {0.5f, 0.5f, 0.5f}/*,
-                               .orientation = daggerOrientation*/},
-                              modelInfo});
-
-  /*model = Model::createModelFromFile(context, "floor", "models/quad.obj");
   context.entities.push_back(
-      {.transform = {.position{0.f, GROUND_LEVEL, 0.f}, .scale{3.f, 1.5f, 3.f}},
-       .model = model});*/
+      {context,
+       {.position = {0.5, -0.5, 0.5}, .scale = {0.5f, 0.5f, 0.5f}},
+       modelInfo});
 
   std::vector<glm::vec3> lightColors{{1.f, .1f, .1f}, {.1f, .1f, 1.f},
                                      {.1f, 1.f, .1f}, {1.f, 1.f, .1f},
@@ -75,47 +62,8 @@ void loadObjects(EngineContext &context) {
         {.position = rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f),
          .color = glm::vec4(lightColors[i], 1.0f)});
   }
-
-  /*modelInfo.filepath = "models/mujina.glb";
-  context.entities.push_back(
-      {context,
-       {.position = {0.f, GROUND_LEVEL, 1.f},
-        .orientation = glm::angleAxis(glm::pi<float>() * 0.5f,
-                                      glm::vec3(0.0f, 1.0f, 0.0f)) *
-                       glm::angleAxis(glm::pi<float>() * 1.f,
-                                      glm::vec3(0.0f, 0.0f, 1.0f))},
-       modelInfo});
-  modelInfo.filepath = "models/ghostface.glb";
-  context.entities.push_back(
-      {context,
-       {.position = {5.f, GROUND_LEVEL, 1.f},
-        .orientation = glm::angleAxis(glm::pi<float>() * 0.5f,
-                                      glm::vec3(0.0f, 1.0f, 0.0f)) *
-                       glm::angleAxis(glm::pi<float>() * 1.f,
-                                      glm::vec3(0.0f, 0.0f, 1.0f))},
-       modelInfo});
-  modelInfo.filepath = "models/ghost.glb";
-  context.entities.push_back(
-      {context,
-       {.position = {0.f, GROUND_LEVEL, 5.f},
-        .orientation = glm::angleAxis(glm::pi<float>() * 0.5f,
-                                      glm::vec3(0.0f, 1.0f, 0.0f)) *
-                       glm::angleAxis(glm::pi<float>() * 1.f,
-                                      glm::vec3(0.0f, 0.0f, 1.0f))},
-       modelInfo});
-  context.particles.push_back({{1.0f, -2.0f, -1.0f}, {1.0f, 1.0f, 1.0f}});*/
 }
-void updateObjs(EngineContext &context) {
-  /*auto &dagger = context.entities[1];
-  auto &playerTransform = context.entities[0].transform;
-  glm::vec3 daggerOffsetWorld = playerTransform.orientation * daggerOffset;
-  glm::vec3 daggerPosition = playerTransform.position + daggerOffsetWorld;
-  glm::quat daggerOrientation =
-      playerTransform.orientation *
-      glm::angleAxis(glm::pi<float>() * -0.5f, glm::vec3(0.0f, 1.0f, 0.0f));
-  dagger.transform.position = playerTransform.position + daggerOffsetWorld;
-  dagger.transform.orientation = daggerOrientation;*/
-}
+void updateObjs(EngineContext &context) {}
 void run() {
   EngineContext context{};
   initWindow(context);
@@ -161,6 +109,7 @@ void run() {
     context.entities.push_back(
         {context, {.position = {0.f, GROUND_LEVEL, 0.f}}});
     loadObjects(context);
+    std::thread(generateDungeon, std::ref(context)).detach();
 
     entitySys::init(context);
     axesSys::init(context);
@@ -188,8 +137,8 @@ void run() {
           std::chrono::duration<float, std::chrono::seconds::period>(
               newTime - currentTime)
               .count();
-      // fmt::print("FPS: {}\n", static_cast<int>(1.f / frameTime));
-      fontSys::updateText(context, "FPS: "s + std::to_string(1.f / frameTime));
+      fontSys::updateText(
+          context, fmt::format("FPS: {}", static_cast<int>(1.f / frameTime)));
       currentTime = newTime;
 
       input::moveInPlaneXZ(context);

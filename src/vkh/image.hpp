@@ -3,6 +3,7 @@
 #include <vulkan/vulkan_core.h>
 
 #include <filesystem>
+#include <optional>
 
 #include "engineContext.hpp"
 
@@ -14,6 +15,7 @@ struct ImageCreateInfo {
   int w = 1;
   int h = 1;
   void *data = nullptr;
+  std::optional<uint32_t> color;
   VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 };
 class Image {
@@ -28,15 +30,18 @@ public:
   inline const VkImageView getImageView() { return imageView; }
   ~Image();
 
+  void transitionLayout(VkImageLayout oldLayout, VkImageLayout newLayout);
+
 private:
-  void createImageFromPixels(void *pixels, int w, int h, VkFormat format);
+  void createImageFromPixels(void *pixels, int w, int h);
   VkImage createImage(EngineContext &context, int w, int h,
-                      VkImageUsageFlags usage, VkFormat format);
+                      VkImageUsageFlags usage);
 
   EngineContext &context;
 
   VkImage image;
   VkImageView imageView;
   VkDeviceMemory imageMemory;
+  VkFormat format;
 };
 } // namespace vkh

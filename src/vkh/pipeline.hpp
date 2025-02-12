@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <vector>
+#include <vulkan/vulkan_core.h>
 
 namespace vkh {
 
@@ -57,7 +58,7 @@ struct PipelineCreateInfo {
 
 class Pipeline {
 public:
-  Pipeline(EngineContext &context);
+  Pipeline(EngineContext &context, VkPipelineBindPoint bindPoint);
   ~Pipeline();
 
   Pipeline(const Pipeline &) = delete;
@@ -69,6 +70,7 @@ protected:
   EngineContext &context;
 
   VkPipeline pipeline;
+  VkPipelineBindPoint bindPoint;
 };
 
 class GraphicsPipeline : public Pipeline {
@@ -82,7 +84,8 @@ public:
 };
 class ComputePipeline : public Pipeline {
 public:
-  ComputePipeline(EngineContext &context, const std::filesystem::path &shaderpath,
+  ComputePipeline(EngineContext &context,
+                  const std::filesystem::path &shaderpath,
                   VkPipelineLayout pipelineLayout);
 };
 } // namespace vkh
