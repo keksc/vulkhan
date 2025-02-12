@@ -238,6 +238,7 @@ Image::Image(EngineContext &context, const ImageCreateInfo &createInfo)
   image = createImage(context, createInfo.w, createInfo.h, createInfo.usage);
   imageView = createImageView(context, image, format);
   if (!createInfo.data && !createInfo.color.has_value()) {
+    transitionLayout(VK_IMAGE_LAYOUT_UNDEFINED, createInfo.layout);
     return;
   }
 
@@ -376,6 +377,6 @@ void Image::transitionLayout(VkImageLayout oldLayout, VkImageLayout newLayout) {
   vkCmdPipelineBarrier(commandBuffer, params.srcStage, params.dstStage, 0, 0,
                        nullptr, 0, nullptr, 1, &barrier);
 
-  endSingleTimeCommands(context, commandBuffer);
+  endSingleTimeCommands(context, commandBuffer, context.vulkan.graphicsQueue);
 }
 } // namespace vkh

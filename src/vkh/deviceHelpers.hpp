@@ -58,5 +58,5 @@ VkImage createImageWithInfo(EngineContext &context,
                             VkDeviceMemory &imageMemory);
 VkCommandBuffer beginSingleTimeCommands(EngineContext &context);
 void endSingleTimeCommands(EngineContext &context,
-                           VkCommandBuffer commandBuffer);
+                           VkCommandBuffer commandBuffer, VkQueue queue);
 } // namespace vkh
