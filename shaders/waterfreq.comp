@@ -1,72 +1,141 @@
 #version 450
-layout(local_size_x = 16, local_size_y = 16) in;
 
-layout(binding = 0, rgba32f) uniform writeonly image2D img;  // Output frequency texture
+// Workgroup size (matches [numthreads(8,8,1)])
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(push_constant) uniform PushConstants {
-    float time;
-} push;
+#define PI 3.14159265358979323846
 
-#include "lygia/math/const.glsl"
+// _InitialSpectrumTextures: RWTexture2DArray<float4> in Unity
+layout(binding = 2, rgba32f) uniform image2DArray _InitialSpectrumTextures;
 
-const int N = 512;
-const float L = 1000.0;
-const float g = 9.81;
-const float dk = (2.0 * PI) / L;
+// Uniform parameters packed in a block (binding can be adjusted)
+layout(std140, binding = 6) uniform Params {
+    float _FrameTime;
+    float _DeltaTime;
+    float _A;
+    float _Gravity;
+    float _RepeatTime;
+    float _Damping;
+    float _Depth;
+    float _LowCutoff;
+    float _HighCutoff;
+    int   _Seed;
+    vec2  _Wind;
+    vec2  _Lambda;
+    vec2  _NormalStrength;
+    uint  _N;
+    uint  _LengthScale0;
+    uint  _LengthScale1;
+    uint  _LengthScale2;
+    uint  _LengthScale3;
+    float _FoamBias;
+    float _FoamDecayRate;
+    float _FoamAdd;
+    float _FoamThreshold;
+};
 
-vec2 complexMultiply(vec2 a, vec2 b) {
-    return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
+// SpectrumParameters structure and buffer (_Spectrums from Unity)
+struct SpectrumParameters {
+    float scale;
+    float angle;
+    float spreadBlend;
+    float swell;
+    float alpha;
+    float peakOmega;
+    float gamma;
+    float shortWavesFade;
+};
+layout(std430, binding = 7) readonly buffer SpectrumBuffer {
+    SpectrumParameters _Spectrums[];
+};
+
+// Helper functions (converted from HLSL to GLSL)
+float hash(uint n) {
+    n = (n << 13U) ^ n;
+    n = n * (n * n * 15731U + 0x789221U) + 0x1376312589U;
+    return float(n & 0x7fffffffU) / float(0x7fffffffU);
 }
 
-float jonswap(vec2 k) {
-    float kLength = length(k);
-    if (kLength < EPSILON) return 0.0;
-
-    float omega = sqrt(g * kLength);
-    float f = omega / (2.0 * PI);
-    float f_m = 0.25;
-    float sigma = (f <= f_m) ? 0.07 : 0.09;
-
-    float b = exp(-pow((f/f_m - 1.0), 2.0) / (2.0 * pow(sigma, 2.0)));
-    return 1.0 * pow(g, 2.0) / (16.0 * pow(PI, 4.0)) * 
-           pow(f, -5.0) * exp(-5.0/4.0 * pow(f_m/f, 4.0)) * 
-           pow(3.3, b);
+vec2 UniformToGaussian(float u1, float u2) {
+    float R = sqrt(-2.0 * log(u1));
+    float theta = 2.0 * PI * u2;
+    return vec2(R * cos(theta), R * sin(theta));
 }
-vec2 hash2(vec2 p) {
-    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
-    return fract(sin(p) * 43758.5453);
+
+float Dispersion(float kMag) {
+    return sqrt(_Gravity * kMag * tanh(min(kMag * _Depth, 20.0)));
 }
+
+float DispersionDerivative(float kMag) {
+    float th = tanh(min(kMag * _Depth, 20.0));
+    float ch = cosh(kMag * _Depth);
+    return _Gravity * ((_Depth * kMag / (ch * ch)) + th) / (2.0 * Dispersion(kMag));
+}
+
+float JONSWAP(float omega, SpectrumParameters spectrum) {
+    float sigma = (omega <= spectrum.peakOmega) ? 0.07 : 0.09;
+    float r = exp(-pow(omega - spectrum.peakOmega, 2.0) / (2.0 * sigma * sigma * pow(spectrum.peakOmega, 2.0)));
+    return spectrum.scale * _Gravity * _Gravity *
+           pow(1.0 / omega, 5.0) *
+           exp(-1.25 * pow(spectrum.peakOmega / omega, 4.0)) *
+           pow(abs(spectrum.gamma), r);
+}
+
+float DirectionSpectrum(float theta, float omega, SpectrumParameters spectrum) {
+    // A simplified version using mix (HLSL's lerp becomes mix in GLSL)
+    return mix(2.0 / PI * cos(theta) * cos(theta), 1.0, spectrum.spreadBlend);
+}
+
+float ShortWavesFade(float kLength, SpectrumParameters spectrum) {
+    return exp(-spectrum.shortWavesFade * spectrum.shortWavesFade * kLength * kLength);
+}
+
+// Entry point equivalent to Unity's CS_InitializeSpectrum
 void main() {
-    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    uvec3 id = gl_GlobalInvocationID;
+    uint seed = id.x + _N * id.y + _N;
+    seed += uint(_Seed);
     
-    // Calculate wave vector components
-    float kx = (float(gid.x) - N/2.0) * dk;
-    float ky = (float(gid.y) - N/2.0) * dk;
-    vec2 k = vec2(kx, ky);
+    uint lengthScales[4];
+    lengthScales[0] = _LengthScale0;
+    lengthScales[1] = _LengthScale1;
+    lengthScales[2] = _LengthScale2;
+    lengthScales[3] = _LengthScale3;
     
-    // Generate Gaussian random numbers with Box-Muller transform
-    vec2 seed = hash2(gid);
-    float theta = 2.0 * PI * seed.x;
-    float r = sqrt(-2.0 * log(seed.y));
-    vec2 xi = vec2(r * cos(theta), r * sin(theta));
+    float halfN = float(_N) / 2.0;
     
-    // Calculate JONSWAP spectrum
-    float S = jonswap(k);
-    
-    // Create initial spectrum component
-    vec2 H0 = xi * sqrt(S * dk * dk / 2.0);
-    
-    // Calculate dispersion relation
-    float omega = sqrt(g * length(k));
-    
-    // Time evolution factors
-    float phase = omega * push.time;
-    vec2 exp_iwt = vec2(cos(phase), sin(phase));
-    vec2 exp_neg_iwt = vec2(cos(phase), -sin(phase));
-    
-    // Calculate time-evolved spectrum
-    vec2 H = complexMultiply(H0, exp_neg_iwt);
-    
-    // Store real and imaginary parts in output texture
-    imageStore(img, gid, vec4(H, 0.0, 1.0));
+    // Loop over the four spectrum channels
+    for (uint i = 0u; i < 4u; ++i) {
+        float deltaK = 2.0 * PI / float(lengthScales[i]);
+        vec2 K = (vec2(id.xy) - vec2(halfN)) * deltaK;
+        float kLength = length(K);
+        
+        seed += i + uint(hash(seed) * 10.0);
+        float u1 = hash(seed);
+        float u2 = hash(seed * 2u);
+        float u3 = hash(seed * 3u);
+        float u4 = hash(seed * 4u);
+        vec2 gauss1 = UniformToGaussian(u1, u2);
+        vec2 gauss2 = UniformToGaussian(u3, u4);
+        
+        if (_LowCutoff <= kLength && kLength <= _HighCutoff) {
+            float kAngle = atan(K.y, K.x);
+            float omega = Dispersion(kLength);
+            float dOmegadk = DispersionDerivative(kLength);
+            
+            float spectrum = JONSWAP(omega, _Spectrums[i * 2]) *
+                             DirectionSpectrum(kAngle, omega, _Spectrums[i * 2]) *
+                             ShortWavesFade(kLength, _Spectrums[i * 2]);
+            if (_Spectrums[i * 2 + 1].scale > 0.0)
+                spectrum += JONSWAP(omega, _Spectrums[i * 2 + 1]) *
+                            DirectionSpectrum(kAngle, omega, _Spectrums[i * 2 + 1]) *
+                            ShortWavesFade(kLength, _Spectrums[i * 2 + 1]);
+            
+            vec2 value = vec2(gauss2.x, gauss1.y) *
+                         sqrt(2.0 * spectrum * abs(dOmegadk) / kLength * deltaK * deltaK);
+            imageStore(_InitialSpectrumTextures, ivec3(id.xy, int(i)), vec4(value, 0.0, 0.0));
+        } else {
+            imageStore(_InitialSpectrumTextures, ivec3(id.xy, int(i)), vec4(0.0));
+        }
+    }
 }

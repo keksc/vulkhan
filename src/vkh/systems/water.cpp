@@ -263,16 +263,21 @@ void dispatchCompute(EngineContext &context) {
   computePipeline->bind(context.frameInfo.commandBuffer);
 }
 void render(EngineContext &context) {
+  VkCommandBuffer computeCommandBuffer = beginSingleTimeCommands(context);
+  computePipeline->bind(computeCommandBuffer);
   ComputePushConstantData computePush{};
   computePush.time = glfwGetTime();
-  vkCmdPushConstants(context.frameInfo.commandBuffer, computePipelineLayout,
+  vkCmdPushConstants(computeCommandBuffer, computePipelineLayout,
                      VK_SHADER_STAGE_COMPUTE_BIT, 0,
                      sizeof(ComputePushConstantData), &computePush);
-  computePipeline->bind(context.frameInfo.commandBuffer);
-  vkCmdDispatch(context.frameInfo.commandBuffer,
-                N / 16, // Workgroups in X (local size is !6x16)
+  vkCmdBindDescriptorSets(
+      computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+      computePipelineLayout, 0, 1, &computeDescriptorSet, 0, nullptr);
+  vkCmdDispatch(computeCommandBuffer,
+                N / 16, // Workgroups in X (local size is 16x16)
                 N / 16, // Workgroups in Y
                 1);
+  endSingleTimeCommands(context, computeCommandBuffer, context.vulkan.computeQueue);
 
   graphicsPipeline->bind(context.frameInfo.commandBuffer);
 
