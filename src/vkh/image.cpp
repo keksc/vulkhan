@@ -101,7 +101,7 @@ Image::Image(EngineContext &context, const std::filesystem::path &path,
              bool enableAlpha, VkFormat format)
     : context{context}, format{format} {
   int w, h, texChannels;
-  stbi_uc *pixels = stbi_load(path.c_str(), &w, &h, &texChannels,
+  stbi_uc *pixels = stbi_load(path.string().c_str(), &w, &h, &texChannels,
                               enableAlpha ? STBI_rgb_alpha : STBI_rgb);
   createImageFromPixels(pixels, w, h);
 }
