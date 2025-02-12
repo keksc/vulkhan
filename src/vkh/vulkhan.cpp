@@ -46,9 +46,15 @@ void loadObjects(EngineContext &context) {
   ModelCreateInfo modelInfo{};
   modelInfo.filepath = "models/sword.glb";
   context.entities.push_back(
-      {context,
+      { context,
        {.position = {0.5, -0.5, 0.5}, .scale = {0.5f, 0.5f, 0.5f}},
-       modelInfo});
+       modelInfo });
+
+  modelInfo.filepath = "models/westwingassets.glb";
+  context.entities.push_back(
+      { context,
+       {.position = {5.f, -.5f, .5f}, .scale = {0.5f, 0.5f, 0.5f}},
+       modelInfo });
 
   std::vector<glm::vec3> lightColors{{1.f, .1f, .1f}, {.1f, .1f, 1.f},
                                      {.1f, 1.f, .1f}, {1.f, 1.f, .1f},
