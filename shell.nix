@@ -20,6 +20,9 @@ pkgs.mkShell {
     cmake-language-server
     stb
     simdjson
+    curl
+    gcc
+    fftwFloat
   ];
 
   shellHook = ''

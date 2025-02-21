@@ -16,20 +16,19 @@
 namespace vkh {
 namespace freezeAnimationSys {
 std::unique_ptr<GraphicsPipeline> pipeline;
-VkPipelineLayout pipelineLayout;
 
 struct PushConstantData {
   float time;
 };
 
-void createPipelineLayout(EngineContext &context) {
+void createPipeline(EngineContext &context) {
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   pushConstantRange.offset = 0;
   pushConstantRange.size = sizeof(PushConstantData);
 
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
-      context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout()};
+      *context.vulkan.globalDescriptorSetLayout};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -38,41 +37,31 @@ void createPipelineLayout(EngineContext &context) {
   pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
   pipelineLayoutInfo.pushConstantRangeCount = 1;
   pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-  if (vkCreatePipelineLayout(context.vulkan.device, &pipelineLayoutInfo,
-                             nullptr, &pipelineLayout) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create pipeline layout!");
-  }
-}
-void createPipeline(EngineContext &context) {
-  PipelineCreateInfo pipelineConfig{};
-  GraphicsPipeline::enableAlphaBlending(pipelineConfig);
-  pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
-  pipelineConfig.pipelineLayout = pipelineLayout;
+
+  PipelineCreateInfo pipelineInfo{};
+  pipelineInfo.layoutInfo = pipelineLayoutInfo;
+  GraphicsPipeline::enableAlphaBlending(pipelineInfo);
+  pipelineInfo.renderPass = renderer::getSwapChainRenderPass(context);
+  pipelineInfo.layoutInfo = pipelineLayoutInfo;
   pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/freezeAnimation.vert.spv",
-      "shaders/freezeAnimation.frag.spv", pipelineConfig);
+      "shaders/freezeAnimation.frag.spv", pipelineInfo);
 }
-void init(EngineContext &context) {
-  createPipelineLayout(context);
-  createPipeline(context);
-}
+void init(EngineContext &context) { createPipeline(context); }
 
-void cleanup(EngineContext &context) {
-  pipeline = nullptr;
-  vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
-}
+void cleanup(EngineContext &context) { pipeline = nullptr; }
 
 void render(EngineContext &context) {
   pipeline->bind(context.frameInfo.commandBuffer);
 
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   PushConstantData push{};
   push.time = glfwGetTime();
 
-  vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
+  vkCmdPushConstants(context.frameInfo.commandBuffer, *pipeline,
                      VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstantData),
                      &push);
   vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);

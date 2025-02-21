@@ -185,11 +185,11 @@ void copyBuffer(EngineContext &context, VkBuffer srcBuffer, VkBuffer dstBuffer,
   endSingleTimeCommands(context, commandBuffer, context.vulkan.graphicsQueue);
 }
 void copyBufferToImage(EngineContext &context, VkBuffer buffer, VkImage image,
-                       uint32_t width, uint32_t height) {
+                       uint32_t width, uint32_t height, uint32_t offset) {
   VkCommandBuffer commandBuffer = beginSingleTimeCommands(context);
 
   VkBufferImageCopy region{};
-  region.bufferOffset = 0;
+  region.bufferOffset = offset;
   region.bufferRowLength = 0;
   region.bufferImageHeight = 0;
 
@@ -276,4 +276,24 @@ VkImage createImageWithInfo(EngineContext &context,
   }
   return image;
 }
+size_t getNonCoherentAtomSizeAlignment(EngineContext &context,
+                                       size_t originalSize) {
+  const size_t kAtomSize =
+      context.vulkan.physicalDeviceProperties.limits.nonCoherentAtomSize;
+  size_t alignedSize = originalSize;
+  if (kAtomSize > 0) {
+    alignedSize = (alignedSize + kAtomSize - 1) & ~(kAtomSize - 1);
+  }
+  return alignedSize;
+}
+size_t getUniformBufferAlignment(EngineContext &context, size_t originalSize) {
+  const size_t minUboAlignment = context.vulkan.physicalDeviceProperties.limits
+                                     .minUniformBufferOffsetAlignment;
+  size_t alignedSize = originalSize;
+  if (minUboAlignment > 0) {
+    alignedSize = (alignedSize + minUboAlignment - 1) & ~(minUboAlignment - 1);
+  }
+  return alignedSize;
+}
+
 } // namespace vkh
