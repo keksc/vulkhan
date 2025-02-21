@@ -12,10 +12,13 @@ find_package(Vulkan REQUIRED)
 find_package(glfw3 3.3 REQUIRED)
 find_package(fmt REQUIRED)
 find_package(OpenAL REQUIRED)
+find_package(CURL REQUIRED)
 
 add_subdirectory(3rdparty/fastgltf)
 
-link_libraries(Vulkan::Vulkan glfw fmt::fmt OpenAL::OpenAL fastgltf::fastgltf)
+link_directories(3rdparty/lib)
+include_directories(3rdparty/include)
+link_libraries(Vulkan::Vulkan glfw fmt::fmt OpenAL::OpenAL fastgltf::fastgltf GameAnalytics CURL::libcurl fftw3f)
 file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   set(FLAGS WIN32)
@@ -56,6 +59,7 @@ add_dependencies(vulkhan Shaders)
 
 file(COPY "${PROJECT_SOURCE_DIR}/models" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/fonts" DESTINATION "${PROJECT_BINARY_DIR}")
+file(COPY "${PROJECT_SOURCE_DIR}/sounds" DESTINATION "${PROJECT_BINARY_DIR}")
 
 install(TARGETS vulkhan DESTINATION bin)
 install(IMPORTED_RUNTIME_ARTIFACTS fmt::fmt glfw DESTINATION bin)

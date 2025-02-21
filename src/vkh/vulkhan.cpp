@@ -1,5 +1,6 @@
 #include "vulkhan.hpp"
 #include "AxisAlignedBoundingBox.hpp"
+#include "deviceHelpers.hpp"
 #include "model.hpp"
 #include <vulkan/vulkan_core.h>
 
@@ -31,7 +32,8 @@
 #include "systems/freezeAnimation.hpp"
 #include "systems/particles.hpp"
 #include "systems/physics.hpp"
-#include "systems/water.hpp"
+#include "systems/water/skyModel.hpp"
+#include "systems/water/waterSurfaceMesh.hpp"
 #include "window.hpp"
 
 #include <chrono>
@@ -46,15 +48,15 @@ void loadObjects(EngineContext &context) {
   ModelCreateInfo modelInfo{};
   modelInfo.filepath = "models/sword.glb";
   context.entities.push_back(
-      { context,
+      {context,
        {.position = {0.5, -0.5, 0.5}, .scale = {0.5f, 0.5f, 0.5f}},
-       modelInfo });
+       modelInfo});
 
   modelInfo.filepath = "models/westwingassets.glb";
   context.entities.push_back(
-      { context,
+      {context,
        {.position = {5.f, -.5f, .5f}, .scale = {0.5f, 0.5f, 0.5f}},
-       modelInfo });
+       modelInfo});
 
   std::vector<glm::vec3> lightColors{{1.f, .1f, .1f}, {.1f, .1f, 1.f},
                                      {.1f, 1.f, .1f}, {1.f, 1.f, .1f},
@@ -74,16 +76,16 @@ void run() {
   EngineContext context{};
   initWindow(context);
   initVulkan(context);
-  // initAudio();
+  initAudio();
   renderer::init(context);
   { // {} to handle call destructors of buffers before vulkah is cleaned up
     input::init(context);
 
-    context.vulkan.globalPool =
+    context.vulkan.globalDescriptorPool =
         DescriptorPool::Builder(context)
             .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT + MAX_SAMPLERS)
             .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                         SwapChain::MAX_FRAMES_IN_FLIGHT)
+                         SwapChain::MAX_FRAMES_IN_FLIGHT + 90)
             .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                          MAX_SAMPLERS)
             .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, MAX_STORAGE_IMAGES)
@@ -115,13 +117,31 @@ void run() {
     context.entities.push_back(
         {context, {.position = {0.f, GROUND_LEVEL, 0.f}}});
     loadObjects(context);
-    std::thread(generateDungeon, std::ref(context)).detach();
+
+    // std::thread(generateDungeon, std::ref(context)).detach();
 
     entitySys::init(context);
     axesSys::init(context);
     particleSys::init(context);
     freezeAnimationSys::init(context);
-    waterSys::init(context);
+    // waterSys::init(context);
+    WaterSurfaceMesh water(context);
+    water.CreateRenderData(context.vulkan.swapChain->getRenderPass(),
+                           context.vulkan.swapChain->imageCount(),
+                           context.vulkan.swapChain->getSwapChainExtent(),
+                           true);
+
+    auto cmdBuffer = beginSingleTimeCommands(context);
+
+    water.Prepare(cmdBuffer);
+
+    endSingleTimeCommands(context, cmdBuffer, context.vulkan.graphicsQueue);
+
+    SkyModel sky(context, {0.f, .5f, .866f});
+    sky.CreateRenderData(context.vulkan.swapChain->getRenderPass(),
+                         context.vulkan.swapChain->imageCount(),
+                         context.vulkan.swapChain->getSwapChainExtent(), true);
+
     fontSys::init(context);
 
     std::vector<VkDescriptorSet> globalDescriptorSets(
@@ -129,7 +149,7 @@ void run() {
     for (int i = 0; i < globalDescriptorSets.size(); i++) {
       auto bufferInfo = uboBuffers[i]->descriptorInfo();
       DescriptorWriter(*context.vulkan.globalDescriptorSetLayout,
-                       *context.vulkan.globalPool)
+                       *context.vulkan.globalDescriptorPool)
           .writeBuffer(0, &bufferInfo)
           .build(globalDescriptorSets[i]);
     }
@@ -153,7 +173,7 @@ void run() {
       context.camera.orientation = context.entities[0].transform.orientation;
       camera::calcViewYXZ(context);
 
-      // updateAudio(context);
+      updateAudio(context);
 
       float aspect = context.window.aspectRatio;
       camera::calcPerspectiveProjection(context, glm::radians(50.f), aspect,
@@ -189,7 +209,25 @@ void run() {
         axesSys::render(context);
         // freezeAnimationSys::render(context);
         particleSys::render(context);
-        waterSys::render(context);
+        // waterSys::render(context);
+        water.Update(context.frameInfo.dt);
+        sky.PrepareRender(
+            frameIndex,
+            glm::vec2(context.vulkan.swapChain->getSwapChainExtent().width,
+                      context.vulkan.swapChain->getSwapChainExtent().height),
+            context.camera.position, context.camera.viewMatrix,
+            glm::radians(50.f));
+
+        // Copy to water surface maps, update uniform  buffers
+        water.PrepareRender(frameIndex, commandBuffer,
+                            context.camera.viewMatrix,
+                            context.camera.projectionMatrix,
+                            context.camera.position, sky.GetParams());
+
+        water.Render(context.frameInfo.frameIndex,
+                     context.frameInfo.commandBuffer);
+        sky.Render(context.frameInfo.frameIndex,
+                   context.frameInfo.commandBuffer);
         fontSys::render(context);
 
         renderer::endSwapChainRenderPass(commandBuffer);
@@ -203,18 +241,18 @@ void run() {
     axesSys::cleanup(context);
     freezeAnimationSys::cleanup(context);
     particleSys::cleanup(context);
-    waterSys::cleanup(context);
+    // waterSys::cleanup(context);
     fontSys::cleanup(context);
 
     context.entities.clear();
     context.vulkan.globalDescriptorSetLayout = nullptr;
     context.vulkan.modelDescriptorSetLayout = nullptr;
-    context.vulkan.globalPool = nullptr;
+    context.vulkan.globalDescriptorPool = nullptr;
   }
 
   renderer::cleanup(context);
   cleanupVulkan(context);
   cleanupWindow(context);
-  // cleanupAudio();
+  cleanupAudio();
 }
 } // namespace vkh

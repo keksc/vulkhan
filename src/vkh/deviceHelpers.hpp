@@ -45,7 +45,7 @@ void createBuffer(EngineContext &context, VkDeviceSize size,
 void copyBuffer(EngineContext &context, VkBuffer srcBuffer, VkBuffer dstBuffer,
                 VkDeviceSize size);
 void copyBufferToImage(EngineContext &context, VkBuffer buffer, VkImage image,
-                       uint32_t width, uint32_t height);
+                       uint32_t width, uint32_t height, uint32_t offset = 0);
 VkImageView createImageView(EngineContext &context, VkImage image,
                             VkFormat format);
 std::vector<char> readFile(const std::filesystem::path &filepath);
@@ -59,4 +59,7 @@ VkImage createImageWithInfo(EngineContext &context,
 VkCommandBuffer beginSingleTimeCommands(EngineContext &context);
 void endSingleTimeCommands(EngineContext &context,
                            VkCommandBuffer commandBuffer, VkQueue queue);
+size_t getNonCoherentAtomSizeAlignment(EngineContext &context,
+                                       size_t originalSize);
+size_t getUniformBufferAlignment(EngineContext &context, size_t originalSize);
 } // namespace vkh

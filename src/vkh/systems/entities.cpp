@@ -20,14 +20,13 @@
 namespace vkh {
 namespace entitySys {
 std::unique_ptr<GraphicsPipeline> pipeline;
-VkPipelineLayout pipelineLayout;
 
 struct PushConstantData {
   glm::mat4 modelMatrix{1.f};
   glm::mat4 normalMatrix{1.f};
 };
 
-void createPipelineLayout(EngineContext &context) {
+void init(EngineContext &context) {
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags =
       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -35,8 +34,8 @@ void createPipelineLayout(EngineContext &context) {
   pushConstantRange.size = sizeof(PushConstantData);
 
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
-      context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout(),
-      context.vulkan.modelDescriptorSetLayout->getDescriptorSetLayout()};
+      *context.vulkan.globalDescriptorSetLayout,
+      *context.vulkan.modelDescriptorSetLayout};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -45,13 +44,9 @@ void createPipelineLayout(EngineContext &context) {
   pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
   pipelineLayoutInfo.pushConstantRangeCount = 1;
   pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-  if (vkCreatePipelineLayout(context.vulkan.device, &pipelineLayoutInfo,
-                             nullptr, &pipelineLayout) != VK_SUCCESS)
-    throw std::runtime_error("failed to create pipeline layout!");
-}
-void createPipeline(EngineContext &context) {
+
   PipelineCreateInfo pipelineConfig{};
-  pipelineConfig.pipelineLayout = pipelineLayout;
+  pipelineConfig.layoutInfo = pipelineLayoutInfo;
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.attributeDescriptions =
       Model::Vertex::getAttributeDescriptions();
@@ -60,15 +55,8 @@ void createPipeline(EngineContext &context) {
       context, "shaders/entities.vert.spv", "shaders/entities.frag.spv",
       pipelineConfig);
 }
-void init(EngineContext &context) {
-  createPipelineLayout(context);
-  createPipeline(context);
-}
 
-void cleanup(EngineContext &context) {
-  pipeline = nullptr;
-  vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
-}
+void cleanup(EngineContext &context) { pipeline = nullptr; }
 
 void render(EngineContext &context) {
   pipeline->bind(context.frameInfo.commandBuffer);
@@ -86,11 +74,11 @@ void render(EngineContext &context) {
     push.modelMatrix = transform.mat4();
     push.normalMatrix = transform.normalMatrix();
 
-    vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
+    vkCmdPushConstants(context.frameInfo.commandBuffer, pipeline->getLayout(),
                        VK_SHADER_STAGE_VERTEX_BIT |
                            VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(PushConstantData), &push);
-    model->bind(context, context.frameInfo.commandBuffer, pipelineLayout);
+    model->bind(context, context.frameInfo.commandBuffer, *pipeline);
     model->draw(context.frameInfo.commandBuffer);
   }
 }

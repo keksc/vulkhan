@@ -149,58 +149,70 @@ void Model::loadModel(const std::filesystem::path &path) {
 
   std::vector<Vertex> vertices;
   std::vector<uint32_t> indices;
-  auto &mesh = gltf.meshes[0];
 
-  for (auto &&p : mesh.primitives) {
-    size_t initial_vtx = vertices.size();
-    // load indexes
-    {
-      fastgltf::Accessor &indexaccessor =
-          gltf.accessors[p.indicesAccessor.value()];
-      indices.reserve(indices.size() + indexaccessor.count);
+  // Loop over all meshes and their primitives.
+  for (const auto &mesh : gltf.meshes) {
+    for (const auto &primitive : mesh.primitives) {
+      size_t initial_vtx = vertices.size();
 
-      fastgltf::iterateAccessor<std::uint32_t>(
-          gltf, indexaccessor,
-          [&](std::uint32_t idx) { indices.push_back(idx + initial_vtx); });
-    }
+      // --- Load indices (if available) ---
+      if (primitive.indicesAccessor.has_value()) {
+        fastgltf::Accessor &indexAccessor =
+            gltf.accessors[primitive.indicesAccessor.value()];
+        indices.reserve(indices.size() + indexAccessor.count);
+        fastgltf::iterateAccessor<std::uint32_t>(
+            gltf, indexAccessor, [initial_vtx, &indices](std::uint32_t idx) {
+              indices.push_back(idx + static_cast<uint32_t>(initial_vtx));
+            });
+      }
 
-    // load vertex positions
-    {
-      fastgltf::Accessor &posAccessor =
-          gltf.accessors[p.findAttribute("POSITION")->accessorIndex];
-      vertices.resize(vertices.size() + posAccessor.count);
+      // --- Load vertex positions ---
+      auto posAttribute = primitive.findAttribute("POSITION");
+      if (posAttribute == primitive.attributes.end()) {
+        throw std::runtime_error("Mesh primitive has no POSITION attribute");
+      }
+      {
+        fastgltf::Accessor &posAccessor =
+            gltf.accessors[posAttribute->accessorIndex];
+        size_t count = posAccessor.count;
+        // Increase vertices for this primitive.
+        vertices.resize(vertices.size() + count);
+        fastgltf::iterateAccessorWithIndex<glm::vec3>(
+            gltf, posAccessor,
+            [initial_vtx, &vertices](glm::vec3 v, size_t index) {
+              Vertex newVertex;
+              newVertex.position = v;
+              vertices[initial_vtx + index] = newVertex;
+            });
+      }
 
-      fastgltf::iterateAccessorWithIndex<glm::vec3>(
-          gltf, posAccessor, [&](glm::vec3 v, size_t index) {
-            Vertex newvtx;
-            newvtx.position = v;
-            vertices[initial_vtx + index] = newvtx;
-          });
-    }
+      // --- Load vertex normals (if available) ---
+      auto normalAttribute = primitive.findAttribute("NORMAL");
+      if (normalAttribute != primitive.attributes.end()) {
+        fastgltf::Accessor &normalAccessor =
+            gltf.accessors[normalAttribute->accessorIndex];
+        fastgltf::iterateAccessorWithIndex<glm::vec3>(
+            gltf, normalAccessor,
+            [initial_vtx, &vertices](glm::vec3 v, size_t index) {
+              vertices[initial_vtx + index].normal = v;
+            });
+      }
 
-    // load vertex normals
-    auto normals = p.findAttribute("NORMAL");
-    if (normals != p.attributes.end()) {
-
-      fastgltf::iterateAccessorWithIndex<glm::vec3>(
-          gltf, gltf.accessors[(*normals).accessorIndex],
-          [&](glm::vec3 v, size_t index) {
-            vertices[initial_vtx + index].normal = v;
-          });
-    }
-
-    // load UVs
-    auto uv = p.findAttribute("TEXCOORD_0");
-    if (uv != p.attributes.end()) {
-
-      fastgltf::iterateAccessorWithIndex<glm::vec2>(
-          gltf, gltf.accessors[(*uv).accessorIndex],
-          [&](glm::vec2 v, size_t index) {
-            vertices[initial_vtx + index].uv.x = v.x;
-            vertices[initial_vtx + index].uv.y = v.y;
-          });
+      // --- Load UV coordinates (if available) ---
+      auto uvAttribute = primitive.findAttribute("TEXCOORD_0");
+      if (uvAttribute != primitive.attributes.end()) {
+        fastgltf::Accessor &uvAccessor =
+            gltf.accessors[uvAttribute->accessorIndex];
+        fastgltf::iterateAccessorWithIndex<glm::vec2>(
+            gltf, uvAccessor,
+            [initial_vtx, &vertices](glm::vec2 v, size_t index) {
+              vertices[initial_vtx + index].uv.x = v.x;
+              vertices[initial_vtx + index].uv.y = v.y;
+            });
+      }
     }
   }
+
   if (gltf.images.empty()) {
     throw std::runtime_error(fmt::format("no image in GLB {}", path.string()));
   }
@@ -242,7 +254,7 @@ void Model::createDescriptors() {
   imageInfo.imageView = texture->getImageView();
   imageInfo.sampler = context.vulkan.modelSampler;
   DescriptorWriter(*context.vulkan.modelDescriptorSetLayout,
-                   *context.vulkan.globalPool)
+                   *context.vulkan.globalDescriptorPool)
       .writeImage(0, &imageInfo)
       .build(textureDescriptorSet);
 }

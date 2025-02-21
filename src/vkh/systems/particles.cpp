@@ -18,15 +18,14 @@
 namespace vkh {
 namespace particleSys {
 std::unique_ptr<GraphicsPipeline> pipeline;
-VkPipelineLayout pipelineLayout;
 
 struct PushConstantData {
   int particleIndex;
 };
 
-void createPipelineLayout(EngineContext &context) {
+void createPipeline(EngineContext &context) {
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
-      context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout()};
+      *context.vulkan.globalDescriptorSetLayout};
 
   VkPushConstantRange pushConstantRange;
   pushConstantRange.stageFlags =
@@ -41,30 +40,19 @@ void createPipelineLayout(EngineContext &context) {
   pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
   pipelineLayoutInfo.pushConstantRangeCount = 1;
   pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-  if (vkCreatePipelineLayout(context.vulkan.device, &pipelineLayoutInfo,
-                             nullptr, &pipelineLayout) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create pipeline layout!");
-  }
-}
-void createPipeline(EngineContext &context) {
+
   PipelineCreateInfo pipelineConfig{};
   GraphicsPipeline::enableAlphaBlending(pipelineConfig);
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
-  pipelineConfig.pipelineLayout = pipelineLayout;
+  pipelineConfig.layoutInfo = pipelineLayoutInfo;
   pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
   pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/particles.vert.spv", "shaders/particles.frag.spv",
       pipelineConfig);
 }
-void init(EngineContext &context) {
-  createPipelineLayout(context);
-  createPipeline(context);
-}
+void init(EngineContext &context) { createPipeline(context); }
 
-void cleanup(EngineContext &context) {
-  pipeline = nullptr;
-  vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
-}
+void cleanup(EngineContext &context) { pipeline = nullptr; }
 
 void update(EngineContext &context, GlobalUbo &ubo) {
   auto rotateParticle = glm::rotate(glm::mat4(1.f), 0.5f * context.frameInfo.dt,
@@ -91,11 +79,11 @@ void render(EngineContext &context) {
   pipeline->bind(context.frameInfo.commandBuffer);
 
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
   for (int i = 0; i < context.particles.size(); i++) {
     PushConstantData push{.particleIndex = i};
-    vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
+    vkCmdPushConstants(context.frameInfo.commandBuffer, *pipeline,
                        VK_SHADER_STAGE_VERTEX_BIT |
                            VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(PushConstantData), &push);

@@ -1,5 +1,6 @@
 #include "buffer.hpp"
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 
 #include "deviceHelpers.hpp"
@@ -96,4 +97,9 @@ VkResult Buffer::invalidateIndex(int index) {
   return invalidate(alignmentSize, index * alignmentSize);
 }
 
+void Buffer::copyToMapped(const void *data, VkDeviceSize size,
+                          void *destAddr) const {
+  void *dest = destAddr == nullptr ? mapped : destAddr;
+  memcpy(dest, data, static_cast<size_t>(size));
+}
 } // namespace vkh

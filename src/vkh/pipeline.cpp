@@ -1,7 +1,7 @@
 #include "pipeline.hpp"
 
-#include <fmt/color.h>
-#include <fmt/format.h>
+#include <fmt/core.h>
+#include <string>
 #include <vulkan/vulkan_core.h>
 
 #include <stdexcept>
@@ -10,7 +10,12 @@
 
 namespace vkh {
 
-Pipeline::Pipeline(EngineContext &context, VkPipelineBindPoint bindPoint) : context{context}, bindPoint{bindPoint} {}
+Pipeline::Pipeline(EngineContext &context, VkPipelineBindPoint bindPoint)
+    : context{context}, bindPoint{bindPoint} {}
+Pipeline::~Pipeline() {
+  vkDestroyPipeline(context.vulkan.device, pipeline, nullptr);
+  vkDestroyPipelineLayout(context.vulkan.device, layout, nullptr);
+}
 void createShaderModule(EngineContext &context, const std::vector<char> &code,
                         VkShaderModule *shaderModule) {
   VkShaderModuleCreateInfo createInfo{};
@@ -71,7 +76,11 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
   pipelineInfo.pDepthStencilState = &configInfo.depthStencilInfo;
   pipelineInfo.pDynamicState = &configInfo.dynamicStateInfo;
 
-  pipelineInfo.layout = configInfo.pipelineLayout;
+  if (vkCreatePipelineLayout(context.vulkan.device, &configInfo.layoutInfo,
+                             nullptr, &pipelineInfo.layout) != VK_SUCCESS)
+    throw std::runtime_error("failed to create pipeline layout!");
+  layout = pipelineInfo.layout;
+
   pipelineInfo.renderPass = configInfo.renderPass;
   pipelineInfo.subpass = configInfo.subpass;
 
@@ -110,18 +119,13 @@ ComputePipeline::ComputePipeline(EngineContext &context,
   if (vkCreateComputePipelines(context.vulkan.device, VK_NULL_HANDLE, 1,
                                &pipelineInfo, nullptr,
                                &pipeline) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create graphics pipeline");
+    throw std::runtime_error("failed to create compute pipeline");
   }
   vkDestroyShaderModule(context.vulkan.device, shaderModule, nullptr);
 }
-Pipeline::~Pipeline() {
-  vkDestroyPipeline(context.vulkan.device, pipeline, nullptr);
-}
-
 void Pipeline::bind(VkCommandBuffer commandBuffer) {
   vkCmdBindPipeline(commandBuffer, bindPoint, pipeline);
 }
-
 void GraphicsPipeline::enableAlphaBlending(PipelineCreateInfo &configInfo) {
   configInfo.colorBlendAttachment.blendEnable = VK_TRUE;
 

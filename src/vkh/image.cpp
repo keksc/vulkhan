@@ -1,4 +1,5 @@
 #include "image.hpp"
+#include <stdexcept>
 #include <vulkan/vulkan_core.h>
 
 #include <fmt/format.h>
@@ -8,8 +9,6 @@
 #else
 #include <stb/stb_image.h>
 #endif
-
-#include <unordered_map>
 
 #include "buffer.hpp"
 #include "deviceHelpers.hpp"
@@ -46,12 +45,12 @@ VkImage Image::createImage(EngineContext &context, int w, int h,
       findMemoryType(context, memRequirements.memoryTypeBits,
                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-  if (vkAllocateMemory(context.vulkan.device, &allocInfo, nullptr,
-                       &imageMemory) != VK_SUCCESS) {
+  if (vkAllocateMemory(context.vulkan.device, &allocInfo, nullptr, &memory) !=
+      VK_SUCCESS) {
     throw std::runtime_error("failed to allocate image memory!");
   }
 
-  if (vkBindImageMemory(context.vulkan.device, image, imageMemory, 0) !=
+  if (vkBindImageMemory(context.vulkan.device, image, memory, 0) !=
       VK_SUCCESS) {
     throw std::runtime_error("failed to bind image memory!");
   }
@@ -64,7 +63,7 @@ void Image::createImageFromPixels(void *pixels, int w, int h) {
     throw std::runtime_error("failed to load texture image from memory !");
   }
 
-  image =
+  img =
       createImage(context, w, h,
                   VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
@@ -81,12 +80,12 @@ void Image::createImageFromPixels(void *pixels, int w, int h) {
 
   transitionLayout(VK_IMAGE_LAYOUT_UNDEFINED,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  copyBufferToImage(context, stagingBuffer, image, static_cast<uint32_t>(w),
+  copyBufferToImage(context, stagingBuffer, img, static_cast<uint32_t>(w),
                     static_cast<uint32_t>(w));
   transitionLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                    VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-  imageView = createImageView(context, image, format);
+  view = createImageView(context, img, format);
 }
 Image::Image(EngineContext &context, const void *data, int len,
              bool enableAlpha, VkFormat format)
@@ -105,138 +104,55 @@ Image::Image(EngineContext &context, const std::filesystem::path &path,
                               enableAlpha ? STBI_rgb_alpha : STBI_rgb);
   createImageFromPixels(pixels, w, h);
 }
-static const std::unordered_map<VkFormat, uint32_t> formatBytesPerPixel = {
-    // 8-bit formats (1 byte per pixel)
-    {VK_FORMAT_R8_UNORM, 1},
-    {VK_FORMAT_R8_SNORM, 1},
-    {VK_FORMAT_R8_USCALED, 1},
-    {VK_FORMAT_R8_SSCALED, 1},
-    {VK_FORMAT_R8_UINT, 1},
-    {VK_FORMAT_R8_SINT, 1},
-    {VK_FORMAT_R8_SRGB, 1},
-
-    // 2-channel 8-bit formats (2 bytes per pixel)
-    {VK_FORMAT_R8G8_UNORM, 2},
-    {VK_FORMAT_R8G8_SNORM, 2},
-    {VK_FORMAT_R8G8_USCALED, 2},
-    {VK_FORMAT_R8G8_SSCALED, 2},
-    {VK_FORMAT_R8G8_UINT, 2},
-    {VK_FORMAT_R8G8_SINT, 2},
-    {VK_FORMAT_R8G8_SRGB, 2},
-
-    // 3-channel 8-bit formats (3 bytes per pixel)
-    {VK_FORMAT_R8G8B8_UNORM, 3},
-    {VK_FORMAT_R8G8B8_SNORM, 3},
-    {VK_FORMAT_R8G8B8_USCALED, 3},
-    {VK_FORMAT_R8G8B8_SSCALED, 3},
-    {VK_FORMAT_R8G8B8_UINT, 3},
-    {VK_FORMAT_R8G8B8_SINT, 3},
-    {VK_FORMAT_R8G8B8_SRGB, 3},
-    {VK_FORMAT_B8G8R8_UNORM, 3},
-    {VK_FORMAT_B8G8R8_SNORM, 3},
-    {VK_FORMAT_B8G8R8_USCALED, 3},
-    {VK_FORMAT_B8G8R8_SSCALED, 3},
-    {VK_FORMAT_B8G8R8_UINT, 3},
-    {VK_FORMAT_B8G8R8_SINT, 3},
-    {VK_FORMAT_B8G8R8_SRGB, 3},
-
-    // 4-channel 8-bit formats (4 bytes per pixel)
-    {VK_FORMAT_R8G8B8A8_UNORM, 4},
-    {VK_FORMAT_R8G8B8A8_SNORM, 4},
-    {VK_FORMAT_R8G8B8A8_USCALED, 4},
-    {VK_FORMAT_R8G8B8A8_SSCALED, 4},
-    {VK_FORMAT_R8G8B8A8_UINT, 4},
-    {VK_FORMAT_R8G8B8A8_SINT, 4},
-    {VK_FORMAT_R8G8B8A8_SRGB, 4},
-    {VK_FORMAT_B8G8R8A8_UNORM, 4},
-    {VK_FORMAT_B8G8R8A8_SNORM, 4},
-    {VK_FORMAT_B8G8R8A8_USCALED, 4},
-    {VK_FORMAT_B8G8R8A8_SSCALED, 4},
-    {VK_FORMAT_B8G8R8A8_UINT, 4},
-    {VK_FORMAT_B8G8R8A8_SINT, 4},
-    {VK_FORMAT_B8G8R8A8_SRGB, 4},
-    {VK_FORMAT_A8B8G8R8_UNORM_PACK32, 4},
-    {VK_FORMAT_A8B8G8R8_SNORM_PACK32, 4},
-    {VK_FORMAT_A8B8G8R8_USCALED_PACK32, 4},
-    {VK_FORMAT_A8B8G8R8_SSCALED_PACK32, 4},
-    {VK_FORMAT_A8B8G8R8_UINT_PACK32, 4},
-    {VK_FORMAT_A8B8G8R8_SINT_PACK32, 4},
-    {VK_FORMAT_A8B8G8R8_SRGB_PACK32, 4},
-
-    // 16-bit single channel
-    {VK_FORMAT_R16_UNORM, 2},
-    {VK_FORMAT_R16_SNORM, 2},
-    {VK_FORMAT_R16_USCALED, 2},
-    {VK_FORMAT_R16_SSCALED, 2},
-    {VK_FORMAT_R16_UINT, 2},
-    {VK_FORMAT_R16_SINT, 2},
-    {VK_FORMAT_R16_SFLOAT, 2},
-
-    // 2-channel 16-bit formats
-    {VK_FORMAT_R16G16_UNORM, 4},
-    {VK_FORMAT_R16G16_SNORM, 4},
-    {VK_FORMAT_R16G16_USCALED, 4},
-    {VK_FORMAT_R16G16_SSCALED, 4},
-    {VK_FORMAT_R16G16_UINT, 4},
-    {VK_FORMAT_R16G16_SINT, 4},
-    {VK_FORMAT_R16G16_SFLOAT, 4},
-
-    // 3-channel 16-bit formats
-    {VK_FORMAT_R16G16B16_UNORM, 6},
-    {VK_FORMAT_R16G16B16_SNORM, 6},
-    {VK_FORMAT_R16G16B16_USCALED, 6},
-    {VK_FORMAT_R16G16B16_SSCALED, 6},
-    {VK_FORMAT_R16G16B16_UINT, 6},
-    {VK_FORMAT_R16G16B16_SINT, 6},
-    {VK_FORMAT_R16G16B16_SFLOAT, 6},
-
-    // 4-channel 16-bit formats
-    {VK_FORMAT_R16G16B16A16_UNORM, 8},
-    {VK_FORMAT_R16G16B16A16_SNORM, 8},
-    {VK_FORMAT_R16G16B16A16_USCALED, 8},
-    {VK_FORMAT_R16G16B16A16_SSCALED, 8},
-    {VK_FORMAT_R16G16B16A16_UINT, 8},
-    {VK_FORMAT_R16G16B16A16_SINT, 8},
-    {VK_FORMAT_R16G16B16A16_SFLOAT, 8},
-
-    // 32-bit formats
-    {VK_FORMAT_R32_UINT, 4},
-    {VK_FORMAT_R32_SINT, 4},
-    {VK_FORMAT_R32_SFLOAT, 4},
-    {VK_FORMAT_R32G32_UINT, 8},
-    {VK_FORMAT_R32G32_SINT, 8},
-    {VK_FORMAT_R32G32_SFLOAT, 8},
-    {VK_FORMAT_R32G32B32_UINT, 12},
-    {VK_FORMAT_R32G32B32_SINT, 12},
-    {VK_FORMAT_R32G32B32_SFLOAT, 12},
-    {VK_FORMAT_R32G32B32A32_UINT, 16},
-    {VK_FORMAT_R32G32B32A32_SINT, 16},
-    {VK_FORMAT_R32G32B32A32_SFLOAT, 16},
-
-    // Packed 32-bit formats
-    {VK_FORMAT_B10G11R11_UFLOAT_PACK32, 4},
-    {VK_FORMAT_E5B9G9R9_UFLOAT_PACK32, 4},
-
-    // Depth / stencil formats (if needed for copies)
-    {VK_FORMAT_D16_UNORM, 2},
-    {VK_FORMAT_X8_D24_UNORM_PACK32, 4},
-    {VK_FORMAT_D32_SFLOAT, 4},
-    {VK_FORMAT_D16_UNORM_S8_UINT,
-     3}, // Typically 2 bytes depth + 1 byte stencil
-    {VK_FORMAT_D24_UNORM_S8_UINT, 4}, // Typically 3+1 bytes
-    {VK_FORMAT_D32_SFLOAT_S8_UINT, 5} // Typically 4+1 bytes
-};
-VkDeviceSize getImageSize(int w, int h, VkFormat format) {
-  auto it = formatBytesPerPixel.find(format);
-  if (it == formatBytesPerPixel.end())
-    throw std::runtime_error("Unsupported image format");
-  uint32_t bytesPerPixel = it->second;
-  return w * h * bytesPerPixel;
+uint32_t Image::formatSize(VkFormat format) {
+  switch (format) {
+  case VK_FORMAT_R8_SINT:
+  case VK_FORMAT_R8_SNORM:
+  case VK_FORMAT_R8_UINT:
+  case VK_FORMAT_R8_UNORM:
+    return 1;
+  case VK_FORMAT_R8G8_SINT:
+  case VK_FORMAT_R8G8_SNORM:
+  case VK_FORMAT_R8G8_UINT:
+  case VK_FORMAT_R8G8_UNORM:
+  case VK_FORMAT_R16_SFLOAT:
+  case VK_FORMAT_R16_SINT:
+  case VK_FORMAT_R16_UINT:
+    return 2;
+  case VK_FORMAT_B8G8R8A8_SRGB:
+  case VK_FORMAT_R8G8B8A8_SRGB:
+  case VK_FORMAT_B8G8R8A8_UNORM:
+  case VK_FORMAT_R8G8B8A8_SINT:
+  case VK_FORMAT_R8G8B8A8_SNORM:
+  case VK_FORMAT_R8G8B8A8_UINT:
+  case VK_FORMAT_R8G8B8A8_UNORM:
+  case VK_FORMAT_R16G16_SFLOAT:
+  case VK_FORMAT_R16G16_SINT:
+  case VK_FORMAT_R16G16_UINT:
+  case VK_FORMAT_R32_SFLOAT:
+  case VK_FORMAT_R32_SINT:
+  case VK_FORMAT_R32_UINT:
+    return 4;
+  case VK_FORMAT_R16G16B16A16_SFLOAT:
+  case VK_FORMAT_R16G16B16A16_SINT:
+  case VK_FORMAT_R16G16B16A16_UINT:
+  case VK_FORMAT_R32G32_SFLOAT:
+  case VK_FORMAT_R32G32_SINT:
+  case VK_FORMAT_R32G32_UINT:
+    return 4 * 2;
+  case VK_FORMAT_R32G32B32A32_SFLOAT:
+  case VK_FORMAT_R32G32B32A32_SINT:
+  case VK_FORMAT_R32G32B32A32_UINT:
+    return 4 * 4;
+  default:
+    throw std::runtime_error("Unsupported format for formatSize");
+  }
 }
 Image::Image(EngineContext &context, const ImageCreateInfo &createInfo)
-    : context{context}, format{createInfo.format} {
-  image = createImage(context, createInfo.w, createInfo.h, createInfo.usage);
-  imageView = createImageView(context, image, format);
+    : context{context}, format{createInfo.format}, w{createInfo.w},
+      h{createInfo.h}, layout(createInfo.layout) {
+  img = createImage(context, createInfo.w, createInfo.h, createInfo.usage);
+  view = createImageView(context, img, format);
   if (!createInfo.data && !createInfo.color.has_value()) {
     transitionLayout(VK_IMAGE_LAYOUT_UNDEFINED, createInfo.layout);
     return;
@@ -246,7 +162,7 @@ Image::Image(EngineContext &context, const ImageCreateInfo &createInfo)
   VkDeviceSize size;
   if (createInfo.data) {
     data = createInfo.data;
-    size = getImageSize(createInfo.w, createInfo.h, createInfo.format);
+    size = createInfo.w * createInfo.h * Image::formatSize(format);
   } else {
     uint32_t color = createInfo.color.value();
     data = static_cast<void *>(&color);
@@ -263,13 +179,13 @@ Image::Image(EngineContext &context, const ImageCreateInfo &createInfo)
 
   transitionLayout(VK_IMAGE_LAYOUT_UNDEFINED,
                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-  copyBufferToImage(context, stagingBuffer, image, createInfo.w, createInfo.h);
+  copyBufferToImage(context, stagingBuffer, img, createInfo.w, createInfo.h);
   transitionLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, createInfo.layout);
 }
 Image::~Image() {
-  vkDestroyImage(context.vulkan.device, image, nullptr);
-  vkDestroyImageView(context.vulkan.device, imageView, nullptr);
-  vkFreeMemory(context.vulkan.device, imageMemory, nullptr);
+  vkDestroyImage(context.vulkan.device, img, nullptr);
+  vkDestroyImageView(context.vulkan.device, view, nullptr);
+  vkFreeMemory(context.vulkan.device, memory, nullptr);
 }
 struct TransitionParams {
   VkAccessFlags srcAccessMask;
@@ -293,11 +209,8 @@ TransitionParams getTransitionParams(VkImageLayout oldLayout,
     params.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
     params.srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     params.dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-  }
-  // NEW: Support transition from TRANSFER_DST_OPTIMAL to GENERAL (e.g. for
-  // compute usage)
-  else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
-           newLayout == VK_IMAGE_LAYOUT_GENERAL) {
+  } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
+             newLayout == VK_IMAGE_LAYOUT_GENERAL) {
     params.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     params.dstAccessMask =
         VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
@@ -335,6 +248,20 @@ TransitionParams getTransitionParams(VkImageLayout oldLayout,
     params.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
     params.srcStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     params.dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL &&
+             newLayout == VK_IMAGE_LAYOUT_GENERAL) {
+    params.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    params.dstAccessMask =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+  } else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
+             newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+    params.srcAccessMask = 0;
+    params.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    params.srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    params.dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                      VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
   } else {
     throw std::invalid_argument("Unsupported layout transition!");
   }
@@ -353,7 +280,7 @@ void Image::transitionLayout(VkImageLayout oldLayout, VkImageLayout newLayout) {
   barrier.newLayout = newLayout;
   barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barrier.image = image;
+  barrier.image = img;
   barrier.subresourceRange.baseMipLevel = 0;
   barrier.subresourceRange.levelCount = 1;
   barrier.subresourceRange.baseArrayLayer = 0;
@@ -378,5 +305,218 @@ void Image::transitionLayout(VkImageLayout oldLayout, VkImageLayout newLayout) {
                        nullptr, 0, nullptr, 1, &barrier);
 
   endSingleTimeCommands(context, commandBuffer, context.vulkan.graphicsQueue);
+}
+void Image::RecordImageBarrier(VkCommandBuffer cmdBuffer,
+                               VkPipelineStageFlags srcStageMask,
+                               VkPipelineStageFlags dstStageMask,
+                               VkAccessFlags srcAccessMask,
+                               VkAccessFlags dstAccessMask,
+                               VkImageLayout newLayout) const {
+  assert(cmdBuffer != VK_NULL_HANDLE);
+
+  VkImageMemoryBarrier memoryBarrier = {
+      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+      .pNext = nullptr,
+      .srcAccessMask = srcAccessMask,
+      // All writes must be AVAILABLE before layout change
+      .dstAccessMask = dstAccessMask,
+      // >> Layout transition
+      .oldLayout = layout,
+      .newLayout = newLayout,
+      // Not transferring queue family ownership
+      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+      .image = img,
+      .subresourceRange = {// Transition the whole image at once
+                           .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                           .baseMipLevel = 0,
+                           .levelCount = 1,
+                           .baseArrayLayer = 0,
+                           .layerCount = 1}};
+
+  vkCmdPipelineBarrier(cmdBuffer, srcStageMask, dstStageMask,
+                       0,                // dependencyFlags
+                       0, nullptr,       // memory barriers
+                       0, nullptr,       // buffer memory barriers
+                       1, &memoryBarrier // image memory barriers
+  );
+}
+void Image::TransitionLayout_DST_OPTIMALtoSHADER_READ(
+    VkCommandBuffer cmdBuffer, VkPipelineStageFlags dstStage,
+    VkAccessFlags dstAccessMask) {
+  assert(img != VK_NULL_HANDLE &&
+         layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+  RecordImageBarrier(cmdBuffer,
+                     // srcStageMask,                  dstStageMask
+                     VK_PIPELINE_STAGE_TRANSFER_BIT, dstStage,
+                     // wait for writes, before reads
+                     // srcAccessMask, dstAccessMask
+                     VK_ACCESS_TRANSFER_WRITE_BIT, dstAccessMask,
+                     // All writes must be AVAILABLE before layout change
+                     // >> Layout transition
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+}
+void Image::TransitionLayout_SHADER_READtoDST_OPTIMAL(
+    VkCommandBuffer cmdBuffer, VkPipelineStageFlags srcStage) {
+  assert(img != VK_NULL_HANDLE &&
+         layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+  RecordImageBarrier(cmdBuffer,
+                     // srcStageMask,                  dstStageMask
+                     srcStage, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                     // wait for writes, before reads
+                     // srcAccessMask, dstAccessMask
+                     0, VK_ACCESS_TRANSFER_WRITE_BIT,
+                     // All writes must be AVAILABLE before layout change
+                     // >> Layout transition
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+  layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+}
+void Image::TransitionLayout_UNDEFtoDST_OPTIMAL(VkCommandBuffer cmdBuffer) {
+  assert(img != VK_NULL_HANDLE && layout == VK_IMAGE_LAYOUT_UNDEFINED);
+
+  RecordImageBarrier(
+      cmdBuffer,
+      // srcStageMask,                  dstStageMask
+      VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+      // here, writes don't have to wait on anything, but must be completed
+      //  before transfer stages can start
+      // srcAccessMask, dstAccessMask
+      0, VK_ACCESS_TRANSFER_WRITE_BIT,
+      // All writes must be AVAILABLE before layout change
+      // >> Layout transition
+      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+  layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+}
+void Image::TransitionLayout(VkCommandBuffer cmdBuffer, VkImageLayout newLayout,
+                             VkPipelineStageFlags srcStageMask,
+                             VkPipelineStageFlags dstStageMask) {
+  VkImageLayout oldLayout = layout;
+  VkAccessFlags srcAccessMask = 0;
+
+  // Source image layouts
+  // Source access mask controls actions that have to be finished on the old
+  // layout before it will be transitioned to the new layout
+  switch (oldLayout) {
+  case VK_IMAGE_LAYOUT_UNDEFINED:
+    // Image layout is undefined, only valid as initial layout
+    // No flags required
+    srcAccessMask = 0;
+    break;
+  case VK_IMAGE_LAYOUT_PREINITIALIZED:
+    // Only valid as initial layout for linear images, preserves memory contents
+    // Host writes must be finished
+    srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
+    break;
+  case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+    // Writes to the color buffer must be finished
+    srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    break;
+  case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+    // Any writes to the depth/stencil buffer must be finished
+    srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    break;
+  case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+    // Any reads from the image must be finished
+    srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    break;
+  case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+    // Any writes to the image must be finished
+    srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    break;
+  case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+    // Any shader reads from the image must be finished
+    srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  default:
+    break;
+  }
+
+  // Transition to new layout
+  // Destination access mask controls the dependency for the new layout
+  VkAccessFlags dstAccessMask = 0;
+
+  switch (newLayout) {
+  case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+    dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    break;
+  case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+    dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    break;
+  case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+    dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    break;
+  case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+    dstAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    break;
+  case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+    if (srcAccessMask == 0) {
+      srcAccessMask = VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+    }
+    dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  default:
+    break;
+  }
+
+  RecordImageBarrier(cmdBuffer, srcStageMask, dstStageMask, srcAccessMask,
+                     dstAccessMask, newLayout);
+
+  layout = newLayout;
+}
+void Image::TransitionLayoutToDST_OPTIMAL(VkCommandBuffer cmdBuffer,
+                                          VkPipelineStageFlags stage) {
+  switch (layout) {
+  case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+    TransitionLayout_SHADER_READtoDST_OPTIMAL(cmdBuffer, stage);
+    break;
+  case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+    return;
+  case VK_IMAGE_LAYOUT_UNDEFINED:
+    TransitionLayout_UNDEFtoDST_OPTIMAL(cmdBuffer);
+    break;
+  default:
+    TransitionLayout(cmdBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                     VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+    // VKP_ASSERT_MSG(false, "Unsupported layout transition");
+    break;
+  }
+}
+void Image::copyBufferToImage_def(VkCommandBuffer cmdBuffer, VkBuffer buffer,
+                                  uint32_t offset) {
+  assert(layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+  // Buffer data at offset 0, tightly-packed to whole image
+  VkBufferImageCopy region = {
+      .bufferOffset = offset,
+      // Tightly packed data
+      .bufferRowLength = 0,
+      .bufferImageHeight = 0,
+      .imageSubresource =
+          {
+              .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+              .mipLevel = 0,
+              .baseArrayLayer = 0,
+              .layerCount = 1,
+          },
+      .imageOffset = {0, 0, 0},
+      .imageExtent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1}};
+
+  vkCmdCopyBufferToImage(cmdBuffer, buffer, img,
+                         // Assumes the image has been transitioned to optimal
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+}
+void Image::copyFromBuffer(VkCommandBuffer cmdBuffer, VkBuffer buffer,
+                           bool genMips, VkPipelineStageFlags dstStage,
+                           uint32_t bufferOffset, VkAccessFlags dstAccessMask) {
+  TransitionLayoutToDST_OPTIMAL(cmdBuffer, dstStage);
+
+  copyBufferToImage_def(cmdBuffer, buffer, bufferOffset);
+
+  TransitionLayout_DST_OPTIMALtoSHADER_READ(cmdBuffer, dstStage, dstAccessMask);
 }
 } // namespace vkh

@@ -21,8 +21,8 @@
 #include "../deviceHelpers.hpp"
 #include "../image.hpp"
 #include "../pipeline.hpp"
-#include "../swapChain.hpp"
 #include "../renderer.hpp"
+#include "../swapChain.hpp"
 
 namespace vkh {
 namespace fontSys {
@@ -38,7 +38,6 @@ std::vector<VkVertexInputAttributeDescription> attributeDescriptions = {
     {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)}};
 std::vector<VkVertexInputBindingDescription> bindingDescriptions = {
     {0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX}};
-VkPipelineLayout pipelineLayout;
 
 std::unique_ptr<Buffer> vertexBuffer;
 std::unique_ptr<Buffer> indexBuffer;
@@ -92,49 +91,36 @@ void createDescriptors(EngineContext &context) {
   imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   imageInfo.imageView = fontAtlas->getImageView();
   imageInfo.sampler = context.vulkan.fontSampler;
-  DescriptorWriter(*descriptorSetLayout, *context.vulkan.globalPool)
+  DescriptorWriter(*descriptorSetLayout, *context.vulkan.globalDescriptorPool)
       .writeImage(0, &imageInfo)
       .build(descriptorSet);
 }
 // struct PushConstantData {};
 
-void createPipelineLayout(EngineContext &context) {
-  /*VkPushConstantRange pushConstantRange{};
-  pushConstantRange.stageFlags =
-      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-  pushConstantRange.offset = 0;
-  pushConstantRange.size = sizeof(PushConstantData);*/
-
+void createPipeline(EngineContext &context) {
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
-      context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout(),
-      descriptorSetLayout->getDescriptorSetLayout()};
+      *context.vulkan.globalDescriptorSetLayout, *descriptorSetLayout};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   pipelineLayoutInfo.setLayoutCount =
       static_cast<uint32_t>(descriptorSetLayouts.size());
   pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
-  // pipelineLayoutInfo.pushConstantRangeCount = 1;
-  // pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-  if (vkCreatePipelineLayout(context.vulkan.device, &pipelineLayoutInfo,
-                             nullptr, &pipelineLayout) != VK_SUCCESS)
-    throw std::runtime_error("failed to create pipeline layout!");
-}
-void createPipeline(EngineContext &context) {
-  PipelineCreateInfo pipelineConfig{};
-  pipelineConfig.pipelineLayout = pipelineLayout;
-  pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
-  pipelineConfig.attributeDescriptions = attributeDescriptions;
-  pipelineConfig.bindingDescriptions = bindingDescriptions;
-  pipelineConfig.depthStencilInfo = {
+
+  PipelineCreateInfo pipelineInfo{};
+  pipelineInfo.layoutInfo = pipelineLayoutInfo;
+  pipelineInfo.renderPass = renderer::getSwapChainRenderPass(context);
+  pipelineInfo.attributeDescriptions = attributeDescriptions;
+  pipelineInfo.bindingDescriptions = bindingDescriptions;
+  pipelineInfo.depthStencilInfo = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
       .depthTestEnable = false,
       .depthWriteEnable = false,
       .depthCompareOp = VK_COMPARE_OP_LESS};
-  GraphicsPipeline::enableAlphaBlending(pipelineConfig);
+  GraphicsPipeline::enableAlphaBlending(pipelineInfo);
   pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/font.vert.spv", "shaders/font.frag.spv",
-      pipelineConfig);
+      pipelineInfo);
 }
 void initFont() {
   fontDataChar = readFile("fonts/Roboto-Regular.ttf");
@@ -197,7 +183,6 @@ void init(EngineContext &context) {
   createBuffers(context);
   createDescriptors(context);
 
-  createPipelineLayout(context);
   createPipeline(context);
 }
 void updateText(EngineContext &context, std::string text) {
@@ -253,7 +238,6 @@ void cleanup(EngineContext &context) {
   glyphs.clear();
   fontAtlas = nullptr;
   descriptorSetLayout = nullptr;
-  vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
 }
 
 void render(EngineContext &context) {
@@ -276,7 +260,7 @@ void render(EngineContext &context) {
   VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
                                        descriptorSet};
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 2,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
                           descriptorSets, 0, nullptr);
 
   vkCmdDrawIndexed(context.frameInfo.commandBuffer, indices.size(), 1, 0, 0, 0);

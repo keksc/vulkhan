@@ -16,43 +16,32 @@
 namespace vkh {
 namespace axesSys {
 std::unique_ptr<GraphicsPipeline> pipeline;
-VkPipelineLayout pipelineLayout;
 
-void createPipelineLayout(EngineContext &context) {
+void createPipeline(EngineContext &context) {
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
-      context.vulkan.globalDescriptorSetLayout->getDescriptorSetLayout()};
+      *context.vulkan.globalDescriptorSetLayout};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   pipelineLayoutInfo.setLayoutCount =
       static_cast<uint32_t>(descriptorSetLayouts.size());
   pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
-  if (vkCreatePipelineLayout(context.vulkan.device, &pipelineLayoutInfo,
-                             nullptr, &pipelineLayout) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create pipeline layout!");
-  }
-}
-void createPipeline(EngineContext &context) {
-  assert(pipelineLayout != nullptr &&
-         "Cannot create pipeline before pipeline layout");
 
   PipelineCreateInfo pipelineConfig{};
   GraphicsPipeline::enableAlphaBlending(pipelineConfig);
   pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
-  pipelineConfig.pipelineLayout = pipelineLayout;
+  pipelineConfig.layoutInfo = pipelineLayoutInfo;
   pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/axes.vert.spv", "shaders/axes.frag.spv",
       pipelineConfig);
 }
 void init(EngineContext &context) {
-  createPipelineLayout(context);
   createPipeline(context);
 }
 
 void cleanup(EngineContext &context) {
   pipeline = nullptr;
-  vkDestroyPipelineLayout(context.vulkan.device, pipelineLayout, nullptr);
 }
 
 void render(EngineContext &context) {
@@ -62,7 +51,7 @@ void render(EngineContext &context) {
       context.camera.projectionMatrix * context.camera.viewMatrix;
 
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
