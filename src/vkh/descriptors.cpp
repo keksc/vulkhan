@@ -101,7 +101,7 @@ namespace vkh {
         vkDestroyDescriptorPool(context.vulkan.device, descriptorPool, nullptr);
     }
 
-    bool DescriptorPool::allocateDescriptor(
+    bool DescriptorPool::allocateDescriptorSet(
         const VkDescriptorSetLayout descriptorSetLayout, VkDescriptorSet& descriptor) const {
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -177,7 +177,7 @@ namespace vkh {
     }
 
     bool DescriptorWriter::build(VkDescriptorSet& set) {
-        bool success = pool.allocateDescriptor(setLayout.getDescriptorSetLayout(), set);
+        bool success = pool.allocateDescriptorSet(setLayout, set);
         if (!success) {
             return false;
         }

@@ -71,7 +71,7 @@ struct EngineContext {
     VkQueue presentQueue;
     VkCommandPool commandPool;
     std::unique_ptr<SwapChain> swapChain;
-    std::unique_ptr<DescriptorPool> globalPool;
+    std::unique_ptr<DescriptorPool> globalDescriptorPool;
     std::unique_ptr<DescriptorSetLayout> modelDescriptorSetLayout;
     std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout;
     VkSampler fontSampler;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engineContext.hpp"
+#include "renderer.hpp"
 
 #include <filesystem>
 #include <vector>
@@ -45,14 +46,15 @@ struct PipelineCreateInfo {
       .depthTestEnable = VK_TRUE,
       .depthWriteEnable = VK_TRUE,
       .depthCompareOp = VK_COMPARE_OP_LESS};
-  std::vector<VkDynamicState> dynamicStateEnables = {VK_DYNAMIC_STATE_VIEWPORT,
-                                                     VK_DYNAMIC_STATE_SCISSOR};
+  std::vector<VkDynamicState> dynamicStateEnables{VK_DYNAMIC_STATE_VIEWPORT,
+                                                  VK_DYNAMIC_STATE_SCISSOR};
   VkPipelineDynamicStateCreateInfo dynamicStateInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
       .dynamicStateCount = static_cast<uint32_t>(dynamicStateEnables.size()),
       .pDynamicStates = dynamicStateEnables.data()};
-  VkPipelineLayout pipelineLayout = nullptr;
   VkRenderPass renderPass = nullptr;
+  VkPipelineLayoutCreateInfo layoutInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
   uint32_t subpass = 0;
 };
 
@@ -64,6 +66,11 @@ public:
   Pipeline(const Pipeline &) = delete;
   Pipeline &operator=(const Pipeline &) = delete;
 
+  VkPipelineLayout getLayout() { return layout; }
+
+  operator VkPipeline() { return pipeline; }
+  operator VkPipelineLayout() { return layout; }
+
   void bind(VkCommandBuffer commandBuffer);
 
 protected:
@@ -71,6 +78,7 @@ protected:
 
   VkPipeline pipeline;
   VkPipelineBindPoint bindPoint;
+  VkPipelineLayout layout;
 };
 
 class GraphicsPipeline : public Pipeline {

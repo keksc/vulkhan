@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include "deviceHelpers.hpp"
 #include "engineContext.hpp"
 
 namespace vkh {
@@ -18,6 +19,15 @@ public:
 
   Buffer(const Buffer &) = delete;
   Buffer &operator=(const Buffer &) = delete;
+
+  Buffer(Buffer &&other) noexcept
+      : context(other.context), mapped(other.mapped), buf(other.buf),
+        memory(other.memory), bufSize(other.bufSize),
+        instanceSize(other.instanceSize), alignmentSize(other.alignmentSize) {
+    other.mapped = nullptr;
+    other.buf = VK_NULL_HANDLE;
+    other.memory = VK_NULL_HANDLE;
+  }
 
   void map(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
   void unmap();
@@ -36,6 +46,45 @@ public:
   VkResult invalidateIndex(int index);
 
   operator VkBuffer() { return buf; }
+
+  void copyToMapped(const void *srcData, VkDeviceSize size,
+                    void *destAddr = nullptr) const;
+  void *getMappedAddr() const { return mapped; }
+
+  Buffer(
+      EngineContext &context, VkDeviceSize size,
+      VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      VkMemoryPropertyFlags properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      VkSharingMode sharingMode = VK_SHARING_MODE_EXCLUSIVE)
+      : context{context} {
+    // Create the buffer
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = size;
+    bufferInfo.usage = usage;
+    bufferInfo.sharingMode = sharingMode;
+    bufferInfo.flags = 0;
+
+    vkCreateBuffer(context.vulkan.device, &bufferInfo, nullptr, &buf);
+    allocateMemory(properties);
+    vkBindBufferMemory(context.vulkan.device, buf, memory, 0);
+  }
+
+  void allocateMemory(VkMemoryPropertyFlags properties) {
+    assert(buf != VK_NULL_HANDLE);
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(context.vulkan.device, buf, &memRequirements);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex =
+        findMemoryType(context, memRequirements.memoryTypeBits, properties);
+
+    vkAllocateMemory(context.vulkan.device, &allocInfo, nullptr, &memory);
+  }
 
 private:
   static VkDeviceSize getAlignment(VkDeviceSize instanceSize,
