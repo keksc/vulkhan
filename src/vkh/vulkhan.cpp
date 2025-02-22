@@ -1,7 +1,4 @@
 #include "vulkhan.hpp"
-#include "AxisAlignedBoundingBox.hpp"
-#include "deviceHelpers.hpp"
-#include "model.hpp"
 #include <vulkan/vulkan_core.h>
 
 #include <GLFW/glfw3.h>
@@ -14,16 +11,17 @@
 #include <fmt/format.h>
 #include <glm/gtx/quaternion.hpp>
 
+#include "AxisAlignedBoundingBox.hpp"
 #include "audio.hpp"
 #include "buffer.hpp"
 #include "camera.hpp"
 #include "cleanupVulkan.hpp"
 #include "descriptors.hpp"
-#include "dungeonGenerator.hpp"
 #include "engineContext.hpp"
 #include "entity.hpp"
 #include "initVulkan.hpp"
 #include "input.hpp"
+#include "mesh.hpp"
 #include "renderer.hpp"
 #include "swapChain.hpp"
 #include "systems/axes.hpp"
@@ -125,7 +123,7 @@ void run() {
     particleSys::init(context);
     freezeAnimationSys::init(context);
     // waterSys::init(context);
-    WaterSurfaceMesh water(context);
+    /*WaterSurfaceMesh water(context);
     water.CreateRenderData(context.vulkan.swapChain->getRenderPass(),
                            context.vulkan.swapChain->imageCount(),
                            context.vulkan.swapChain->getSwapChainExtent(),
@@ -140,7 +138,8 @@ void run() {
     SkyModel sky(context, {0.f, .5f, .866f});
     sky.CreateRenderData(context.vulkan.swapChain->getRenderPass(),
                          context.vulkan.swapChain->imageCount(),
-                         context.vulkan.swapChain->getSwapChainExtent(), true);
+                         context.vulkan.swapChain->getSwapChainExtent(),
+    true);*/
 
     fontSys::init(context);
 
@@ -210,7 +209,7 @@ void run() {
         // freezeAnimationSys::render(context);
         particleSys::render(context);
         // waterSys::render(context);
-        water.Update(context.frameInfo.dt);
+        /*water.Update(context.frameInfo.dt);
         sky.PrepareRender(
             frameIndex,
             glm::vec2(context.vulkan.swapChain->getSwapChainExtent().width,
@@ -227,7 +226,7 @@ void run() {
         water.Render(context.frameInfo.frameIndex,
                      context.frameInfo.commandBuffer);
         sky.Render(context.frameInfo.frameIndex,
-                   context.frameInfo.commandBuffer);
+                   context.frameInfo.commandBuffer);*/
         fontSys::render(context);
 
         renderer::endSwapChainRenderPass(commandBuffer);

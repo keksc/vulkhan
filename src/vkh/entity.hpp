@@ -9,7 +9,7 @@
 #include <memory>
 
 #include "engineContext.hpp"
-#include "model.hpp"
+#include "mesh.hpp"
 
 namespace vkh {
 

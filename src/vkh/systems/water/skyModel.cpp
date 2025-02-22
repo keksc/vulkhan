@@ -134,7 +134,9 @@ void SkyModel::CreateUniformBuffers(const uint32_t kBufferCount) {
   m_UniformBuffers.reserve(kBufferCount);
 
   for (uint32_t i = 0; i < kBufferCount; ++i) {
-    auto &buffer = m_UniformBuffers.emplace_back(context, kBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+    auto &buffer = m_UniformBuffers.emplace_back(
+        context, kBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
     buffer.map();
   }
 }

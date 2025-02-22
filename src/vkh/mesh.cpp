@@ -1,4 +1,4 @@
-#include "model.hpp"
+#include "mesh.hpp"
 #include <memory>
 #include <stdexcept>
 
@@ -18,74 +18,57 @@
 #include <cstring>
 
 namespace vkh {
-void Model::createVertexBuffer(const std::vector<Vertex> &vertices) {
-  vertexCount = static_cast<uint32_t>(vertices.size());
-  assert(vertexCount >= 3 && "Vertex count must be at least 3");
-  VkDeviceSize bufferSize = sizeof(vertices[0]) * vertexCount;
-  uint32_t vertexSize = sizeof(vertices[0]);
+void Model::createBuffers(const std::vector<Vertex> &vertices,
+                          const std::vector<uint32_t> &indices) {
+  indexCount = indices.size();
+  vertexCount = vertices.size();
+
+  VkDeviceSize indicesSize = sizeof(uint32_t) * indexCount;
+  VkDeviceSize verticesSize = sizeof(Vertex) * vertexCount;
 
   BufferCreateInfo bufInfo{};
-  bufInfo.instanceSize = vertexSize;
-  bufInfo.instanceCount = vertexCount;
+  bufInfo.instanceSize =
+      verticesSize > indicesSize ? verticesSize : indicesSize;
   bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
   bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  Buffer stagingBuffer{
-      context,
-      bufInfo,
-  };
+  Buffer stagingBuffer{context, bufInfo};
 
   stagingBuffer.map();
-  stagingBuffer.write((void *)vertices.data());
+  stagingBuffer.write(indices.data(), indicesSize);
 
-  bufInfo.usage =
-      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   bufInfo.memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-  vertexBuffer = std::make_unique<Buffer>(context, bufInfo);
 
-  copyBuffer(context, stagingBuffer, *vertexBuffer, bufferSize);
-}
-
-void Model::createIndexBuffer(const std::vector<uint32_t> &indices) {
-  indexCount = static_cast<uint32_t>(indices.size());
-  hasIndexBuffer = indexCount > 0;
-
-  if (!hasIndexBuffer)
-    return;
-
-  VkDeviceSize bufferSize = sizeof(indices[0]) * indexCount;
-  uint32_t indexSize = sizeof(indices[0]);
-
-  BufferCreateInfo bufInfo{};
-  bufInfo.instanceSize = indexSize;
+  bufInfo.instanceSize = sizeof(uint32_t);
   bufInfo.instanceCount = indexCount;
-  bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  Buffer stagingBuffer{
-      context,
-      bufInfo,
-  };
-
-  stagingBuffer.map();
-  stagingBuffer.write((void *)indices.data());
-
-  BufferCreateInfo bufInfo2;
-  bufInfo2.instanceSize = indexSize;
-  bufInfo2.instanceCount = indexCount;
   bufInfo.usage =
       VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
   indexBuffer = std::make_unique<Buffer>(context, bufInfo);
 
-  copyBuffer(context, stagingBuffer, *indexBuffer, bufferSize);
-}
+  bufInfo.instanceSize = sizeof(Vertex);
+  bufInfo.instanceCount = vertexCount;
+  bufInfo.usage =
+      VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  vertexBuffer = std::make_unique<Buffer>(context, bufInfo);
 
+  VkBufferCopy copyRegion{};
+  copyRegion.srcOffset = 0;
+  copyRegion.dstOffset = 0;
+  copyRegion.size = indicesSize;
+
+  auto cmd = beginSingleTimeCommands(context);
+  vkCmdCopyBuffer(cmd, stagingBuffer, *indexBuffer, 1, &copyRegion);
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+
+  stagingBuffer.write(vertices.data(), verticesSize);
+
+  copyRegion.size = verticesSize;
+  cmd = beginSingleTimeCommands(context);
+  vkCmdCopyBuffer(cmd, stagingBuffer, *vertexBuffer, 1, &copyRegion);
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+}
 void Model::draw(VkCommandBuffer commandBuffer) {
-  if (hasIndexBuffer)
-    vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
-  else
-    vkCmdDraw(commandBuffer, vertexCount, 1, 0, 0);
+  vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
 }
 
 void Model::bind(EngineContext &context, VkCommandBuffer commandBuffer,
@@ -94,19 +77,11 @@ void Model::bind(EngineContext &context, VkCommandBuffer commandBuffer,
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(commandBuffer, 0, 1, buffers, offsets);
 
-  if (hasIndexBuffer) {
-    vkCmdBindIndexBuffer(commandBuffer, *indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-  }
-  if (enableTexture) {
-    VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
-                                         textureDescriptorSet};
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipelineLayout, 0, 2, descriptorSets, 0, nullptr);
-  } else {
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipelineLayout, 0, 1,
-                            &context.frameInfo.globalDescriptorSet, 0, nullptr);
-  }
+  vkCmdBindIndexBuffer(commandBuffer, *indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+  VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
+                                       textureDescriptorSet};
+  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          pipelineLayout, 0, 2, descriptorSets, 0, nullptr);
 }
 
 std::vector<VkVertexInputBindingDescription>
@@ -155,7 +130,6 @@ void Model::loadModel(const std::filesystem::path &path) {
     for (const auto &primitive : mesh.primitives) {
       size_t initial_vtx = vertices.size();
 
-      // --- Load indices (if available) ---
       if (primitive.indicesAccessor.has_value()) {
         fastgltf::Accessor &indexAccessor =
             gltf.accessors[primitive.indicesAccessor.value()];
@@ -166,7 +140,6 @@ void Model::loadModel(const std::filesystem::path &path) {
             });
       }
 
-      // --- Load vertex positions ---
       auto posAttribute = primitive.findAttribute("POSITION");
       if (posAttribute == primitive.attributes.end()) {
         throw std::runtime_error("Mesh primitive has no POSITION attribute");
@@ -186,7 +159,6 @@ void Model::loadModel(const std::filesystem::path &path) {
             });
       }
 
-      // --- Load vertex normals (if available) ---
       auto normalAttribute = primitive.findAttribute("NORMAL");
       if (normalAttribute != primitive.attributes.end()) {
         fastgltf::Accessor &normalAccessor =
@@ -198,7 +170,6 @@ void Model::loadModel(const std::filesystem::path &path) {
             });
       }
 
-      // --- Load UV coordinates (if available) ---
       auto uvAttribute = primitive.findAttribute("TEXCOORD_0");
       if (uvAttribute != primitive.attributes.end()) {
         fastgltf::Accessor &uvAccessor =
@@ -245,8 +216,7 @@ void Model::loadModel(const std::filesystem::path &path) {
       },
       image.data);
 
-  createIndexBuffer(indices);
-  createVertexBuffer(vertices);
+  createBuffers(vertices, indices);
 }
 void Model::createDescriptors() {
   VkDescriptorImageInfo imageInfo{};

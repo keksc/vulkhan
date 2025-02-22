@@ -69,7 +69,7 @@ void initAudio() {
 
   alSourcePlay(source);
 
-  // alListenerf(AL_GAIN, 0.f); // mute master volume
+  alListenerf(AL_GAIN, 0.f); // mute master volume
 }
 
 void updateAudio(EngineContext &context) {

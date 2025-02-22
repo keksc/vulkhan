@@ -8,10 +8,10 @@
 #include "engineContext.hpp"
 #include "image.hpp"
 
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
-#include <filesystem>
 
 namespace vkh {
 struct ModelCreateInfo;
@@ -44,13 +44,8 @@ public:
   void draw(VkCommandBuffer commandBuffer);
 
 private:
-  void createVertexBuffer(const std::vector<Vertex> &vertices);
-  void createIndexBuffer(const std::vector<uint32_t> &indices);
-  inline void createBuffers(const std::vector<Vertex> &vertices,
-                                   const std::vector<uint32_t> &indices) {
-    createVertexBuffer(vertices);
-    createIndexBuffer(indices);
-  }
+  void createBuffers(const std::vector<Vertex> &vertices,
+                     const std::vector<uint32_t> &indices);
   void createDescriptors();
 
   EngineContext &context;
@@ -58,11 +53,8 @@ private:
   std::unique_ptr<Buffer> vertexBuffer;
   uint32_t vertexCount;
 
-  bool hasIndexBuffer = false;
   std::unique_ptr<Buffer> indexBuffer;
   uint32_t indexCount;
-
-  bool enableTexture = true;
 
   std::unique_ptr<Image> texture;
   VkDescriptorSet textureDescriptorSet;
