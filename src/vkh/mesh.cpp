@@ -28,14 +28,11 @@ void Model::createBuffers(const std::vector<Vertex> &vertices,
 
   BufferCreateInfo bufInfo{};
   bufInfo.instanceSize =
-      verticesSize > indicesSize ? verticesSize : indicesSize;
+      verticesSize + indicesSize;
   bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
   bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
   Buffer stagingBuffer{context, bufInfo};
-
-  stagingBuffer.map();
-  stagingBuffer.write(indices.data(), indicesSize);
 
   bufInfo.memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
@@ -51,6 +48,10 @@ void Model::createBuffers(const std::vector<Vertex> &vertices,
       VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   vertexBuffer = std::make_unique<Buffer>(context, bufInfo);
 
+  stagingBuffer.map();
+  stagingBuffer.write(indices.data(), indicesSize);
+  stagingBuffer.write(vertices.data(), verticesSize, indicesSize);
+
   VkBufferCopy copyRegion{};
   copyRegion.srcOffset = 0;
   copyRegion.dstOffset = 0;
@@ -58,12 +59,9 @@ void Model::createBuffers(const std::vector<Vertex> &vertices,
 
   auto cmd = beginSingleTimeCommands(context);
   vkCmdCopyBuffer(cmd, stagingBuffer, *indexBuffer, 1, &copyRegion);
-  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 
-  stagingBuffer.write(vertices.data(), verticesSize);
-
+  copyRegion.srcOffset = indicesSize;
   copyRegion.size = verticesSize;
-  cmd = beginSingleTimeCommands(context);
   vkCmdCopyBuffer(cmd, stagingBuffer, *vertexBuffer, 1, &copyRegion);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 }
