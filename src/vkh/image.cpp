@@ -513,10 +513,12 @@ void Image::copyBufferToImage_def(VkCommandBuffer cmdBuffer, VkBuffer buffer,
 void Image::copyFromBuffer(VkCommandBuffer cmdBuffer, VkBuffer buffer,
                            bool genMips, VkPipelineStageFlags dstStage,
                            uint32_t bufferOffset, VkAccessFlags dstAccessMask) {
-  TransitionLayoutToDST_OPTIMAL(cmdBuffer, dstStage);
+  auto cmd = beginSingleTimeCommands(context);
+  TransitionLayoutToDST_OPTIMAL(cmd, dstStage);
 
-  copyBufferToImage_def(cmdBuffer, buffer, bufferOffset);
+  copyBufferToImage_def(cmd, buffer, bufferOffset);
 
-  TransitionLayout_DST_OPTIMALtoSHADER_READ(cmdBuffer, dstStage, dstAccessMask);
+  TransitionLayout_DST_OPTIMALtoSHADER_READ(cmd, dstStage, dstAccessMask);
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 }
 } // namespace vkh
