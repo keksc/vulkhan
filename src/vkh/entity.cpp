@@ -1,5 +1,4 @@
 #include "entity.hpp"
-#include "model.hpp"
 #include <glm/ext/matrix_transform.hpp>
 #include <memory>
 
