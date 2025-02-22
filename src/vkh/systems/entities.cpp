@@ -13,13 +13,28 @@
 
 #include "../descriptors.hpp"
 #include "../entity.hpp"
-#include "../model.hpp"
+#include "../mesh.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
 
 namespace vkh {
 namespace entitySys {
 std::unique_ptr<GraphicsPipeline> pipeline;
+
+struct Vertex {
+  glm::vec3 position{};
+  glm::vec3 normal{};
+  glm::vec2 uv{};
+
+  static std::vector<VkVertexInputBindingDescription> getBindingDescriptions();
+  static std::vector<VkVertexInputAttributeDescription>
+  getAttributeDescriptions();
+
+  bool operator==(const Vertex &other) const {
+    return position == other.position && normal == other.normal &&
+           uv == other.uv;
+  }
+};
 
 struct PushConstantData {
   glm::mat4 modelMatrix{1.f};
