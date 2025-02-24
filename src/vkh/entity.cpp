@@ -92,9 +92,7 @@ Entity::Entity(EngineContext &context, Transform transform, RigidBody rigidBody)
     : transform(transform), rigidBody(rigidBody) {}
 
 Entity::Entity(EngineContext &context, Transform transform,
-               const ModelCreateInfo &modelInfo, RigidBody rigidBody)
+               const std::filesystem::path &path, RigidBody rigidBody)
     : transform(transform), rigidBody(rigidBody),
-      model(
-          std::make_unique<Model>(context, modelInfo)) {
-}
+      model(std::make_unique<Mesh<entitySys::Vertex>>(context, path)) {}
 } // namespace vkh

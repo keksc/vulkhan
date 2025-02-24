@@ -10,6 +10,7 @@
 
 #include "engineContext.hpp"
 #include "mesh.hpp"
+#include "systems/entities.hpp"
 
 namespace vkh {
 
@@ -35,12 +36,12 @@ struct RigidBody {
 struct Entity {
   Transform transform;
   RigidBody rigidBody;
-  std::unique_ptr<Model> model;
+  std::unique_ptr<Mesh<entitySys::Vertex>> model;
 
   Entity(EngineContext &context, Transform transform, RigidBody rigidBody = {});
 
   Entity(EngineContext &context, Transform transform,
-         const ModelCreateInfo &modelInfo, RigidBody rigidBody = {});
+         const std::filesystem::path &path, RigidBody rigidBody = {});
 };
 
 } // namespace vkh

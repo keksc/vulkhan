@@ -43,18 +43,15 @@ namespace vkh {
 const glm::vec3 daggerOffset = {0.5f, -0.5f, 1.2f};
 void loadObjects(EngineContext &context) {
   auto &playerTransform = context.entities[0].transform;
-  ModelCreateInfo modelInfo{};
-  modelInfo.filepath = "models/sword.glb";
   context.entities.push_back(
       {context,
        {.position = {0.5, -0.5, 0.5}, .scale = {0.5f, 0.5f, 0.5f}},
-       modelInfo});
+       "models/sword.glb"});
 
-  modelInfo.filepath = "models/westwingassets.glb";
   context.entities.push_back(
       {context,
        {.position = {5.f, -.5f, .5f}, .scale = {0.5f, 0.5f, 0.5f}},
-       modelInfo});
+       "models/westwingassets.glb"});
 
   std::vector<glm::vec3> lightColors{{1.f, .1f, .1f}, {.1f, .1f, 1.f},
                                      {.1f, 1.f, .1f}, {1.f, 1.f, .1f},
@@ -204,6 +201,7 @@ void run() {
         renderer::beginSwapChainRenderPass(context, commandBuffer);
 
         // order here matters
+        fontSys::render(context);
         entitySys::render(context);
         axesSys::render(context);
         // freezeAnimationSys::render(context);
@@ -227,7 +225,6 @@ void run() {
                      context.frameInfo.commandBuffer);
         sky.Render(context.frameInfo.frameIndex,
                    context.frameInfo.commandBuffer);*/
-        fontSys::render(context);
 
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
