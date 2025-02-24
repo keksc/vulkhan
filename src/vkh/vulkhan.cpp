@@ -119,24 +119,18 @@ void run() {
     axesSys::init(context);
     particleSys::init(context);
     freezeAnimationSys::init(context);
-    // waterSys::init(context);
-    /*WaterSurfaceMesh water(context);
-    water.CreateRenderData(context.vulkan.swapChain->getRenderPass(),
-                           context.vulkan.swapChain->imageCount(),
-                           context.vulkan.swapChain->getSwapChainExtent(),
-                           true);
+    waterSys::init(context);
 
     auto cmdBuffer = beginSingleTimeCommands(context);
 
-    water.Prepare(cmdBuffer);
+    waterSys::prepare(context, cmdBuffer);
 
     endSingleTimeCommands(context, cmdBuffer, context.vulkan.graphicsQueue);
 
-    SkyModel sky(context, {0.f, .5f, .866f});
-    sky.CreateRenderData(context.vulkan.swapChain->getRenderPass(),
+    skySys::init(context, {0.f, .5f, .866f});
+    skySys::createRenderData(context, context.vulkan.swapChain->getRenderPass(),
                          context.vulkan.swapChain->imageCount(),
-                         context.vulkan.swapChain->getSwapChainExtent(),
-    true);*/
+                         context.vulkan.swapChain->getSwapChainExtent(), true);
 
     fontSys::init(context);
 
@@ -207,8 +201,8 @@ void run() {
         // freezeAnimationSys::render(context);
         particleSys::render(context);
         // waterSys::render(context);
-        /*water.Update(context.frameInfo.dt);
-        sky.PrepareRender(
+        waterSys::update(context, context.frameInfo.dt);
+        skySys::prepareRender(
             frameIndex,
             glm::vec2(context.vulkan.swapChain->getSwapChainExtent().width,
                       context.vulkan.swapChain->getSwapChainExtent().height),
@@ -216,15 +210,15 @@ void run() {
             glm::radians(50.f));
 
         // Copy to water surface maps, update uniform  buffers
-        water.PrepareRender(frameIndex, commandBuffer,
-                            context.camera.viewMatrix,
-                            context.camera.projectionMatrix,
-                            context.camera.position, sky.GetParams());
+        waterSys::prepareRender(context, frameIndex, commandBuffer,
+                                context.camera.viewMatrix,
+                                context.camera.projectionMatrix,
+                                context.camera.position, skySys::getParams());
 
-        water.Render(context.frameInfo.frameIndex,
-                     context.frameInfo.commandBuffer);
-        sky.Render(context.frameInfo.frameIndex,
-                   context.frameInfo.commandBuffer);*/
+        waterSys::render(context, context.frameInfo.frameIndex,
+                         context.frameInfo.commandBuffer);
+        skySys::render(context.frameInfo.frameIndex,
+                   context.frameInfo.commandBuffer);
 
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
@@ -237,7 +231,8 @@ void run() {
     axesSys::cleanup(context);
     freezeAnimationSys::cleanup(context);
     particleSys::cleanup(context);
-    // waterSys::cleanup(context);
+    waterSys::cleanup();
+    skySys::cleanup();
     fontSys::cleanup(context);
 
     context.entities.clear();

@@ -34,8 +34,6 @@ public:
   Mesh(EngineContext &context, const MeshCreateInfo<T> &createInfo)
       : context{context} {
     createBuffers(createInfo.vertices, createInfo.indices);
-
-    createDescriptors();
   }
 
   Mesh(const Mesh &) = delete;
@@ -43,7 +41,7 @@ public:
 
   void bind(EngineContext &context, VkCommandBuffer commandBuffer,
             VkPipelineLayout pipelineLayout,
-            std::vector<VkDescriptorSet> descriptorSets) {
+            std::vector<VkDescriptorSet> descriptorSets = {}) {
     VkBuffer buffers[] = {*vertexBuffer};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, buffers, offsets);
