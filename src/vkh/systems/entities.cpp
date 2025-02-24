@@ -21,21 +21,6 @@ namespace vkh {
 namespace entitySys {
 std::unique_ptr<GraphicsPipeline> pipeline;
 
-struct Vertex {
-  glm::vec3 position{};
-  glm::vec3 normal{};
-  glm::vec2 uv{};
-
-  static std::vector<VkVertexInputBindingDescription> getBindingDescriptions();
-  static std::vector<VkVertexInputAttributeDescription>
-  getAttributeDescriptions();
-
-  bool operator==(const Vertex &other) const {
-    return position == other.position && normal == other.normal &&
-           uv == other.uv;
-  }
-};
-
 struct PushConstantData {
   glm::mat4 modelMatrix{1.f};
   glm::mat4 normalMatrix{1.f};
@@ -64,8 +49,8 @@ void init(EngineContext &context) {
   pipelineConfig.layoutInfo = pipelineLayoutInfo;
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.attributeDescriptions =
-      Model::Vertex::getAttributeDescriptions();
-  pipelineConfig.bindingDescriptions = Model::Vertex::getBindingDescriptions();
+      Vertex::getAttributeDescriptions();
+  pipelineConfig.bindingDescriptions = Vertex::getBindingDescriptions();
   pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/entities.vert.spv", "shaders/entities.frag.spv",
       pipelineConfig);
@@ -93,7 +78,7 @@ void render(EngineContext &context) {
                        VK_SHADER_STAGE_VERTEX_BIT |
                            VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(PushConstantData), &push);
-    model->bind(context, context.frameInfo.commandBuffer, *pipeline);
+    model->bind(context, context.frameInfo.commandBuffer, *pipeline, {context.frameInfo.globalDescriptorSet, model->textureDescriptorSet});
     model->draw(context.frameInfo.commandBuffer);
   }
 }

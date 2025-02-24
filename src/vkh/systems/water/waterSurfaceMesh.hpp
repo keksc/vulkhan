@@ -14,8 +14,8 @@
 
 #include "../../engineContext.hpp"
 #include "../../image.hpp"
+#include "../../mesh.hpp"
 #include "WSTessendorf.hpp"
-#include "mesh.hpp"
 #include "skyModel.hpp"
 
 namespace vkh {
@@ -42,6 +42,40 @@ public:
   static const uint32_t s_kMaxTileSize{1024};
 
 public:
+  struct Vertex {
+    glm::vec3 pos;
+    glm::vec2 uv;
+    glm::vec3 normal;
+
+    constexpr static VkVertexInputBindingDescription GetBindingDescription() {
+      return VkVertexInputBindingDescription{.binding = 0,
+                                             .stride = sizeof(Vertex),
+                                             .inputRate =
+                                                 VK_VERTEX_INPUT_RATE_VERTEX};
+    }
+
+    static std::vector<VkVertexInputAttributeDescription>
+    GetAttributeDescriptions() {
+      return std::vector<VkVertexInputAttributeDescription>{
+          {.location = 0,
+           .binding = 0,
+           .format = VK_FORMAT_R32G32B32_SFLOAT,
+           .offset = offsetof(Vertex, pos)},
+          {.location = 1,
+           .binding = 0,
+           .format = VK_FORMAT_R32G32_SFLOAT,
+           .offset = offsetof(Vertex, uv)}};
+    }
+
+    static const inline std::vector<VkVertexInputBindingDescription>
+        s_BindingDescriptions{GetBindingDescription()};
+
+    static const inline std::vector<VkVertexInputAttributeDescription>
+        s_AttribDescriptions{GetAttributeDescriptions()};
+  };
+  std::vector<Vertex> vertices;
+  std::vector<uint32_t> indices;
+  // =========================================================================
   /**
    * @brief Creates vertex and index buffers to accomodate maximum size of
    *  vertices and indices.
@@ -71,10 +105,6 @@ public:
 private:
   // TODO batch
 
-  void PrepareMesh(VkCommandBuffer cmdBuffer);
-  void GenerateMeshVerticesIndices();
-  void UpdateMeshBuffers(VkCommandBuffer cmdBuffer);
-
   void PrepareModelTess(VkCommandBuffer cmdBuffer);
 
   void ShowWaterSurfaceSettings();
@@ -94,9 +124,8 @@ private:
   void CreateTessendorfModel();
 
   void CreateMesh();
-  std::vector<Vertex> CreateGridVertices(const uint32_t kTileSize,
-                                         const float kScale);
-  std::vector<uint32_t> CreateGridIndices(const uint32_t kTileSize);
+  void CreateGridVertices(const uint32_t kTileSize, const float kScale);
+  void CreateGridIndices(const uint32_t kTileSize);
 
   void CreateStagingBuffer();
   void CreateFrameMaps(VkCommandBuffer cmdBuffer);
@@ -169,14 +198,10 @@ private:
   struct FrameMapData {
     std::unique_ptr<Image> displacementMap{nullptr};
     std::unique_ptr<Image> normalMap{nullptr};
-  };
+  } data;
 
   struct FrameMapPair {
-#ifndef DOUBLE_BUFFERED
     std::array<FrameMapData, 1> data;
-#else
-    std::array<FrameMapData, 2> data;
-#endif
   };
 
   // Map pair is preallocated for each size of the model's data
@@ -184,9 +209,6 @@ private:
   // Bound pair for the current model's size
   FrameMapPair *m_CurFrameMap{nullptr};
 
-#ifdef DOUBLE_BUFFERED
-  uint32_t m_FrameMapIndex{0}; ///< Swap index
-#endif
   // Whether the frame maps need to update after resolution has been changed
   bool m_FrameMapNeedsUpdate{false};
 
@@ -258,20 +280,18 @@ private:
   //      with type I being the clearest, type III being the most turbid
   //  1-9 correspond to coastal waters, from clearest to the most turbid
 
-
   // Values of K_d for wavelengths: Red (680 nm), Green (550 nm), Blue (440 nm)
   //  INTERPOLATED from measured data in [PA01]
   // In m^-1
-  static const inline ValueStringArray<glm::vec3, 8>
-      s_kWaterTypesCoeffsApprox{
-          {glm::vec3{0.448, 0.063, 0.0202}, glm::vec3{0.494, 0.089, 0.0732},
-           glm::vec3{0.548, 0.120, 0.145}, glm::vec3{0.538, 0.120, 0.294},
-           glm::vec3{0.590, 0.190, 0.450}, glm::vec3{0.680, 0.300, 0.648},
-           glm::vec3{0.808, 0.460, 1.014}, glm::vec3{0.956, 0.630, 1.720}},
-          {"I: Clearest open ocean", "II: Clear open ocean",
-           "III: Turbid open ocean", "1: Clearest coastal waters",
-           "3: Clear coastal waters", "5: Semi-clear coastal waters",
-           "7: Turbid coastal waters", "9: Most turbid coastal waters"}};
+  static const inline ValueStringArray<glm::vec3, 8> s_kWaterTypesCoeffsApprox{
+      {glm::vec3{0.448, 0.063, 0.0202}, glm::vec3{0.494, 0.089, 0.0732},
+       glm::vec3{0.548, 0.120, 0.145}, glm::vec3{0.538, 0.120, 0.294},
+       glm::vec3{0.590, 0.190, 0.450}, glm::vec3{0.680, 0.300, 0.648},
+       glm::vec3{0.808, 0.460, 1.014}, glm::vec3{0.956, 0.630, 1.720}},
+      {"I: Clearest open ocean", "II: Clear open ocean",
+       "III: Turbid open ocean", "1: Clearest coastal waters",
+       "3: Clear coastal waters", "5: Semi-clear coastal waters",
+       "7: Turbid coastal waters", "9: Most turbid coastal waters"}};
 
   static const inline glm::vec3 s_kWavelengthsData_m{675e-9, 550e-9, 450e-9};
   static const inline glm::vec3 s_kWavelengthsData_nm{675, 550, 450};
@@ -331,42 +351,6 @@ private:
 
     return 0.5f * b_w + B_b * b_p;
   }
-
-  // =========================================================================
-};
-
-struct WaterSurfaceMesh::Vertex {
-  glm::vec3 pos;
-  glm::vec2 uv;
-
-  Vertex(const glm::vec3 &position, const glm::vec2 &texCoord)
-      : pos(position), uv(texCoord) {}
-
-  constexpr static VkVertexInputBindingDescription GetBindingDescription() {
-    return VkVertexInputBindingDescription{.binding = 0,
-                                           .stride = sizeof(Vertex),
-                                           .inputRate =
-                                               VK_VERTEX_INPUT_RATE_VERTEX};
-  }
-
-  static std::vector<VkVertexInputAttributeDescription>
-  GetAttributeDescriptions() {
-    return std::vector<VkVertexInputAttributeDescription>{
-        {.location = 0,
-         .binding = 0,
-         .format = VK_FORMAT_R32G32B32_SFLOAT,
-         .offset = offsetof(Vertex, pos)},
-        {.location = 1,
-         .binding = 0,
-         .format = VK_FORMAT_R32G32_SFLOAT,
-         .offset = offsetof(Vertex, uv)}};
-  }
-
-  static const inline std::vector<VkVertexInputBindingDescription>
-      s_BindingDescriptions{GetBindingDescription()};
-
-  static const inline std::vector<VkVertexInputAttributeDescription>
-      s_AttribDescriptions{GetAttributeDescriptions()};
 };
 
 } // namespace vkh

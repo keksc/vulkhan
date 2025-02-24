@@ -19,6 +19,53 @@ static size_t AlignSizeTo(size_t size, size_t alignment) {
 
 // =============================================================================
 
+void WaterSurfaceMesh::CreateGridVertices(const uint32_t kTileSize,
+                                          const float kScale) {
+  std::vector<Vertex> vertices;
+
+  vertices.reserve(GetTotalVertexCount(kTileSize));
+
+  const int32_t kHalfSize = kTileSize / 2;
+
+  for (int32_t y = -kHalfSize; y <= kHalfSize; ++y) {
+    for (int32_t x = -kHalfSize; x <= kHalfSize; ++x) {
+      vertices.emplace_back(
+          // Position
+          glm::vec3(static_cast<float>(x), // x
+                    0.0f,                  // y
+                    static_cast<float>(y)  // z
+                    ) *
+              kScale,
+          // Texcoords
+          glm::vec2(static_cast<float>(x + kHalfSize), // u
+                    static_cast<float>(y + kHalfSize)  // v
+                    ) /
+              static_cast<float>(kTileSize));
+    }
+  }
+}
+
+void WaterSurfaceMesh::CreateGridIndices(const uint32_t kTileSize) {
+  const uint32_t kVertexCount = kTileSize + 1;
+
+  indices.reserve(GetTotalIndexCount(kVertexCount * kVertexCount));
+
+  for (uint32_t y = 0; y < kTileSize; ++y) {
+    for (uint32_t x = 0; x < kTileSize; ++x) {
+      const uint32_t kVertexIndex = y * kVertexCount + x;
+
+      // Top triangle
+      indices.emplace_back(kVertexIndex);
+      indices.emplace_back(kVertexIndex + kVertexCount);
+      indices.emplace_back(kVertexIndex + 1);
+
+      // Bottom triangle
+      indices.emplace_back(kVertexIndex + 1);
+      indices.emplace_back(kVertexIndex + kVertexCount);
+      indices.emplace_back(kVertexIndex + kVertexCount + 1);
+    }
+  }
+}
 WaterSurfaceMesh::WaterSurfaceMesh(EngineContext &context) : context{context} {
   CreateDescriptorSetLayout();
   SetupPipeline();
@@ -26,6 +73,8 @@ WaterSurfaceMesh::WaterSurfaceMesh(EngineContext &context) : context{context} {
   CreateStagingBuffer();
 
   CreateTessendorfModel();
+  CreateGridVertices(m_TileSize, m_VertexDistance);
+  CreateGridIndices(m_TileSize);
   CreateMesh();
 }
 
@@ -56,32 +105,6 @@ void WaterSurfaceMesh::Prepare(VkCommandBuffer cmdBuffer) {
   SetDescriptorSetsDirty();
 
   PrepareModelTess(cmdBuffer);
-  PrepareMesh(cmdBuffer);
-}
-
-void WaterSurfaceMesh::PrepareMesh(VkCommandBuffer cmdBuffer) {
-  GenerateMeshVerticesIndices();
-  UpdateMeshBuffers(cmdBuffer);
-}
-
-void WaterSurfaceMesh::GenerateMeshVerticesIndices() {
-
-  std::vector<Vertex> vertices =
-      CreateGridVertices(m_TileSize, m_VertexDistance);
-  m_Mesh->SetVertices(std::move(vertices));
-
-  std::vector<uint32_t> indices = CreateGridIndices(m_TileSize);
-  m_Mesh->SetIndices(std::move(indices));
-}
-
-void WaterSurfaceMesh::UpdateMeshBuffers(VkCommandBuffer cmdBuffer) {
-  bool updated = m_Mesh->UpdateDeviceBuffers(*m_StagingBuffer, cmdBuffer);
-  if (!updated)
-    return;
-
-  m_StagingBuffer->flush(getNonCoherentAtomSizeAlignment(
-      context, AlignSizeTo(m_Mesh->GetVerticesSize() + m_Mesh->GetIndicesSize(),
-                           Image::formatSize(s_kMapFormat))));
 }
 
 void WaterSurfaceMesh::PrepareModelTess(VkCommandBuffer cmdBuffer) {
@@ -91,11 +114,6 @@ void WaterSurfaceMesh::PrepareModelTess(VkCommandBuffer cmdBuffer) {
 
   m_VertexUBO.WSHeightAmp = m_ModelTess->ComputeWaves(m_TimeCtr);
   CopyModelTessDataToStagingBuffer();
-
-#ifdef DOUBLE_BUFFERED
-  m_FrameMapIndex = 0;
-  SetDescriptorSetsDirty();
-#endif
 
   UpdateFrameMaps(cmdBuffer, m_CurFrameMap->data[0]);
 }
@@ -132,15 +150,9 @@ void WaterSurfaceMesh::PrepareRender(const uint32_t frameIndex,
   m_WaterSurfaceUBO.sky = skyParams;
 
   UpdateUniformBuffer(frameIndex);
-  UpdateMeshBuffers(cmdBuffer);
   UpdateDescriptorSet(frameIndex);
 
-#ifndef DOUBLE_BUFFERED
   const uint32_t kTransferIndex = 0;
-#else
-  const uint32_t kTransferIndex =
-      (m_FrameMapIndex + 1) % m_CurFrameMap->data.size();
-#endif
 
   // No need to update the texture with the same data over again
   if (m_PlayAnimation || m_FrameMapNeedsUpdate) {
@@ -158,19 +170,9 @@ void WaterSurfaceMesh::Render(const uint32_t frameIndex,
   const uint32_t kDynamicOffsetCount = 0;
   const uint32_t *kDynamicOffsets = nullptr;
 
-  vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          *m_Pipeline, kFirstSet, kDescriptorSetCount,
-                          &m_DescriptorSets[frameIndex].set,
-                          kDynamicOffsetCount, kDynamicOffsets);
-
-  m_Mesh->Render(cmdBuffer);
-
-#ifdef DOUBLE_BUFFERED
-  if (m_PlayAnimation) {
-    m_FrameMapIndex = (m_FrameMapIndex + 1) % m_CurFrameMap->data.size();
-    SetDescriptorSetsDirty();
-  }
-#endif
+  m_Mesh->bind(context, cmdBuffer, *m_Pipeline,
+               {m_DescriptorSets[frameIndex].set});
+  m_Mesh->draw(cmdBuffer);
 }
 
 // --------------------------------------------------------------------------------
@@ -216,12 +218,7 @@ void WaterSurfaceMesh::UpdateDescriptorSet(const uint32_t frameIndex) {
   bufferInfos[1].offset = getUniformBufferAlignment(context, sizeof(VertexUBO));
   bufferInfos[1].range = sizeof(WaterSurfaceUBO);
 
-  // Add Water Surface textures
-#ifndef DOUBLE_BUFFERED
   const auto &kFrameMaps = m_CurFrameMap->data[0];
-#else
-  const auto &kFrameMaps = m_CurFrameMap->data[m_FrameMapIndex];
-#endif
 
   assert(kFrameMaps.displacementMap != nullptr);
   assert(kFrameMaps.normalMap != nullptr);
@@ -329,62 +326,9 @@ void WaterSurfaceMesh::CreateMesh() {
   const VkDeviceSize kMaxVerticesSize = sizeof(Vertex) * GetMaxVertexCount();
   const VkDeviceSize kMaxIndicesSize = sizeof(uint32_t) * GetMaxIndexCount();
 
-  m_Mesh.reset(new Mesh<Vertex>(context, kMaxVerticesSize, kMaxIndicesSize));
-}
+  MeshCreateInfo<Vertex> meshInfo{.vertices = vertices, .indices = indices};
 
-std::vector<WaterSurfaceMesh::Vertex>
-WaterSurfaceMesh::CreateGridVertices(const uint32_t kTileSize,
-                                     const float kScale) {
-  std::vector<Vertex> vertices;
-
-  vertices.reserve(GetTotalVertexCount(kTileSize));
-
-  const int32_t kHalfSize = kTileSize / 2;
-
-  for (int32_t y = -kHalfSize; y <= kHalfSize; ++y) {
-    for (int32_t x = -kHalfSize; x <= kHalfSize; ++x) {
-      vertices.emplace_back(
-          // Position
-          glm::vec3(static_cast<float>(x), // x
-                    0.0f,                  // y
-                    static_cast<float>(y)  // z
-                    ) *
-              kScale,
-          // Texcoords
-          glm::vec2(static_cast<float>(x + kHalfSize), // u
-                    static_cast<float>(y + kHalfSize)  // v
-                    ) /
-              static_cast<float>(kTileSize));
-    }
-  }
-
-  return vertices;
-}
-
-std::vector<uint32_t>
-WaterSurfaceMesh::CreateGridIndices(const uint32_t kTileSize) {
-  const uint32_t kVertexCount = kTileSize + 1;
-
-  std::vector<uint32_t> indices;
-  indices.reserve(GetTotalIndexCount(kVertexCount * kVertexCount));
-
-  for (uint32_t y = 0; y < kTileSize; ++y) {
-    for (uint32_t x = 0; x < kTileSize; ++x) {
-      const uint32_t kVertexIndex = y * kVertexCount + x;
-
-      // Top triangle
-      indices.emplace_back(kVertexIndex);
-      indices.emplace_back(kVertexIndex + kVertexCount);
-      indices.emplace_back(kVertexIndex + 1);
-
-      // Bottom triangle
-      indices.emplace_back(kVertexIndex + 1);
-      indices.emplace_back(kVertexIndex + kVertexCount);
-      indices.emplace_back(kVertexIndex + kVertexCount + 1);
-    }
-  }
-
-  return indices;
+  m_Mesh.reset(new Mesh<Vertex>(context, meshInfo));
 }
 
 void WaterSurfaceMesh::CreateStagingBuffer() {
@@ -443,44 +387,22 @@ std::unique_ptr<Image> WaterSurfaceMesh::CreateMap(VkCommandBuffer cmdBuffer,
 
 void WaterSurfaceMesh::UpdateFrameMaps(VkCommandBuffer cmdBuffer,
                                        FrameMapData &frame) {
-  VkDeviceSize stagingBufferOffset =
-      AlignSizeTo(m_Mesh->GetVerticesSize() + m_Mesh->GetIndicesSize(),
-                  Image::formatSize(s_kMapFormat));
+  VkDeviceSize stagingBufferOffset = AlignSizeTo(
+      vertices.size() * sizeof(Vertex) + indices.size() * sizeof(uint32_t),
+      Image::formatSize(s_kMapFormat));
 
-#ifndef DOUBLE_BUFFERED
   frame.displacementMap->copyFromBuffer(
       cmdBuffer, *m_StagingBuffer, s_kUseMipMapping,
       VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, stagingBufferOffset);
-#else
-  frame.displacementMap->CopyFromBuffer(
-      cmdBuffer, *m_StagingBuffer, s_kUseMipMapping,
-      // VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-      // VK_PIPELINE_STAGE_NONE,
-      // VK_PIPELINE_STAGE_TRANSFER_BIT,
-      VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, stagingBufferOffset,
-      0 // dstaccess
-  );
-#endif
 
   const VkDeviceSize kMapSize = Image::formatSize(s_kMapFormat) *
                                 frame.displacementMap->w *
                                 frame.displacementMap->h;
   stagingBufferOffset += kMapSize;
 
-#ifndef DOUBLE_BUFFERED
   frame.normalMap->copyFromBuffer(cmdBuffer, *m_StagingBuffer, s_kUseMipMapping,
                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                   stagingBufferOffset);
-#else
-  frame.normalMap->CopyFromBuffer(cmdBuffer, *m_StagingBuffer, s_kUseMipMapping,
-                                  // VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                                  // VK_PIPELINE_STAGE_NONE,
-                                  // VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                  VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                                  stagingBufferOffset,
-                                  0 // dstaccess
-  );
-#endif
 }
 
 void WaterSurfaceMesh::CopyModelTessDataToStagingBuffer() {
@@ -510,7 +432,8 @@ void WaterSurfaceMesh::CopyModelTessDataToStagingBuffer() {
   }
 
   m_StagingBuffer->flush(getNonCoherentAtomSizeAlignment(
-      context, AlignSizeTo(m_Mesh->GetVerticesSize() + m_Mesh->GetIndicesSize(),
+      context, AlignSizeTo(vertices.size() * sizeof(Vertex) +
+                               indices.size() * sizeof(uint32_t),
                            Image::formatSize(s_kMapFormat)) +
                    kDisplacementsSize + kNormalsSize));
 }

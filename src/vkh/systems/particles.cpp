@@ -46,6 +46,7 @@ void createPipeline(EngineContext &context) {
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.layoutInfo = pipelineLayoutInfo;
   pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+  // GraphicsPipeline::enableAlphaBlending(pipelineConfig);
   pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/particles.vert.spv", "shaders/particles.frag.spv",
       pipelineConfig);

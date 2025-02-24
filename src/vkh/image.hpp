@@ -81,7 +81,7 @@ private:
                           VkImageLayout newLayout) const;
 
   void createImageFromPixels(void *pixels, int w, int h);
-  VkImage createImage(EngineContext &context, int w, int h,
+  void createImage(EngineContext &context, int w, int h,
                       VkImageUsageFlags usage);
 
   EngineContext &context;
