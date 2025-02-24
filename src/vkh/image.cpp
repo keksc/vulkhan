@@ -16,6 +16,7 @@
 namespace vkh {
 void Image::createImage(EngineContext &context, int w, int h,
                         VkImageUsageFlags usage) {
+  const VkImageLayout initLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
                               .imageType = VK_IMAGE_TYPE_2D,
                               .format = format,
@@ -25,7 +26,9 @@ void Image::createImage(EngineContext &context, int w, int h,
                               .tiling = VK_IMAGE_TILING_OPTIMAL,
                               .usage = usage,
                               .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-                              .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED};
+                              .initialLayout = initLayout};
+  layout = initLayout;
+
   imageInfo.extent.width = w;
   imageInfo.extent.height = h;
   imageInfo.extent.depth = 1;
