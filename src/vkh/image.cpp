@@ -14,8 +14,8 @@
 #include "deviceHelpers.hpp"
 
 namespace vkh {
-VkImage Image::createImage(EngineContext &context, int w, int h,
-                           VkImageUsageFlags usage) {
+void Image::createImage(EngineContext &context, int w, int h,
+                        VkImageUsageFlags usage) {
   VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
                               .imageType = VK_IMAGE_TYPE_2D,
                               .format = format,
@@ -30,13 +30,12 @@ VkImage Image::createImage(EngineContext &context, int w, int h,
   imageInfo.extent.height = h;
   imageInfo.extent.depth = 1;
 
-  VkImage image;
-  if (vkCreateImage(context.vulkan.device, &imageInfo, nullptr, &image) !=
+  if (vkCreateImage(context.vulkan.device, &imageInfo, nullptr, &img) !=
       VK_SUCCESS) {
     throw std::runtime_error("failed to create image!");
   }
   VkMemoryRequirements memRequirements;
-  vkGetImageMemoryRequirements(context.vulkan.device, image, &memRequirements);
+  vkGetImageMemoryRequirements(context.vulkan.device, img, &memRequirements);
 
   VkMemoryAllocateInfo allocInfo{};
   allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -50,11 +49,9 @@ VkImage Image::createImage(EngineContext &context, int w, int h,
     throw std::runtime_error("failed to allocate image memory!");
   }
 
-  if (vkBindImageMemory(context.vulkan.device, image, memory, 0) !=
-      VK_SUCCESS) {
+  if (vkBindImageMemory(context.vulkan.device, img, memory, 0) != VK_SUCCESS) {
     throw std::runtime_error("failed to bind image memory!");
   }
-  return image;
 }
 void Image::createImageFromPixels(void *pixels, int w, int h) {
   VkDeviceSize imageSize = w * h * 4;
@@ -63,9 +60,8 @@ void Image::createImageFromPixels(void *pixels, int w, int h) {
     throw std::runtime_error("failed to load texture image from memory !");
   }
 
-  img =
-      createImage(context, w, h,
-                  VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+  createImage(context, w, h,
+              VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
   BufferCreateInfo bufInfo{};
   bufInfo.instanceSize = imageSize;
@@ -78,12 +74,14 @@ void Image::createImageFromPixels(void *pixels, int w, int h) {
 
   stbi_image_free(pixels);
 
-  transitionLayout(VK_IMAGE_LAYOUT_UNDEFINED,
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  auto cmd = beginSingleTimeCommands(context);
+  TransitionLayout_UNDEFtoDST_OPTIMAL(cmd);
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
   copyBufferToImage(context, stagingBuffer, img, static_cast<uint32_t>(w),
                     static_cast<uint32_t>(w));
-  transitionLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  cmd = beginSingleTimeCommands(context);
+  TransitionLayout_DST_OPTIMALtoSHADER_READ(cmd);
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 
   view = createImageView(context, img, format);
 }
@@ -151,7 +149,7 @@ uint32_t Image::formatSize(VkFormat format) {
 Image::Image(EngineContext &context, const ImageCreateInfo &createInfo)
     : context{context}, format{createInfo.format}, w{createInfo.w},
       h{createInfo.h}, layout(createInfo.layout) {
-  img = createImage(context, createInfo.w, createInfo.h, createInfo.usage);
+  createImage(context, createInfo.w, createInfo.h, createInfo.usage);
   view = createImageView(context, img, format);
   if (!createInfo.data && !createInfo.color.has_value()) {
     transitionLayout(VK_IMAGE_LAYOUT_UNDEFINED, createInfo.layout);
