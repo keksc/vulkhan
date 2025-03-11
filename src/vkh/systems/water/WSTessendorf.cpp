@@ -8,12 +8,12 @@ WSTessendorf::WSTessendorf(uint32_t tileSize, float tileLength) {
   SetTileSize(tileSize);
   SetTileLength(tileLength);
 
-  SetWindDirection(s_kDefaultWindDir);
-  SetWindSpeed(s_kDefaultWindSpeed);
-  SetAnimationPeriod(s_kDefaultAnimPeriod);
+  SetWindDirection(defaultWindDir);
+  SetWindSpeed(defaultWindSpeed);
+  SetAnimationPeriod(defaultAnimPeriod);
 
-  SetPhillipsConst(s_kDefaultPhillipsConst);
-  SetDamping(s_kDefaultPhillipsDamping);
+  SetPhillipsConst(defaultPhillipsConst);
+  SetDamping(defaultPhillipsDamping);
 }
 
 WSTessendorf::~WSTessendorf() {
@@ -211,7 +211,7 @@ void WSTessendorf::DestroyFFTW() {
 #endif
 }
 
-float WSTessendorf::ComputeWaves(float t) {
+float WSTessendorf::gomputeWaves(float t) {
   const auto kTileSize = m_TileSize;
 
   float masterMaxHeight = std::numeric_limits<float>::min();

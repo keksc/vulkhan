@@ -9,17 +9,6 @@
 namespace vkh {
 
 namespace camera {
-void calcPerspectiveProjection(EngineContext &context, float fovy, float aspect,
-                               float near, float far) {
-  const float tanHalfFovy = tan(fovy / 2.f);
-
-  context.camera.projectionMatrix =
-      glm::mat4{{1.f / (aspect * tanHalfFovy), 0.f, 0.f, 0.f},
-                {0.f, 1.f / tanHalfFovy, 0.f, 0.f},
-                {0.f, 0.f, far / (far - near), 1.f},
-                {0.f, 0.f, -(far * near) / (far - near), 0.f}};
-}
-
 void calcViewDirection(EngineContext &context, glm::vec3 direction,
                        glm::vec3 up) {
   const glm::vec3 w{glm::normalize(direction)};

@@ -46,7 +46,7 @@ void createPipeline(EngineContext &context) {
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
   pipelineConfig.layoutInfo = pipelineLayoutInfo;
   pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-  // GraphicsPipeline::enableAlphaBlending(pipelineConfig);
+  GraphicsPipeline::enableAlphaBlending(pipelineConfig);
   pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/particles.vert.spv", "shaders/particles.frag.spv",
       pipelineConfig);
@@ -54,27 +54,6 @@ void createPipeline(EngineContext &context) {
 void init(EngineContext &context) { createPipeline(context); }
 
 void cleanup(EngineContext &context) { pipeline = nullptr; }
-
-void update(EngineContext &context, GlobalUbo &ubo) {
-  auto rotateParticle = glm::rotate(glm::mat4(1.f), 0.5f * context.frameInfo.dt,
-                                    {0.f, -1.f, 0.f});
-  int particleIndex = 0;
-  for (int i = 0; i < 6; i++) {
-    assert(particleIndex < MAX_PARTICLES &&
-           "Point lights exceed maximum specified");
-
-    // update light position
-    context.particles[i].position = glm::vec4(
-        rotateParticle * glm::vec4(context.particles[i].position, 1.f));
-
-    // copy light to ubo
-    ubo.particles[particleIndex].position = context.particles[i].position;
-    ubo.particles[particleIndex].color = context.particles[i].color;
-
-    particleIndex += 1;
-  }
-  ubo.numParticles = particleIndex;
-}
 
 void render(EngineContext &context) {
   pipeline->bind(context.frameInfo.commandBuffer);
