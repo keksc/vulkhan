@@ -1,4 +1,5 @@
 #include "vulkhan.hpp"
+#include "deviceHelpers.hpp"
 #include <vulkan/vulkan_core.h>
 
 #include <GLFW/glfw3.h>
@@ -21,7 +22,6 @@
 #include "entity.hpp"
 #include "initVulkan.hpp"
 #include "input.hpp"
-#include "mesh.hpp"
 #include "renderer.hpp"
 #include "swapChain.hpp"
 #include "systems/axes.hpp"
@@ -30,7 +30,6 @@
 #include "systems/freezeAnimation.hpp"
 #include "systems/particles.hpp"
 #include "systems/physics.hpp"
-#include "systems/water/skyModel.hpp"
 #include "systems/water/waterSurfaceMesh.hpp"
 #include "window.hpp"
 
@@ -40,19 +39,17 @@
 #include <vector>
 
 namespace vkh {
-const glm::vec3 daggerOffset = {0.5f, -0.5f, 1.2f};
 void loadObjects(EngineContext &context) {
   auto &playerTransform = context.entities[0].transform;
   context.entities.push_back(
       {context,
-       {.position = {0.5, -0.5, 0.5}, .scale = {0.5f, 0.5f, 0.5f}},
+       {.position = {.5f, .5f, .5f}, .scale = {.5f, .5f, .5f}},
        "models/sword.glb"});
 
   context.entities.push_back(
       {context,
-       {.position = {5.f, -.5f, .5f}, .scale = {0.5f, 0.5f, 0.5f}},
+       {.position = {5.f, .5f, .5f}, .scale = {.5f, .5f, .5f}},
        "models/westwingassets.glb"});
-
   std::vector<glm::vec3> lightColors{{1.f, .1f, .1f}, {.1f, .1f, 1.f},
                                      {.1f, 1.f, .1f}, {1.f, 1.f, .1f},
                                      {.1f, 1.f, 1.f}, {1.f, 1.f, 1.f}};
@@ -60,13 +57,34 @@ void loadObjects(EngineContext &context) {
   for (int i = 0; i < lightColors.size(); i++) {
     auto rotateLight = glm::rotate(
         glm::mat4(1.f), (i * glm::two_pi<float>()) / lightColors.size(),
-        {0.f, -1.f, 0.f});
+        {0.f, 1.f, 0.f});
     context.particles.push_back(
         {.position = rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f),
-         .color = glm::vec4(lightColors[i], 1.0f)});
+         .color = glm::vec4(lightColors[i], 1.f)});
   }
 }
 void updateObjs(EngineContext &context) {}
+void updateParticles(EngineContext &context, GlobalUbo &ubo) {
+  auto rotateParticle = glm::rotate(glm::mat4(1.f), 0.5f * context.frameInfo.dt,
+                                    {0.f, -1.f, 0.f});
+  int particleIndex = 0;
+  for (int i = 0; i < 6; i++) {
+    assert(particleIndex < MAX_PARTICLES &&
+           "Point lights exceed maximum specified");
+
+    // update light position
+    context.particles[i].position = glm::vec4(
+        rotateParticle * glm::vec4(context.particles[i].position, 1.f));
+
+    // copy light to ubo
+    ubo.particles[particleIndex].position = context.particles[i].position;
+    ubo.particles[particleIndex].color = context.particles[i].color;
+
+    particleIndex += 1;
+  }
+  ubo.numParticles = particleIndex;
+}
+
 void run() {
   EngineContext context{};
   initWindow(context);
@@ -115,23 +133,20 @@ void run() {
 
     // std::thread(generateDungeon, std::ref(context)).detach();
 
+    waterSys::SkyParams skyParams;
+    SkyPreetham sky({0.f, 3.f, .866f});
+    skyParams.props = sky.GetProperties();
+
     entitySys::init(context);
     axesSys::init(context);
     particleSys::init(context);
     freezeAnimationSys::init(context);
     waterSys::init(context);
 
-    auto cmdBuffer = beginSingleTimeCommands(context);
-
-    waterSys::prepare(context, cmdBuffer);
-
-    endSingleTimeCommands(context, cmdBuffer, context.vulkan.graphicsQueue);
-
-    skySys::init(context, {0.f, .5f, .866f});
-    skySys::createRenderData(context, context.vulkan.swapChain->getRenderPass(),
-                         context.vulkan.swapChain->imageCount(),
-                         context.vulkan.swapChain->getSwapChainExtent(), true);
-
+    waterSys::createRenderData(context, context.vulkan.swapChain->imageCount());
+    auto cmd = beginSingleTimeCommands(context);
+    waterSys::prepare(context, cmd);
+    endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
     fontSys::init(context);
 
     std::vector<VkDescriptorSet> globalDescriptorSets(
@@ -161,13 +176,16 @@ void run() {
       context.camera.position = context.entities[0].transform.position +
                                 glm::vec3{0.f, camera::HEIGHT, 0.f};
       context.camera.orientation = context.entities[0].transform.orientation;
-      camera::calcViewYXZ(context);
 
       updateAudio(context);
 
       float aspect = context.window.aspectRatio;
-      camera::calcPerspectiveProjection(context, glm::radians(50.f), aspect,
-                                        0.1f, 1000.f);
+
+      context.camera.projectionMatrix =
+          glm::perspective(glm::radians(60.f), aspect, .1f, 1000.f);
+      context.camera.projectionMatrix[1][1] *= -1; // Flip Y for Vulkan
+      context.camera.projectionMatrix[0][0] *= -1; // Flip X for rotation
+      camera::calcViewYXZ(context);
 
       if (auto commandBuffer = renderer::beginFrame(context)) {
         int frameIndex = renderer::getFrameIndex();
@@ -187,7 +205,11 @@ void run() {
         ubo.aspectRatio = aspect;
         if (glfwGetKey(context.window, GLFW_KEY_G))
           physicsSys::update(context);
-        particleSys::update(context, ubo);
+        updateParticles(context, ubo);
+        if (glfwGetKey(context.window, GLFW_KEY_U)) {
+          skyParams.props.sunDir.x += .1f * context.frameInfo.dt;
+          sky.update();
+        }
         uboBuffers[frameIndex]->write(&ubo);
         uboBuffers[frameIndex]->flush();
 
@@ -199,26 +221,14 @@ void run() {
         entitySys::render(context);
         axesSys::render(context);
         // freezeAnimationSys::render(context);
-        particleSys::render(context);
-        // waterSys::render(context);
-        waterSys::update(context, context.frameInfo.dt);
-        skySys::prepareRender(
-            frameIndex,
-            glm::vec2(context.vulkan.swapChain->getSwapChainExtent().width,
-                      context.vulkan.swapChain->getSwapChainExtent().height),
-            context.camera.position, context.camera.viewMatrix,
-            glm::radians(50.f));
-
-        // Copy to water surface maps, update uniform  buffers
+        waterSys::update(context);
         waterSys::prepareRender(context, frameIndex, commandBuffer,
                                 context.camera.viewMatrix,
                                 context.camera.projectionMatrix,
-                                context.camera.position, skySys::getParams());
+                                context.camera.position, skyParams);
 
-        waterSys::render(context, context.frameInfo.frameIndex,
-                         context.frameInfo.commandBuffer);
-        skySys::render(context.frameInfo.frameIndex,
-                   context.frameInfo.commandBuffer);
+        waterSys::render(context);
+        particleSys::render(context);
 
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
@@ -232,7 +242,6 @@ void run() {
     freezeAnimationSys::cleanup(context);
     particleSys::cleanup(context);
     waterSys::cleanup();
-    skySys::cleanup();
     fontSys::cleanup(context);
 
     context.entities.clear();

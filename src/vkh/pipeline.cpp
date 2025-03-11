@@ -99,21 +99,26 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
 
 ComputePipeline::ComputePipeline(EngineContext &context,
                                  const std::filesystem::path &shaderpath,
-                                 VkPipelineLayout pipelineLayout)
+                                 VkPipelineLayoutCreateInfo layoutInfo)
     : Pipeline{context, VK_PIPELINE_BIND_POINT_COMPUTE} {
+  VkComputePipelineCreateInfo pipelineInfo{};
+  if (vkCreatePipelineLayout(context.vulkan.device, &layoutInfo, nullptr,
+                             &pipelineInfo.layout) != VK_SUCCESS)
+    throw std::runtime_error("failed to create pipeline layout!");
+  layout = pipelineInfo.layout;
+
   auto shaderCode = readFile(shaderpath);
 
   VkShaderModule shaderModule;
   createShaderModule(context, shaderCode, &shaderModule);
 
-  VkComputePipelineCreateInfo pipelineInfo{};
-  pipelineInfo.layout = pipelineLayout;
   pipelineInfo.stage = {.sType =
                             VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                         .stage = VK_SHADER_STAGE_COMPUTE_BIT,
                         .module = shaderModule,
                         .pName = "main"};
   pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+  pipelineInfo.layout = layout;
   pipelineInfo.basePipelineIndex = -1;
   pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
   if (vkCreateComputePipelines(context.vulkan.device, VK_NULL_HANDLE, 1,

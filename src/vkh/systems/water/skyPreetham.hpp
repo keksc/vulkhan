@@ -25,7 +25,7 @@ public:
     /**
      * @brief Recomputes its properties after parameters have been changed
      */
-    void Update();
+    void update();
 
     void SetSunDirection(const glm::vec3& sunDir) {
         m_Props.sunDir = glm::normalize(sunDir);

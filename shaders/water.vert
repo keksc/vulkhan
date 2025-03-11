@@ -20,7 +20,6 @@ layout(set = 0, binding = 0) uniform VertexUBO
 layout(binding = 2) uniform sampler2D DisplacementMap;
 layout(binding = 3) uniform sampler2D NormalMap;
 
-
 void main()
 {
     vec4 D = texture(DisplacementMap, inUV * ubo.scale);

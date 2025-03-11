@@ -10,10 +10,10 @@ SkyPreetham::SkyPreetham(const glm::vec3& sunDir, float turbidity)
     SetSunDirection(sunDir);
     SetTurbidity(turbidity);
 
-    Update();
+    update();
 }
 
-void SkyPreetham::Update()
+void SkyPreetham::update()
 {
     ComputePerezDistribution();
 

@@ -28,8 +28,8 @@ VkDeviceSize Buffer::getAlignment(VkDeviceSize instanceSize,
 }
 Buffer::Buffer(EngineContext &context, const BufferCreateInfo &createInfo)
     : context{context} {
-  alignmentSize = getAlignment(createInfo.instanceSize, 1);
-  bufSize = alignmentSize * createInfo.instanceCount;
+  //alignmentSize = getAlignment(createInfo.instanceSize, 1);
+  bufSize = createInfo.instanceSize * createInfo.instanceCount;
   instanceSize = createInfo.instanceSize;
   createBuffer(context, bufSize, createInfo.usage, createInfo.memoryProperties,
                buf, memory);
@@ -84,19 +84,6 @@ VkDescriptorBufferInfo Buffer::descriptorInfo(VkDeviceSize size,
       VK_WHOLE_SIZE,
   };
 }
-void Buffer::writeToIndex(void *data, int index) {
-  write(data, instanceSize, index * alignmentSize);
-}
-VkResult Buffer::flushIndex(int index) {
-  return flush(alignmentSize, index * alignmentSize);
-}
-VkDescriptorBufferInfo Buffer::descriptorInfoForIndex(int index) {
-  return descriptorInfo(alignmentSize, index * alignmentSize);
-}
-VkResult Buffer::invalidateIndex(int index) {
-  return invalidate(alignmentSize, index * alignmentSize);
-}
-
 void Buffer::copyToMapped(const void *data, VkDeviceSize size,
                           void *destAddr) const {
   void *dest = destAddr == nullptr ? mapped : destAddr;

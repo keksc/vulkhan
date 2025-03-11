@@ -16,32 +16,39 @@
 #include "../../image.hpp"
 #include "../../mesh.hpp"
 #include "WSTessendorf.hpp"
-#include "skyModel.hpp"
+#include "skyPreetham.hpp"
 
 namespace vkh {
-/**
- * EXPERIMENTAL
- *  FIXME: incorrect layout when changing to uninitialized frame map pair
- * without animation on
- *  TODO: should be on dedicated thread
- * @brief Enable for double buffered textures: two sets of textures, one used
- * for copying to, the other for rendering to, at each frame they are swapped.
- * For the current use-case, the performance might be slightly worse.
- */
-// #define DOUBLE_BUFFERED
-
-/**
- * @brief Represents a water surface rendered as a mesh.
- *
- */
 namespace waterSys {
-static const uint32_t s_kMinTileSize{16};
-static const uint32_t maxTileSize{1024};
+
+struct SkyParams {
+  alignas(16) glm::vec3 sunColor{1.0};
+  float sunIntensity{1.0};
+  // -------------------------------------------------
+  SkyPreetham::Props props;
+};
+/**
+ * @brief Creates vertex and index buffers to accomodate maximum size of
+ *  vertices and indices.
+ *  To render the mesh, fnc "Prepare()" must be called with the size of tile
+ */
+void init(EngineContext &context);
+void cleanup();
+void createRenderData(EngineContext &context, const uint32_t imageCount);
+void prepare(EngineContext &context, VkCommandBuffer cmdBuffer);
+void update(EngineContext &context);
+void prepareRender(EngineContext &context, const uint32_t frameIndex,
+                   VkCommandBuffer cmdBuffer, const glm::mat4 &viewMat,
+                   const glm::mat4 &projMat, const glm::vec3 &camPos,
+                   const SkyParams &skyParams);
+void render(EngineContext &context);
 
 struct Vertex {
   glm::vec3 pos;
   glm::vec2 uv;
-  glm::vec3 normal;
+
+  Vertex(const glm::vec3 &position, const glm::vec2 &texCoord)
+      : pos(position), uv(texCoord) {}
 
   constexpr static VkVertexInputBindingDescription GetBindingDescription() {
     return VkVertexInputBindingDescription{.binding = 0,
@@ -69,23 +76,11 @@ struct Vertex {
   static const inline std::vector<VkVertexInputAttributeDescription>
       s_AttribDescriptions{GetAttributeDescriptions()};
 };
-// =========================================================================
-/**
- * @brief Creates vertex and index buffers to accomodate maximum size of
- *  vertices and indices.
- *  To render the mesh, fnc "Prepare()" must be called with the size of tile
- */
-void init(EngineContext &context);
-void cleanup();
-void update(EngineContext &context, float dt);
-void render(EngineContext &context, const uint32_t frameIndex,
-            VkCommandBuffer cmdBuffer);
-void prepare(EngineContext &context, VkCommandBuffer cmdBuffer);
-void prepareRender(EngineContext &context, const uint32_t frameIndex,
-                   VkCommandBuffer cmdBuffer, const glm::mat4 &viewMat,
-                   const glm::mat4 &projMat, const glm::vec3 &camPos,
-                   const skySys::Params &skyParams);
-
+static constexpr VkFormat mapFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+static constexpr bool useMipMapping = false;
+struct FrameMapData {
+  std::unique_ptr<Image> displacementMap{nullptr};
+  std::unique_ptr<Image> normalMap{nullptr};
+};
 } // namespace waterSys
-
 } // namespace vkh

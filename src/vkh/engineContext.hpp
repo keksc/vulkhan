@@ -36,7 +36,7 @@ struct GlobalUbo {
   alignas(4) float aspectRatio;
 };
 
-const float GROUND_LEVEL = .5f;
+const float GROUND_LEVEL = -.5f;
 
 const int NUM_BUFFERS = 2;
 
@@ -50,7 +50,7 @@ struct EngineContext {
     VkExtent2D getExtent() {
       return {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
     };
-    float aspectRatio = static_cast<float>(width) / height;
+    float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
     operator GLFWwindow *() { return glfwWindow; }
     GLFWwindow *glfwWindow;
   } window;

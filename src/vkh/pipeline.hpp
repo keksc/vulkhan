@@ -94,6 +94,7 @@ class ComputePipeline : public Pipeline {
 public:
   ComputePipeline(EngineContext &context,
                   const std::filesystem::path &shaderpath,
-                  VkPipelineLayout pipelineLayout);
+                  VkPipelineLayoutCreateInfo layoutInfo = {
+                      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO});
 };
 } // namespace vkh
