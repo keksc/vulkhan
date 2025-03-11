@@ -27,14 +27,14 @@ namespace vkh {
  */
 class WSTessendorf {
 public:
-  static constexpr uint32_t s_kDefaultTileSize{512};
-  static constexpr float s_kDefaultTileLength{1000.0f};
+  static constexpr uint32_t defaultTileSize{512};
+  static constexpr float defaultTileLength{1000.0f};
 
-  static inline const glm::vec2 s_kDefaultWindDir{1.0f, 1.0f};
-  static constexpr float s_kDefaultWindSpeed{30.0f};
-  static constexpr float s_kDefaultAnimPeriod{200.0f};
-  static constexpr float s_kDefaultPhillipsConst{3e-7f};
-  static constexpr float s_kDefaultPhillipsDamping{0.1f};
+  static inline const glm::vec2 defaultWindDir{1.0f, 1.0f};
+  static constexpr float defaultWindSpeed{30.0f};
+  static constexpr float defaultAnimPeriod{200.0f};
+  static constexpr float defaultPhillipsConst{3e-7f};
+  static constexpr float defaultPhillipsDamping{0.1f};
 
   // Both vec4 due to GPU memory alignment requirements
   using Displacement = glm::vec4;
@@ -49,8 +49,8 @@ public:
    *  must be power of two
    * @param tileLength Length of tile, or wave length
    */
-  WSTessendorf(uint32_t tileSize = WSTessendorf::s_kDefaultTileSize,
-               float tileLength = WSTessendorf::s_kDefaultTileLength);
+  WSTessendorf(uint32_t tileSize = WSTessendorf::defaultTileSize,
+               float tileLength = WSTessendorf::defaultTileLength);
   ~WSTessendorf();
 
   /**
@@ -68,31 +68,31 @@ public:
    * @param time Elapsed time in seconds
    * @return Amplitude of normalized heights (in <-1, 1> )
    */
-  float ComputeWaves(float time);
+  float gomputeWaves(float time);
 
   // ---------------------------------------------------------------------
   // Getters
 
-  auto GetTileSize() const { return m_TileSize; }
-  auto GetTileLength() const { return m_TileLength; }
-  auto GetWindDir() const { return m_WindDir; }
-  auto GetWindSpeed() const { return m_WindSpeed; }
-  auto GetAnimationPeriod() const { return m_AnimationPeriod; }
-  auto GetPhillipsConst() const { return m_A; }
-  auto GetDamping() const { return m_Damping; }
-  auto GetDisplacementLambda() const { return m_Lambda; }
-  float GetMinHeight() const { return m_MinHeight; }
-  float GetMaxHeight() const { return m_MaxHeight; }
+  auto getTileSize() const { return m_TileSize; }
+  auto getTileLength() const { return m_TileLength; }
+  auto getWindDir() const { return m_WindDir; }
+  auto getWindSpeed() const { return m_WindSpeed; }
+  auto getAnimationPeriod() const { return m_AnimationPeriod; }
+  auto getPhillipsConst() const { return m_A; }
+  auto getDamping() const { return m_Damping; }
+  auto getDisplacementLambda() const { return m_Lambda; }
+  float getMinHeight() const { return m_MinHeight; }
+  float getMaxHeight() const { return m_MaxHeight; }
 
   // Data
 
-  size_t GetDisplacementCount() const { return m_Displacements.size(); }
-  const std::vector<Displacement> &GetDisplacements() const {
+  size_t getDisplacementCount() const { return m_Displacements.size(); }
+  const std::vector<Displacement> &getDisplacements() const {
     return m_Displacements;
   }
 
-  size_t GetNormalCount() const { return m_Normals.size(); }
-  const std::vector<Normal> &GetNormals() const { return m_Normals; }
+  size_t getNormalCount() const { return m_Normals.size(); }
+  const std::vector<Normal> &getNormals() const { return m_Normals; }
 
   // ---------------------------------------------------------------------
   // Setters

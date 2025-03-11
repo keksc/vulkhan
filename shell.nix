@@ -23,7 +23,6 @@ pkgs.mkShell {
     curl
     gcc
     fftwFloat
-    gfxreconstruct
   ];
 
   shellHook = ''

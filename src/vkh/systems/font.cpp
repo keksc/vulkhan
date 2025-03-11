@@ -190,7 +190,6 @@ void updateText(EngineContext &context, std::string text) {
   indices.clear();
   float cursorX = -0.8f; // empirical, TODO: make this be the true left border
 
-  // For each character in the text
   for (size_t i = 0; i < text.length(); i++) {
     char c = text[i];
     auto &ch = glyphs[c];

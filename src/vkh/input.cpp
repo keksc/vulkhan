@@ -95,19 +95,14 @@ void moveInPlaneXZ(EngineContext &context) {
           .orientation); // glm::eulerAngles(player.transform.orientation);
   glm::vec3 rotation = glm::vec3{-mousePos.y, mousePos.x, 0.f} * 0.001f;
 
-  if (scroll) {
-    player.transform.position.y -= scroll * 0.02;
-    scroll = 0;
-  }
-
   rotation.y = glm::mod(rotation.y, glm::two_pi<float>());
   rotation.x = glm::clamp(rotation.x, -1.5f, 1.5f);
 
   // player.transform.orientation = glm::quat(rotation);
   float yaw = rotation.y;
-  const glm::vec3 forwardDir{sin(yaw), 0.f, cos(yaw)};
+  const glm::vec3 forwardDir{-sin(yaw), 0.f, -cos(yaw)};
   const glm::vec3 rightDir{forwardDir.z, 0.f, -forwardDir.x};
-  const glm::vec3 upDir{0.f, -1.f, 0.f};
+  const glm::vec3 upDir{0.f, 1.f, 0.f};
 
   glm::vec3 moveDir{0.f};
   if (glfwGetKey(context.window, GLFW_KEY_W))
