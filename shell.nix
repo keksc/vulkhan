@@ -14,7 +14,7 @@ pkgs.mkShell {
     fmt
     glm
     cmake
-    shaderc
+    glslang
     openal
     clang-tools
     cmake-language-server

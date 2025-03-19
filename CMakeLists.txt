@@ -15,10 +15,11 @@ find_package(OpenAL REQUIRED)
 find_package(CURL REQUIRED)
 
 add_subdirectory(3rdparty/fastgltf)
+add_subdirectory(3rdparty/VkFFT)
 
 link_directories(3rdparty/lib)
 include_directories(3rdparty/include)
-link_libraries(Vulkan::Vulkan glfw fmt::fmt OpenAL::OpenAL fastgltf::fastgltf GameAnalytics CURL::libcurl fftw3f)
+link_libraries(Vulkan::Vulkan glfw fmt::fmt OpenAL::OpenAL fastgltf::fastgltf GameAnalytics CURL::libcurl fftw3f VkFFT)
 file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   set(FLAGS WIN32)

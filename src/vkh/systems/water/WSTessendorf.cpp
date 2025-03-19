@@ -211,7 +211,7 @@ void WSTessendorf::DestroyFFTW() {
 #endif
 }
 
-float WSTessendorf::gomputeWaves(float t) {
+float WSTessendorf::computeWaves(float t) {
   const auto kTileSize = m_TileSize;
 
   float masterMaxHeight = std::numeric_limits<float>::min();

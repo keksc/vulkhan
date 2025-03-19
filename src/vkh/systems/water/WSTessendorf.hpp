@@ -8,7 +8,7 @@
 #include <glm/ext.hpp>
 #include <glm/glm.hpp>
 
-#include <fftw3.h>
+#include <vkFFT.h>
 
 namespace vkh {
 /**
@@ -68,7 +68,7 @@ public:
    * @param time Elapsed time in seconds
    * @return Amplitude of normalized heights (in <-1, 1> )
    */
-  float gomputeWaves(float time);
+  float computeWaves(float time);
 
   // ---------------------------------------------------------------------
   // Getters
