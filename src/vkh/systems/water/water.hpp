@@ -37,9 +37,7 @@ void cleanup();
 void createRenderData(EngineContext &context, const uint32_t imageCount);
 void prepare(EngineContext &context, VkCommandBuffer cmdBuffer);
 void update(EngineContext &context);
-void prepareRender(EngineContext &context, const uint32_t frameIndex,
-                   VkCommandBuffer cmdBuffer, const glm::mat4 &viewMat,
-                   const glm::mat4 &projMat, const glm::vec3 &camPos,
+void prepareRender(EngineContext &context,
                    const SkyParams &skyParams);
 void render(EngineContext &context);
 

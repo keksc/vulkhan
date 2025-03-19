@@ -1,4 +1,4 @@
-#include "waterSurfaceMesh.hpp"
+#include "water.hpp"
 
 #include <memory>
 #include <unistd.h>
@@ -245,7 +245,7 @@ void prepareModelTess(EngineContext &context, VkCommandBuffer cmdBuffer) {
 
   // Do one pass to initialize the maps
 
-  vertexUBO.WSHeightAmp = modelTess->gomputeWaves(glfwGetTime() * animSpeed);
+  vertexUBO.WSHeightAmp = modelTess->computeWaves(glfwGetTime() * animSpeed);
   copyModelTessDataToStagingBuffer(context);
 
   updateFrameMaps(cmdBuffer, frameMap);
@@ -356,22 +356,23 @@ void prepare(EngineContext &context, VkCommandBuffer cmdBuffer) {
 
 void update(EngineContext &context) {
   if (playAnimation) {
-    vertexUBO.WSHeightAmp = modelTess->gomputeWaves(glfwGetTime() * animSpeed);
+    auto cmd = beginSingleTimeCommands(context);
+    fftPipeline->bind(cmd);
+    vkCmdDispatch(cmd, 16, 16, 1);
+    endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
+    vertexUBO.WSHeightAmp = modelTess->computeWaves(glfwGetTime() * animSpeed);
     copyModelTessDataToStagingBuffer(context);
   }
 }
 
-void prepareRender(EngineContext &context, const uint32_t frameIndex,
-                   VkCommandBuffer cmdBuffer, const glm::mat4 &viewMat,
-                   const glm::mat4 &projMat, const glm::vec3 &camPos,
-                   const SkyParams &skyParams) {
+void prepareRender(EngineContext &context, const SkyParams &skyParams) {
   vertexUBO.model = glm::mat4(1.0f);
-  vertexUBO.view = viewMat;
-  vertexUBO.proj = projMat;
+  vertexUBO.view = context.camera.viewMatrix;
+  vertexUBO.proj = context.camera.projectionMatrix;
 
   vertexUBO.WSChoppy = modelTess->getDisplacementLambda();
 
-  waterSurfaceUBO.camPos = camPos;
+  waterSurfaceUBO.camPos = context.camera.position;
   waterSurfaceUBO.sky = skyParams;
 
   updateUniformBuffer(context);
@@ -380,13 +381,12 @@ void prepareRender(EngineContext &context, const uint32_t frameIndex,
 
   // No need to update the texture with the same data over again
   if (playAnimation) {
-    updateFrameMaps(cmdBuffer, frameMap);
+    updateFrameMaps(context.frameInfo.commandBuffer, frameMap);
   }
 }
 
 void render(EngineContext &context) {
-  vkCmdBindPipeline(context.frameInfo.commandBuffer,
-                    VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline);
+  pipeline->bind(context.frameInfo.commandBuffer);
 
   const uint32_t kFirstSet = 0, kDescriptorSetCount = 1;
   const uint32_t kDynamicOffsetCount = 0;
