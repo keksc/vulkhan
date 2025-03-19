@@ -28,9 +28,10 @@
 #include "systems/entities.hpp"
 #include "systems/font.hpp"
 #include "systems/freezeAnimation.hpp"
+#include "systems/hud.hpp"
 #include "systems/particles.hpp"
 #include "systems/physics.hpp"
-#include "systems/water/waterSurfaceMesh.hpp"
+#include "systems/water/water.hpp"
 #include "window.hpp"
 
 #include <chrono>
@@ -128,7 +129,7 @@ void run() {
             .build();
 
     context.entities.push_back(
-        {context, {.position = {0.f, GROUND_LEVEL, 0.f}}});
+        {context, {.position = {0.f, GROUND_LEVEL + 10.f, 0.f}}});
     loadObjects(context);
 
     // std::thread(generateDungeon, std::ref(context)).detach();
@@ -148,6 +149,7 @@ void run() {
     waterSys::prepare(context, cmd);
     endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
     fontSys::init(context);
+    hudSys::init(context);
 
     std::vector<VkDescriptorSet> globalDescriptorSets(
         SwapChain::MAX_FRAMES_IN_FLIGHT);
@@ -158,6 +160,12 @@ void run() {
           .writeBuffer(0, &bufferInfo)
           .build(globalDescriptorSets[i]);
     }
+
+    std::vector<std::unique_ptr<hudSys::Element>> elements(2);
+    elements[0] = std::make_unique<hudSys::Rect>(
+        glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f}, glm::vec3{1.f, 1.f, 1.f});
+    elements[1] = std::make_unique<hudSys::Rect>(
+        glm::vec2{-.4f, -.4f}, glm::vec2{.5f, .5f}, glm::vec3{.5f, .5f, .5f});
 
     auto currentTime = std::chrono::high_resolution_clock::now();
     while (!glfwWindowShouldClose(context.window)) {
@@ -210,6 +218,7 @@ void run() {
           skyParams.props.sunDir.x += .1f * context.frameInfo.dt;
           sky.update();
         }
+        hudSys::update(context, elements);
         uboBuffers[frameIndex]->write(&ubo);
         uboBuffers[frameIndex]->flush();
 
@@ -218,16 +227,14 @@ void run() {
 
         // order here matters
         fontSys::render(context);
+        hudSys::render(context);
         entitySys::render(context);
         axesSys::render(context);
         // freezeAnimationSys::render(context);
-        waterSys::update(context);
-        waterSys::prepareRender(context, frameIndex, commandBuffer,
-                                context.camera.viewMatrix,
-                                context.camera.projectionMatrix,
-                                context.camera.position, skyParams);
+        // waterSys::update(context);
+        // waterSys::prepareRender(context, skyParams);
+        // waterSys::render(context);
 
-        waterSys::render(context);
         particleSys::render(context);
 
         renderer::endSwapChainRenderPass(commandBuffer);
@@ -243,6 +250,7 @@ void run() {
     particleSys::cleanup(context);
     waterSys::cleanup();
     fontSys::cleanup(context);
+    hudSys::cleanup(context);
 
     context.entities.clear();
     context.vulkan.globalDescriptorSetLayout = nullptr;
