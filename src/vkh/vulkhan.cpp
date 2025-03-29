@@ -90,7 +90,7 @@ void run() {
   EngineContext context{};
   initWindow(context);
   initVulkan(context);
-  initAudio();
+  // audio::init();
   renderer::init(context);
   { // {} to handle call destructors of buffers before vulkah is cleaned up
     input::init(context);
@@ -161,10 +161,15 @@ void run() {
           .build(globalDescriptorSets[i]);
     }
 
-    std::vector<std::unique_ptr<hudSys::Element>> elements(2);
-    elements[0] = std::make_unique<hudSys::Rect>(
-        glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f}, glm::vec3{1.f, 1.f, 1.f});
-    elements[1] = std::make_unique<hudSys::Rect>(
+    std::vector<std::shared_ptr<hudSys::Element>> hudPause(1);
+    hudPause[0] = std::make_shared<hudSys::Rect>(
+        glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f} * context.window.aspectRatio,
+        glm::vec3{1.f, 1.f, 1.f});
+    hudPause[0]->addChild(std::make_shared<hudSys::Button>(
+        glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, 0.f, 0.f}));
+
+    std::vector<std::shared_ptr<hudSys::Element>> hudWorld(1);
+    hudWorld[0] = std::make_shared<hudSys::Rect>(
         glm::vec2{-.4f, -.4f}, glm::vec2{.5f, .5f}, glm::vec3{.5f, .5f, .5f});
 
     auto currentTime = std::chrono::high_resolution_clock::now();
@@ -185,7 +190,7 @@ void run() {
                                 glm::vec3{0.f, camera::HEIGHT, 0.f};
       context.camera.orientation = context.entities[0].transform.orientation;
 
-      updateAudio(context);
+      // audio::update(context);
 
       float aspect = context.window.aspectRatio;
 
@@ -205,37 +210,43 @@ void run() {
         };
 
         // update
-        updateObjs(context);
-        GlobalUbo ubo{};
-        ubo.projection = context.camera.projectionMatrix;
-        ubo.view = context.camera.viewMatrix;
-        ubo.inverseView = context.camera.inverseViewMatrix;
-        ubo.aspectRatio = aspect;
-        if (glfwGetKey(context.window, GLFW_KEY_G))
-          physicsSys::update(context);
-        updateParticles(context, ubo);
-        if (glfwGetKey(context.window, GLFW_KEY_U)) {
-          skyParams.props.sunDir.x += .1f * context.frameInfo.dt;
-          sky.update();
+        if (context.view == EngineContext::World) {
+          updateObjs(context);
+          GlobalUbo ubo{};
+          ubo.projection = context.camera.projectionMatrix;
+          ubo.view = context.camera.viewMatrix;
+          ubo.inverseView = context.camera.inverseViewMatrix;
+          ubo.aspectRatio = aspect;
+          if (glfwGetKey(context.window, GLFW_KEY_G))
+            physicsSys::update(context);
+          updateParticles(context, ubo);
+          if (glfwGetKey(context.window, GLFW_KEY_U)) {
+            skyParams.props.sunDir.x += .1f * context.frameInfo.dt;
+            sky.update();
+          }
+          uboBuffers[frameIndex]->write(&ubo);
+          uboBuffers[frameIndex]->flush();
+          hudSys::update(context, hudWorld);
+        } else {
+          hudSys::update(context, hudPause);
         }
-        hudSys::update(context, elements);
-        uboBuffers[frameIndex]->write(&ubo);
-        uboBuffers[frameIndex]->flush();
 
         // render
         renderer::beginSwapChainRenderPass(context, commandBuffer);
 
         // order here matters
-        fontSys::render(context);
         hudSys::render(context);
-        entitySys::render(context);
-        axesSys::render(context);
-        // freezeAnimationSys::render(context);
-        // waterSys::update(context);
-        // waterSys::prepareRender(context, skyParams);
-        // waterSys::render(context);
+        fontSys::render(context);
+        if (context.view == EngineContext::World) {
+          entitySys::render(context);
+          axesSys::render(context);
+          // freezeAnimationSys::render(context);
+          // waterSys::update(context);
+          // waterSys::prepareRender(context, skyParams);
+          // waterSys::render(context);
 
-        particleSys::render(context);
+          particleSys::render(context);
+        }
 
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
@@ -261,6 +272,6 @@ void run() {
   renderer::cleanup(context);
   cleanupVulkan(context);
   cleanupWindow(context);
-  cleanupAudio();
+  // audio::cleanup();
 }
 } // namespace vkh
