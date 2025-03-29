@@ -19,6 +19,8 @@
 
 namespace vkh {
 namespace hudSys {
+std::unordered_map<EventListener *, std::function<void(int, int, int)>>
+    EventListener::mouseButtonCallbacks;
 std::unique_ptr<GraphicsPipeline> pipeline;
 std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
 VkDescriptorSet descriptorSet;
@@ -31,9 +33,6 @@ std::vector<VkVertexInputBindingDescription> bindingDescriptions = {
 
 std::unique_ptr<Buffer> vertexBuffer;
 std::unique_ptr<Buffer> indexBuffer;
-
-std::vector<char> fontDataChar;
-unsigned char *fontData;
 
 std::vector<Vertex> vertices;
 std::vector<uint32_t> indices;
@@ -79,15 +78,24 @@ void init(EngineContext &context) {
 
   createPipeline(context);
 }
+void addElementToDraw(std::shared_ptr<Element> element) {
+  for (auto &child : element->children) {
+    addElementToDraw(child);
+  }
+  uint32_t baseIndex = vertices.size();
+  element->updateDrawInfo(baseIndex);
+  auto &drawInfo = element->drawInfo;
+  vertices.insert(vertices.end(), drawInfo.vertices.begin(),
+                  drawInfo.vertices.end());
+  indices.insert(indices.end(), drawInfo.indices.begin(),
+                 drawInfo.indices.end());
+}
 void update(EngineContext &context,
-            std::vector<std::unique_ptr<Element>> &content) {
+            std::vector<std::shared_ptr<Element>> &content) {
   vertices.clear();
   indices.clear();
   for (auto &element : content) {
-    uint32_t baseIndex = vertices.size();
-    auto& drawInfo = element->getDrawInfo(baseIndex);
-    vertices.insert(vertices.end(), drawInfo.vertices.begin(), drawInfo.vertices.end());
-    indices.insert(indices.end(), drawInfo.indices.begin(), drawInfo.indices.end());
+    addElementToDraw(element);
   }
   vertexBuffer->write(vertices.data());
   indexBuffer->write(indices.data());

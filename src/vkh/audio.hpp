@@ -3,7 +3,9 @@
 #include "engineContext.hpp"
 
 namespace vkh {
-void initAudio();
-void cleanupAudio();
-void updateAudio(EngineContext& context);
+namespace audio {
+void init();
+void cleanup();
+void update(EngineContext &context);
+} // namespace audio
 } // namespace vkh

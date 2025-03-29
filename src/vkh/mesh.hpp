@@ -75,7 +75,6 @@ public:
     std::vector<T> vertices;
     std::vector<uint32_t> indices;
 
-    // Loop over all meshes and their primitives.
     for (const auto &mesh : gltf.meshes) {
       for (const auto &primitive : mesh.primitives) {
         size_t initial_vtx = vertices.size();

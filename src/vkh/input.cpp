@@ -10,6 +10,7 @@
 #include <thread>
 
 #include "entity.hpp"
+#include "systems/hud.hpp"
 
 namespace vkh {
 namespace input {
@@ -41,7 +42,15 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
     return;
   }
   if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-    glfwSetWindowShouldClose(context->window, GLFW_TRUE);
+    switch(context->view) {
+      case EngineContext::World:
+        context->view = EngineContext::Pause;
+        break;
+      case EngineContext::Pause:
+        context->view = EngineContext::World;
+        break;
+    }
+    // glfwSetWindowShouldClose(context->window, GLFW_TRUE);
   }
   if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
     Entity &player = context->entities[0];
@@ -78,6 +87,8 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
   }
   if (button == GLFW_MOUSE_BUTTON_RIGHT) {
   }
+  for (auto &pair : hudSys::EventListener::mouseButtonCallbacks)
+    pair.second(button, action, mods);
 }
 void init(EngineContext &context) {
   glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);

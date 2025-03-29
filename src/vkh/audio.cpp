@@ -14,6 +14,7 @@
 #include "entity.hpp"
 
 namespace vkh {
+namespace audio {
 ALCdevice *device = nullptr;
 ALCcontext *context = nullptr;
 ALuint source = 0;
@@ -31,7 +32,7 @@ std::vector<short> convertTo16Bit(const AudioFile<float> &audioFile) {
   }
   return result;
 }
-void initAudio() {
+void init() {
   device = alcOpenDevice(nullptr);
   if (!device) {
     throw std::runtime_error("Failed to open OpenAL device.");
@@ -72,7 +73,7 @@ void initAudio() {
   alListenerf(AL_GAIN, 0.f); // mute master volume
 }
 
-void updateAudio(EngineContext &context) {
+void update(EngineContext &context) {
   const Transform &transform = context.entities[0].transform;
   glm::vec3 forward = glm::rotate(
       transform.orientation, glm::vec3(0.0f, 0.0f, 1.0f)); // Forward vector
@@ -87,7 +88,7 @@ void updateAudio(EngineContext &context) {
   alListenerfv(AL_ORIENTATION, orientationArray);
 }
 
-void cleanupAudio() {
+void cleanup() {
   alSourceStop(source);
   alDeleteSources(1, &source);
   alDeleteBuffers(1, &buffer);
@@ -97,4 +98,5 @@ void cleanupAudio() {
   if (device)
     alcCloseDevice(device);
 }
+} // namespace audio
 } // namespace vkh
