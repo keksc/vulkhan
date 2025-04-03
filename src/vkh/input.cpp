@@ -3,6 +3,7 @@
 
 #include <GLFW/glfw3.h>
 #include <chrono>
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <glm/gtc/quaternion.hpp>
 
@@ -42,13 +43,13 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
     return;
   }
   if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-    switch(context->view) {
-      case EngineContext::World:
-        context->view = EngineContext::Pause;
-        break;
-      case EngineContext::Pause:
-        context->view = EngineContext::World;
-        break;
+    switch (context->view) {
+    case EngineContext::World:
+      context->view = EngineContext::Pause;
+      break;
+    case EngineContext::Pause:
+      context->view = EngineContext::World;
+      break;
     }
     // glfwSetWindowShouldClose(context->window, GLFW_TRUE);
   }
@@ -61,11 +62,12 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
     player.rigidBody.velocity.y = player.rigidBody.jumpVelocity;*/
   }
 }
-glm::vec2 mousePos;
 static void cursorPositionCallback(GLFWwindow *window, double xpos,
                                    double ypos) {
-  mousePos.x = static_cast<float>(xpos);
-  mousePos.y = static_cast<float>(ypos);
+  auto context =
+      reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
+  context->input.cursorPos.x = static_cast<int>(xpos);
+  context->input.cursorPos.y = static_cast<int>(ypos);
 }
 int scroll{};
 void scrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
@@ -87,8 +89,10 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
   }
   if (button == GLFW_MOUSE_BUTTON_RIGHT) {
   }
-  for (auto &pair : hudSys::EventListener::mouseButtonCallbacks)
-    pair.second(button, action, mods);
+  for (auto &callback :
+       context->inputCallbackSystems[context->currentInputCallbackSystemIndex]
+           .mouseButton)
+    callback(button, action, mods);
 }
 void init(EngineContext &context) {
   glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -104,7 +108,7 @@ void moveInPlaneXZ(EngineContext &context) {
   glm::mat3 rotationMatrix = glm::mat3(
       player.transform
           .orientation); // glm::eulerAngles(player.transform.orientation);
-  glm::vec3 rotation = glm::vec3{-mousePos.y, mousePos.x, 0.f} * 0.001f;
+  glm::vec3 rotation = glm::vec3{-context.input.cursorPos.y, context.input.cursorPos.x, 0.f} * 0.001f;
 
   rotation.y = glm::mod(rotation.y, glm::two_pi<float>());
   rotation.x = glm::clamp(rotation.x, -1.5f, 1.5f);
