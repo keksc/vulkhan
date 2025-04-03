@@ -8,7 +8,6 @@
 #include <glm/ext.hpp>
 #include <glm/glm.hpp>
 
-#include <vkFFT.h>
 #include <fftw3.h>
 
 namespace vkh {
