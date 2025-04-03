@@ -1,4 +1,5 @@
 #include "hud.hpp"
+#include "hudElements.hpp"
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -19,8 +20,6 @@
 
 namespace vkh {
 namespace hudSys {
-std::unordered_map<EventListener *, std::function<void(int, int, int)>>
-    EventListener::mouseButtonCallbacks;
 std::unique_ptr<GraphicsPipeline> pipeline;
 std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
 VkDescriptorSet descriptorSet;
@@ -90,11 +89,10 @@ void addElementToDraw(std::shared_ptr<Element> element) {
   indices.insert(indices.end(), drawInfo.indices.begin(),
                  drawInfo.indices.end());
 }
-void update(EngineContext &context,
-            std::vector<std::shared_ptr<Element>> &content) {
+void update(EngineContext &context, View &content) {
   vertices.clear();
   indices.clear();
-  for (auto &element : content) {
+  for (const auto &element : content) {
     addElementToDraw(element);
   }
   vertexBuffer->write(vertices.data());

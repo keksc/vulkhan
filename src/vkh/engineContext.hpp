@@ -10,6 +10,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -43,14 +44,13 @@ const int NUM_BUFFERS = 2;
 class SwapChain;
 struct EngineContext {
   struct {
-    int width = 800;
-    int height = 600;
+    glm::ivec2 size = {800, 600};
     bool framebufferResized = false;
     bool fullscreen = false;
     VkExtent2D getExtent() {
-      return {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+      return {static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y)};
     };
-    float aspectRatio = static_cast<float>(width) / static_cast<float>(height);
+    float aspectRatio = static_cast<float>(size.x) / static_cast<float>(size.y);
     operator GLFWwindow *() { return glfwWindow; }
     GLFWwindow *glfwWindow;
   } window;
@@ -92,8 +92,15 @@ struct EngineContext {
     glm::mat4 viewMatrix{1.f};
     glm::mat4 inverseViewMatrix{1.f};
   } camera;
-  enum {
-    World, Pause
-  } view{World};
+  enum { World, Pause } view{World};
+  struct InputCallbackSystem {
+    std::vector<std::function<void(int, int, int)>> mouseButton;
+    std::vector<std::function<void(int, int)>> cursorPosition;
+  };
+  std::vector<InputCallbackSystem> inputCallbackSystems;
+  std::size_t currentInputCallbackSystemIndex = 0;
+  struct {
+    glm::ivec2 cursorPos;
+  } input;
 };
 } // namespace vkh

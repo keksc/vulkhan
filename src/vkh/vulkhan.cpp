@@ -1,5 +1,6 @@
 #include "vulkhan.hpp"
 #include "deviceHelpers.hpp"
+#include <fmt/core.h>
 #include <vulkan/vulkan_core.h>
 
 #include <GLFW/glfw3.h>
@@ -161,16 +162,22 @@ void run() {
           .build(globalDescriptorSets[i]);
     }
 
-    std::vector<std::shared_ptr<hudSys::Element>> hudPause(1);
-    hudPause[0] = std::make_shared<hudSys::Rect>(
-        glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f} * context.window.aspectRatio,
-        glm::vec3{1.f, 1.f, 1.f});
-    hudPause[0]->addChild(std::make_shared<hudSys::Button>(
-        glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, 0.f, 0.f}));
-
-    std::vector<std::shared_ptr<hudSys::Element>> hudWorld(1);
-    hudWorld[0] = std::make_shared<hudSys::Rect>(
+    hudSys::View hudWorld(context);
+    hudWorld.addElement<hudSys::Rect>(
         glm::vec2{-.4f, -.4f}, glm::vec2{.5f, .5f}, glm::vec3{.5f, .5f, .5f});
+
+    hudSys::View hudPause(context);
+    hudPause.addElement<hudSys::Button>(
+        glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f} * context.window.aspectRatio,
+        glm::vec3{1.f, 1.f, 1.f}, [&](int button, int action, int) {
+          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            fmt::println("nice");
+            // hudWorld.setCurrent();
+          }
+        });
+    hudPause.setCurrent();
+    // btn->addChild(std::make_shared<hudSys::Rect>(
+    //     glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, 0.f, 0.f}));
 
     auto currentTime = std::chrono::high_resolution_clock::now();
     while (!glfwWindowShouldClose(context.window)) {
@@ -200,6 +207,7 @@ void run() {
       context.camera.projectionMatrix[0][0] *= -1; // Flip X for rotation
       camera::calcViewYXZ(context);
 
+      hudSys::update(context, hudWorld);
       if (auto commandBuffer = renderer::beginFrame(context)) {
         int frameIndex = renderer::getFrameIndex();
         context.frameInfo = {
@@ -226,7 +234,6 @@ void run() {
           }
           uboBuffers[frameIndex]->write(&ubo);
           uboBuffers[frameIndex]->flush();
-          hudSys::update(context, hudWorld);
         } else {
           hudSys::update(context, hudPause);
         }
