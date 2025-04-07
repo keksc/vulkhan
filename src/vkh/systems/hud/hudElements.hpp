@@ -72,11 +72,12 @@ public:
   };
   void fitIntoParent(glm::vec2 &parentPosition,
                      glm::vec2 &parentSize) override {
-    position = position + parentPosition * size;
+    position = parentPosition + position * parentSize;
     size = parentSize * size;
   };
 };
-template <auto CallbackListPtr> class EventListener {
+class EventListenerBase {};
+template <auto CallbackListPtr> class EventListener : public EventListenerBase {
 public:
   EventListener(
       EngineContext &context, std::size_t inputCallbackSystemIndex,
@@ -114,6 +115,9 @@ public:
                       [this](int button, int action, int mods) {
                         mouseButtonCallback(button, action, mods);
                       }) {}
+
+private:
+  std::function<void(int, int, int)> onClick;
   void mouseButtonCallback(int button, int action, int mods) {
     glm::vec2 normalizedCursorPos =
         static_cast<glm::vec2>(context.input.cursorPos) /
@@ -125,30 +129,28 @@ public:
         glm::all(glm::lessThanEqual(normalizedCursorPos, max)))
       onClick(button, action, mods);
   }
-  ~Button() {}
-
-private:
-  std::function<void(int, int, int)> onClick;
 };
 class Text : public Element {
 public:
+  Text(glm::vec2 position) : Element(position, {0.f, 0.f}) {}
   Text(glm::vec2 position, const std::string &content)
       : Element(position, {0.f, 0.f}), content{content} {}
   std::string content;
   void addToDrawInfo(DrawInfo &drawInfo) override {
-    float cursorX =
-        position.x; // empirical, TODO: make this be the true left border
+    float cursorX = position.x;
+    float maxSizeY = 0.f;
 
-    uint32_t baseIndex;
     for (auto &c : content) {
-      baseIndex = drawInfo.textVertices.size();
+      uint32_t baseIndex = drawInfo.textVertices.size();
       auto &ch = textSys::glyphs[c];
 
       // Calculate vertex positions for this character
-      float x0 = cursorX;
+      float x0 = cursorX + ch.offset.x;
       float x1 = x0 + ch.size.x;
       float y0 = position.y;
       float y1 = ch.size.y + y0;
+
+      maxSizeY = glm::max(maxSizeY, ch.size.y);
 
       // Add four vertices for this character
       drawInfo.textVertices.push_back(
@@ -170,42 +172,82 @@ public:
       drawInfo.textIndices.push_back(baseIndex + 3);
 
       // Move cursor to next character position
-      cursorX += ch.normalizedAdvance;
+      cursorX += ch.advance;
     }
+    size.y = maxSizeY;
+    size.x = cursorX - position.x;
   }
   void fitIntoParent(glm::vec2 &parentPosition,
                      glm::vec2 &parentSize) override {
-    position = position + parentPosition * size;
-    // the text size is divided by the aspect ratio in the vertex shader, so here we should take this into account and add returns to break the text
+    position = parentPosition + position * parentSize;
+    // the text size is divided by the aspect ratio in the vertex shader, so
+    // here we should take this into account and add returns to break the text
   };
 };
 class TextInput
     : public Text,
-      public EventListener<&EngineContext::InputCallbackSystem::character> {
+      public EventListener<&EngineContext::InputCallbackSystem::character>,
+      public EventListener<
+          &EngineContext::InputCallbackSystem::cursorPosition> {
+public:
   TextInput(EngineContext &context, std::size_t inputCallbackSystemIndex,
             glm::vec2 position)
-      : Text(position, ""), EventListener{context, inputCallbackSystemIndex,
-                                          [this](unsigned int codepoint) {
-                                            characterCallback(codepoint);
-                                          }} {}
-  void characterCallback(unsigned int codepoint) {}
+      : Text(position),
+        EventListener<&EngineContext::InputCallbackSystem::character>(
+            context, inputCallbackSystemIndex,
+            [this](unsigned int codepoint) { characterCallback(codepoint); }),
+        EventListener<&EngineContext::InputCallbackSystem::cursorPosition>(
+            context, inputCallbackSystemIndex,
+            [this](double xpos, double ypos) {
+              cursorPositionCallback(xpos, ypos);
+            }),
+        context{context} {}
+  TextInput(EngineContext &context, std::size_t inputCallbackSystemIndex,
+            glm::vec2 position, const std::string &content)
+      : Text(position, content),
+        EventListener<&EngineContext::InputCallbackSystem::character>(
+            context, inputCallbackSystemIndex,
+            [this](unsigned int codepoint) { characterCallback(codepoint); }),
+        EventListener<&EngineContext::InputCallbackSystem::cursorPosition>(
+            context, inputCallbackSystemIndex,
+            [this](double xpos, double ypos) {
+              cursorPositionCallback(xpos, ypos);
+            }),
+        context{context} {}
+
+private:
+  void characterCallback(unsigned int codepoint) {
+    // if (selectedTextInput != this)
+    //   return;
+    if (!selected)
+      return;
+    char c = static_cast<char>(codepoint);
+    content.push_back(c);
+  }
+  void cursorPositionCallback(double xpos, double ypos) {
+    glm::vec2 cursorPos = {static_cast<float>(xpos), static_cast<float>(ypos)};
+    glm::vec2 normalizedCursorPos =
+        cursorPos / static_cast<glm::vec2>(context.window.size) *
+            glm::vec2(2.0) -
+        glm::vec2(1.0);
+    const glm::vec2 min = glm::min(position, position + size);
+    const glm::vec2 max = glm::max(position, position + size);
+    if (glm::all(glm::greaterThanEqual(normalizedCursorPos, min)) &&
+        glm::all(glm::lessThanEqual(normalizedCursorPos, max)))
+      selected = true;
+    else {
+      selected = false;
+    }
+  }
+  bool selected = false;
+  EngineContext &context;
 };
 // time to cook b*tch
 template <typename T>
 concept DerivedFromElement = std::is_base_of_v<Element, std::decay_t<T>>;
-template <typename T> struct isDerivedFromEventListener {
-private:
-  template <auto Ptr>
-  static constexpr std::true_type test(const EventListener<Ptr> *);
-  static constexpr std::false_type test(...);
-
-public:
-  static constexpr bool value = decltype(test(std::declval<T *>()))::value;
-};
-
 template <typename T>
 concept DerivedFromEventListener =
-    isDerivedFromEventListener<std::decay_t<T>>::value;
+    std::is_base_of_v<EventListenerBase, std::decay_t<T>>;
 class View {
 public:
   View(EngineContext &context) : context{context} {
@@ -214,24 +256,24 @@ public:
   }
 
   template <DerivedFromElement T, typename... Args>
-    requires(!DerivedFromEventListener<T>)
   std::shared_ptr<T> createElement(Args &&...args) {
-    return std::make_shared<T>(std::forward<Args>(args)...);
+    if constexpr (DerivedFromEventListener<T>) {
+      return std::make_shared<T>(context, inputCallbackSystemIndex,
+                                 std::forward<Args>(args)...);
+    } else {
+      return std::make_shared<T>(std::forward<Args>(args)...);
+    }
   }
 
-  template <DerivedFromElement T, typename... Args>
-    requires DerivedFromEventListener<T>
-  std::shared_ptr<T> createElement(Args &&...args) {
-    return std::make_shared<T>(context, inputCallbackSystemIndex,
-                               std::forward<Args>(args)...);
-  }
   template <typename T, typename... Args> void addElement(Args &&...args) {
     elements.emplace_back(createElement<T>(std::forward<Args>(args)...));
   }
-  template <typename T, typename... Args>
-  void addElement(std::shared_ptr<T> element) {
-    elements.emplace_back(element);
+
+  // New overload to add existing elements
+  void addElement(std::shared_ptr<Element> element) {
+    elements.emplace_back(std::move(element));
   }
+
   auto begin() { return elements.begin(); }
   auto end() { return elements.end(); }
   auto begin() const { return elements.begin(); }
@@ -244,13 +286,12 @@ public:
 
 private:
   EngineContext &context;
-
+  std::vector<std::shared_ptr<Element>> elements;
+  std::size_t inputCallbackSystemIndex;
   void setCurrent() {
     context.currentInputCallbackSystemIndex = inputCallbackSystemIndex;
   }
 
-  std::vector<std::shared_ptr<Element>> elements;
-  std::size_t inputCallbackSystemIndex;
   friend void setView(View &newView);
 };
 } // namespace hudSys

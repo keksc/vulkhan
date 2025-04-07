@@ -1,6 +1,5 @@
 #include "vulkhan.hpp"
 #include "deviceHelpers.hpp"
-#include <fmt/core.h>
 #include <vulkan/vulkan_core.h>
 
 #include <GLFW/glfw3.h>
@@ -177,15 +176,21 @@ void run() {
     rect->addChild(worldtxt);
     hudWorld.addElement(rect);
 
-    hudPause.addElement<hudSys::Button>(
-        glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f} * context.window.aspectRatio,
-        glm::vec3{1.f, .5f, 1.f}, [&](int button, int action, int) {
+    rect = hudPause.createElement<hudSys::Rect>(
+        glm::vec2{-.4f, -.4f}, glm::vec2{.5f, .5f}, glm::vec3{.5f, .5f, .5f});
+    auto btn = hudPause.createElement<hudSys::Button>(
+        glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, .5f, 1.f},
+        [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
             fmt::println("go2world");
             hudSys::setView(hudWorld);
           }
         });
+    rect->addChild(btn);
     hudPause.addElement<hudSys::Text>(glm::vec2{0.f, 0.f}, "aaa");
+    hudPause.addElement(rect);
+    hudPause.addElement<hudSys::TextInput>(glm::vec2{-1.f, .7f}, "aaa");
+    hudPause.addElement<hudSys::Rect>(glm::vec2{-1.f, .7f}, glm::vec2{.1f, .1f}, glm::vec3{0.f, 1.f, 0.f});
     hudSys::setView(hudPause);
     // btn->addChild(std::make_shared<hudSys::Rect>(
     //     glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, 0.f, 0.f}));

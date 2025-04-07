@@ -13,7 +13,6 @@ struct Glyph {
   glm::vec2 uvOffset;
   glm::vec2 uvExtent;
   float advance;
-  float normalizedAdvance;
 };
 struct Vertex {
   glm::vec2 position{};
