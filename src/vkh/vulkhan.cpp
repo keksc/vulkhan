@@ -27,9 +27,8 @@
 #include "swapChain.hpp"
 #include "systems/axes.hpp"
 #include "systems/entities.hpp"
-#include "systems/font.hpp"
 #include "systems/freezeAnimation.hpp"
-#include "systems/hud.hpp"
+#include "systems/hud/hud.hpp"
 #include "systems/particles.hpp"
 #include "systems/physics.hpp"
 #include "systems/water/water.hpp"
@@ -149,7 +148,6 @@ void run() {
     auto cmd = beginSingleTimeCommands(context);
     waterSys::prepare(context, cmd);
     endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
-    fontSys::init(context);
     hudSys::init(context);
 
     std::vector<VkDescriptorSet> globalDescriptorSets(
@@ -163,19 +161,32 @@ void run() {
     }
 
     hudSys::View hudWorld(context);
-    hudWorld.addElement<hudSys::Rect>(
-        glm::vec2{-.4f, -.4f}, glm::vec2{.5f, .5f}, glm::vec3{.5f, .5f, .5f});
-
     hudSys::View hudPause(context);
+    auto rect = hudWorld.createElement<hudSys::Rect>(
+        glm::vec2{-.4f, -.4f}, glm::vec2{.5f, .5f}, glm::vec3{.5f, .5f, .5f});
+    rect->addChild(hudWorld.createElement<hudSys::Button>(
+        glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f} * context.window.aspectRatio,
+        glm::vec3{1.f, .5f, 1.f}, [&](int button, int action, int) {
+          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            fmt::println("go2pause");
+            hudSys::setView(hudPause);
+          }
+        }));
+    auto worldtxt =
+        hudWorld.createElement<hudSys::Text>(glm::vec2{0.f, 0.f}, "FPS: 0");
+    rect->addChild(worldtxt);
+    hudWorld.addElement(rect);
+
     hudPause.addElement<hudSys::Button>(
         glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f} * context.window.aspectRatio,
-        glm::vec3{1.f, 1.f, 1.f}, [&](int button, int action, int) {
+        glm::vec3{1.f, .5f, 1.f}, [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            fmt::println("nice");
-            // hudWorld.setCurrent();
+            fmt::println("go2world");
+            hudSys::setView(hudWorld);
           }
         });
-    hudPause.setCurrent();
+    hudPause.addElement<hudSys::Text>(glm::vec2{0.f, 0.f}, "aaa");
+    hudSys::setView(hudPause);
     // btn->addChild(std::make_shared<hudSys::Rect>(
     //     glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, 0.f, 0.f}));
 
@@ -188,8 +199,9 @@ void run() {
           std::chrono::duration<float, std::chrono::seconds::period>(
               newTime - currentTime)
               .count();
-      fontSys::updateText(
-          context, fmt::format("FPS: {}", static_cast<int>(1.f / frameTime)));
+      // fontSys::updateText(
+      //     context, fmt::format("FPS: {}", static_cast<int>(1.f /
+      //     frameTime)));
       currentTime = newTime;
 
       input::moveInPlaneXZ(context);
@@ -207,7 +219,6 @@ void run() {
       context.camera.projectionMatrix[0][0] *= -1; // Flip X for rotation
       camera::calcViewYXZ(context);
 
-      hudSys::update(context, hudWorld);
       if (auto commandBuffer = renderer::beginFrame(context)) {
         int frameIndex = renderer::getFrameIndex();
         context.frameInfo = {
@@ -218,33 +229,28 @@ void run() {
         };
 
         // update
-        if (context.view == EngineContext::World) {
-          updateObjs(context);
-          GlobalUbo ubo{};
-          ubo.projection = context.camera.projectionMatrix;
-          ubo.view = context.camera.viewMatrix;
-          ubo.inverseView = context.camera.inverseViewMatrix;
-          ubo.aspectRatio = aspect;
-          if (glfwGetKey(context.window, GLFW_KEY_G))
-            physicsSys::update(context);
-          updateParticles(context, ubo);
-          if (glfwGetKey(context.window, GLFW_KEY_U)) {
-            skyParams.props.sunDir.x += .1f * context.frameInfo.dt;
-            sky.update();
-          }
-          uboBuffers[frameIndex]->write(&ubo);
-          uboBuffers[frameIndex]->flush();
-        } else {
-          hudSys::update(context, hudPause);
+        updateObjs(context);
+        GlobalUbo ubo{};
+        ubo.projection = context.camera.projectionMatrix;
+        ubo.view = context.camera.viewMatrix;
+        ubo.inverseView = context.camera.inverseViewMatrix;
+        ubo.aspectRatio = aspect;
+        if (glfwGetKey(context.window, GLFW_KEY_G))
+          physicsSys::update(context);
+        updateParticles(context, ubo);
+        if (glfwGetKey(context.window, GLFW_KEY_U)) {
+          skyParams.props.sunDir.x += .1f * context.frameInfo.dt;
+          sky.update();
         }
+        uboBuffers[frameIndex]->write(&ubo);
+        uboBuffers[frameIndex]->flush();
 
         // render
         renderer::beginSwapChainRenderPass(context, commandBuffer);
 
         // order here matters
         hudSys::render(context);
-        fontSys::render(context);
-        if (context.view == EngineContext::World) {
+        if (&hudSys::getView() == &hudWorld) {
           entitySys::render(context);
           axesSys::render(context);
           // freezeAnimationSys::render(context);
@@ -267,7 +273,6 @@ void run() {
     freezeAnimationSys::cleanup(context);
     particleSys::cleanup(context);
     waterSys::cleanup();
-    fontSys::cleanup(context);
     hudSys::cleanup(context);
 
     context.entities.clear();

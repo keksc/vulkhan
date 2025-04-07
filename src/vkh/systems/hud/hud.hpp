@@ -1,13 +1,14 @@
 #pragma once
 
-#include "../engineContext.hpp"
+#include "hudElements.hpp"
+#include "../../engineContext.hpp"
 
 namespace vkh {
-namespace fontSys {
+namespace hudSys {
 void init(EngineContext &context);
 void cleanup(EngineContext &context);
-
-void updateText(EngineContext &context, std::string text);
+void setView(View& newView);
+View& getView();
 void render(EngineContext &context);
-}; // namespace fontSys
+}; // namespace hudSys
 } // namespace vkh
