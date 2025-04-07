@@ -1,43 +1,39 @@
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <fmt/format.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/constants.hpp>
-#include <glm/gtc/quaternion.hpp>
+#include "text.hpp"
+
+#include <vulkan/vulkan.h>
 #define STB_TRUETYPE_IMPLEMENTATION
 #ifdef WIN32
 #include <stb_truetype.h>
 #else
 #include <stb/stb_truetype.h>
 #endif
-#include <vulkan/vulkan_core.h>
 
 #include <memory>
-#include <stdexcept>
 #include <vector>
 
-#include "../buffer.hpp"
-#include "../descriptors.hpp"
-#include "../deviceHelpers.hpp"
-#include "../image.hpp"
-#include "../pipeline.hpp"
-#include "../renderer.hpp"
-#include "../swapChain.hpp"
+#include <cstring>
+
+#include "../../buffer.hpp"
+#include "../../descriptors.hpp"
+#include "../../image.hpp"
+#include "../../pipeline.hpp"
 
 namespace vkh {
-namespace fontSys {
+namespace textSys {
+const std::vector<VkVertexInputAttributeDescription> attributeDescriptions = {
+    {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position)},
+    {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)}};
+const std::vector<VkVertexInputBindingDescription> bindingDescriptions = {
+    {0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX}};
+
+const int maxCharCount = 30;
+const int maxVertexCount = 4 * maxCharCount; // 4 vertices = 1 quad = 1 glyph
+const VkDeviceSize maxVertexSize = sizeof(Vertex) * maxVertexCount;
+const int maxIndexCount = maxCharCount * 6;
+const VkDeviceSize maxIndexSize = sizeof(uint32_t) * 6 * maxCharCount;
 std::unique_ptr<GraphicsPipeline> pipeline;
 std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
 VkDescriptorSet descriptorSet;
-struct Vertex {
-  glm::vec2 position{};
-  glm::vec2 uv{};
-};
-std::vector<VkVertexInputAttributeDescription> attributeDescriptions = {
-    {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position)},
-    {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)}};
-std::vector<VkVertexInputBindingDescription> bindingDescriptions = {
-    {0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX}};
 
 std::unique_ptr<Buffer> vertexBuffer;
 std::unique_ptr<Buffer> indexBuffer;
@@ -45,25 +41,8 @@ std::unique_ptr<Buffer> indexBuffer;
 std::vector<char> fontDataChar;
 unsigned char *fontData;
 
-struct Glyph {
-  glm::vec2 size;
-  glm::vec2 offset;
-  glm::vec2 uvOffset;
-  glm::vec2 uvExtent;
-  float advance;
-};
-
-std::vector<Vertex> vertices;
-std::vector<uint32_t> indices;
-
 std::unordered_map<char, Glyph> glyphs;
 std::shared_ptr<Image> fontAtlas;
-
-const int maxCharCount = 30;
-const int maxVertexCount = 4 * maxCharCount; // 4 vertices = 1 quad = 1 glyph
-VkDeviceSize maxVertexSize = sizeof(Vertex) * maxVertexCount;
-const int maxIndexCount = maxCharCount * 6;
-VkDeviceSize maxIndexSize = sizeof(uint32_t) * 6 * maxCharCount;
 
 void createBuffers(EngineContext &context) {
   BufferCreateInfo bufInfo{};
@@ -95,8 +74,6 @@ void createDescriptors(EngineContext &context) {
       .writeImage(0, &imageInfo)
       .build(descriptorSet);
 }
-// struct PushConstantData {};
-
 void createPipeline(EngineContext &context) {
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
       *context.vulkan.globalDescriptorSetLayout, *descriptorSetLayout};
@@ -119,8 +96,7 @@ void createPipeline(EngineContext &context) {
       .depthCompareOp = VK_COMPARE_OP_LESS};
   GraphicsPipeline::enableAlphaBlending(pipelineInfo);
   pipeline = std::make_unique<GraphicsPipeline>(
-      context, "shaders/font.vert.spv", "shaders/font.frag.spv",
-      pipelineInfo);
+      context, "shaders/text.vert.spv", "shaders/text.frag.spv", pipelineInfo);
 }
 void initFont() {
   fontDataChar = readFile("fonts/Roboto-Regular.ttf");
@@ -160,18 +136,16 @@ void createGlyphs(EngineContext &context) {
     char c = i + 32;
     const stbtt_packedchar &pc = charInfo[i];
 
-    glm::vec2 size = {
-        (pc.xoff2 - pc.xoff) /
-            context.vulkan.swapChain->getSwapChainExtent().width,
-        (pc.yoff2 - pc.yoff) /
-            context.vulkan.swapChain->getSwapChainExtent().height};
+    glm::vec2 size = {(pc.xoff2 - pc.xoff) / context.window.size.x,
+                      (pc.yoff2 - pc.yoff) / context.window.size.y};
     glm::vec2 offset = {pc.xoff, pc.yoff};
     Glyph glyph{.size = size,
                 .offset = offset,
                 .uvOffset = glm::vec2(pc.x0, pc.y0) / bitmapExtent,
                 .uvExtent =
                     glm::vec2(pc.x1 - pc.x0, pc.y1 - pc.y0) / bitmapExtent,
-                .advance = pc.xadvance};
+                .advance = pc.xadvance,
+                .normalizedAdvance = pc.xadvance / context.window.size.x};
 
     glyphs[c] = glyph;
   }
@@ -185,49 +159,6 @@ void init(EngineContext &context) {
 
   createPipeline(context);
 }
-void updateText(EngineContext &context, std::string text) {
-  vertices.clear();
-  indices.clear();
-  float cursorX = -0.8f; // empirical, TODO: make this be the true left border
-
-  for (size_t i = 0; i < text.length(); i++) {
-    char c = text[i];
-    auto &ch = glyphs[c];
-
-    // Calculate vertex positions for this character
-    float x0 = cursorX;
-    float x1 = x0 + ch.size.x;
-    float y0 = -1.f;
-    float y1 = ch.size.y + y0;
-
-    // Add four vertices for this character
-    uint32_t baseIndex = vertices.size();
-    vertices.push_back({{x0, y0}, {ch.uvOffset.x, ch.uvOffset.y}});
-    vertices.push_back(
-        {{x1, y0}, {ch.uvOffset.x + ch.uvExtent.x, ch.uvOffset.y}});
-    vertices.push_back(
-        {{x1, y1},
-
-         {ch.uvOffset.x + ch.uvExtent.x, ch.uvOffset.y + ch.uvExtent.y}});
-    vertices.push_back(
-        {{x0, y1}, {ch.uvOffset.x, ch.uvOffset.y + ch.uvExtent.y}});
-
-    // Add indices for this character's quad
-    indices.push_back(baseIndex + 0);
-    indices.push_back(baseIndex + 1);
-    indices.push_back(baseIndex + 2);
-    indices.push_back(baseIndex + 0);
-    indices.push_back(baseIndex + 2);
-    indices.push_back(baseIndex + 3);
-
-    // Move cursor to next character position
-    cursorX +=
-        ch.advance / context.vulkan.swapChain->getSwapChainExtent().width;
-  }
-  vertexBuffer->write(vertices.data());
-  indexBuffer->write(indices.data());
-}
-
 void cleanup(EngineContext &context) {
   vertexBuffer->unmap();
   vertexBuffer = nullptr;
@@ -238,18 +169,9 @@ void cleanup(EngineContext &context) {
   fontAtlas = nullptr;
   descriptorSetLayout = nullptr;
 }
+void render(EngineContext& context, size_t indicesSize) {
+    pipeline->bind(context.frameInfo.commandBuffer);
 
-void render(EngineContext &context) {
-  pipeline->bind(context.frameInfo.commandBuffer);
-
-  /*PushConstantData push{};
-
-  vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
-                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                     0, sizeof(PushConstantData), &push);*/
-
-  // model->bind(context, context.frameInfo.commandBuffer, pipelineLayout);
-  // model->draw(context.frameInfo.commandBuffer);
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(context.frameInfo.commandBuffer, 0, 1, buffers,
@@ -259,10 +181,12 @@ void render(EngineContext &context) {
   VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
                                        descriptorSet};
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
-                          descriptorSets, 0, nullptr);
+                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0,
+                          2, descriptorSets, 0, nullptr);
 
-  vkCmdDrawIndexed(context.frameInfo.commandBuffer, indices.size(), 1, 0, 0, 0);
+  vkCmdDrawIndexed(context.frameInfo.commandBuffer, indicesSize,
+                   1, 0, 0, 0);
+
 }
-} // namespace fontSys
+} // namespace textSys
 } // namespace vkh

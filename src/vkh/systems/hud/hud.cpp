@@ -1,5 +1,6 @@
 #include "hud.hpp"
-#include "hudElements.hpp"
+#include <fmt/core.h>
+#include <functional>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -12,38 +13,39 @@
 #include <memory>
 #include <vector>
 
-#include "../buffer.hpp"
-#include "../descriptors.hpp"
-#include "../image.hpp"
-#include "../pipeline.hpp"
-#include "../renderer.hpp"
+#include "../../buffer.hpp"
+#include "../../descriptors.hpp"
+#include "../../image.hpp"
+#include "../../pipeline.hpp"
+#include "../../renderer.hpp"
+#include "hudElements.hpp"
 
 namespace vkh {
 namespace hudSys {
+DrawInfo drawInfo;
+namespace font {} // namespace font
+std::optional<std::reference_wrapper<View>> view;
 std::unique_ptr<GraphicsPipeline> pipeline;
 std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
 VkDescriptorSet descriptorSet;
 
 std::vector<VkVertexInputAttributeDescription> attributeDescriptions = {
-    {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position)},
-    {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)}};
+    {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(SolidColorVertex, position)},
+    {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(SolidColorVertex, color)}};
 std::vector<VkVertexInputBindingDescription> bindingDescriptions = {
-    {0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX}};
+    {0, sizeof(SolidColorVertex), VK_VERTEX_INPUT_RATE_VERTEX}};
 
 std::unique_ptr<Buffer> vertexBuffer;
 std::unique_ptr<Buffer> indexBuffer;
 
-std::vector<Vertex> vertices;
-std::vector<uint32_t> indices;
-
 std::shared_ptr<Image> fontAtlas;
 const int maxHudRects = 10;
 const int maxVertexCount = 4 * maxHudRects; // 4 vertices = 1 quad = 1 glyph
-VkDeviceSize maxVertexSize = sizeof(Vertex) * maxVertexCount;
+VkDeviceSize maxVertexSize = sizeof(SolidColorVertex) * maxVertexCount;
 
 void createBuffers(EngineContext &context) {
   BufferCreateInfo bufInfo{};
-  bufInfo.instanceSize = sizeof(Vertex);
+  bufInfo.instanceSize = sizeof(SolidColorVertex);
   bufInfo.instanceCount = maxVertexCount;
   bufInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
   bufInfo.memoryProperties =
@@ -69,10 +71,12 @@ void createPipeline(EngineContext &context) {
   pipelineInfo.attributeDescriptions = attributeDescriptions;
   pipelineInfo.bindingDescriptions = bindingDescriptions;
   pipeline = std::make_unique<GraphicsPipeline>(
-      context, "shaders/hud.vert.spv", "shaders/hud.frag.spv", pipelineInfo);
+      context, "shaders/solidColor.vert.spv", "shaders/solidColor.frag.spv",
+      pipelineInfo);
 }
-
 void init(EngineContext &context) {
+  textSys::init(context);
+
   createBuffers(context);
 
   createPipeline(context);
@@ -81,22 +85,30 @@ void addElementToDraw(std::shared_ptr<Element> element) {
   for (auto &child : element->children) {
     addElementToDraw(child);
   }
-  uint32_t baseIndex = vertices.size();
-  element->updateDrawInfo(baseIndex);
-  auto &drawInfo = element->drawInfo;
-  vertices.insert(vertices.end(), drawInfo.vertices.begin(),
-                  drawInfo.vertices.end());
-  indices.insert(indices.end(), drawInfo.indices.begin(),
-                 drawInfo.indices.end());
+  element->addToDrawInfo(drawInfo);
 }
-void update(EngineContext &context, View &content) {
-  vertices.clear();
-  indices.clear();
-  for (const auto &element : content) {
+void setView(View &newView) {
+  view = newView;
+  newView.setCurrent();
+}
+View &getView() { return view.value(); }
+void update(EngineContext &context) {
+  drawInfo.solidColorVertices.clear();
+  drawInfo.solidColorIndices.clear();
+  drawInfo.textVertices.clear();
+  drawInfo.textIndices.clear();
+  for (const auto &element : view.value().get()) {
     addElementToDraw(element);
   }
-  vertexBuffer->write(vertices.data());
-  indexBuffer->write(indices.data());
+  vertexBuffer->write(drawInfo.solidColorVertices.data(),
+                      drawInfo.solidColorVertices.size() *
+                          sizeof(SolidColorVertex));
+  indexBuffer->write(drawInfo.solidColorIndices.data(),
+                     drawInfo.solidColorIndices.size() * sizeof(uint32_t));
+  textSys::vertexBuffer->write(drawInfo.textVertices.data(),
+                            drawInfo.textVertices.size() * sizeof(textSys::Vertex));
+  textSys::indexBuffer->write(drawInfo.textIndices.data(),
+                           drawInfo.textIndices.size() * sizeof(uint32_t));
 }
 
 void cleanup(EngineContext &context) {
@@ -107,26 +119,26 @@ void cleanup(EngineContext &context) {
   pipeline = nullptr;
   fontAtlas = nullptr;
   descriptorSetLayout = nullptr;
+  textSys::cleanup(context);
 }
 
 void render(EngineContext &context) {
+  if (!view.has_value())
+    return;
+  update(context);
+
   pipeline->bind(context.frameInfo.commandBuffer);
 
-  /*PushConstantData push{};
-
-  vkCmdPushConstants(context.frameInfo.commandBuffer, pipelineLayout,
-                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                     0, sizeof(PushConstantData), &push);*/
-
-  // model->bind(context, context.frameInfo.commandBuffer, pipelineLayout);
-  // model->draw(context.frameInfo.commandBuffer);
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(context.frameInfo.commandBuffer, 0, 1, buffers,
                          offsets);
   vkCmdBindIndexBuffer(context.frameInfo.commandBuffer, *indexBuffer, 0,
                        VK_INDEX_TYPE_UINT32);
-  vkCmdDrawIndexed(context.frameInfo.commandBuffer, indices.size(), 1, 0, 0, 0);
+  vkCmdDrawIndexed(context.frameInfo.commandBuffer,
+                   drawInfo.solidColorIndices.size(), 1, 0, 0, 0);
+
+  textSys::render(context, drawInfo.textIndices.size());
 }
 } // namespace hudSys
 } // namespace vkh

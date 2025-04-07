@@ -11,7 +11,6 @@
 #include <thread>
 
 #include "entity.hpp"
-#include "systems/hud.hpp"
 
 namespace vkh {
 namespace input {
@@ -43,15 +42,7 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
     return;
   }
   if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-    switch (context->view) {
-    case EngineContext::World:
-      context->view = EngineContext::Pause;
-      break;
-    case EngineContext::Pause:
-      context->view = EngineContext::World;
-      break;
-    }
-    // glfwSetWindowShouldClose(context->window, GLFW_TRUE);
+    glfwSetWindowShouldClose(context->window, GLFW_TRUE);
   }
   if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
     Entity &player = context->entities[0];
@@ -68,6 +59,10 @@ static void cursorPositionCallback(GLFWwindow *window, double xpos,
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   context->input.cursorPos.x = static_cast<int>(xpos);
   context->input.cursorPos.y = static_cast<int>(ypos);
+  for (auto &callback :
+       context->inputCallbackSystems[context->currentInputCallbackSystemIndex]
+           .cursorPosition)
+    callback(xpos, ypos);
 }
 int scroll{};
 void scrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
@@ -94,10 +89,19 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
            .mouseButton)
     callback(button, action, mods);
 }
+void charCallback(GLFWwindow *window, unsigned int codepoint) {
+  auto context =
+      reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
+  for (auto &callback :
+       context->inputCallbackSystems[context->currentInputCallbackSystemIndex]
+           .character)
+    callback(codepoint);
+}
 void init(EngineContext &context) {
   glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
   glfwSetInputMode(context.window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
   glfwSetKeyCallback(context.window, keyCallback);
+  glfwSetCharCallback(context.window, charCallback);
   glfwSetCursorPosCallback(context.window, cursorPositionCallback);
   glfwSetScrollCallback(context.window, scrollCallback);
   glfwSetMouseButtonCallback(context.window, mouseButtonCallback);
@@ -108,7 +112,9 @@ void moveInPlaneXZ(EngineContext &context) {
   glm::mat3 rotationMatrix = glm::mat3(
       player.transform
           .orientation); // glm::eulerAngles(player.transform.orientation);
-  glm::vec3 rotation = glm::vec3{-context.input.cursorPos.y, context.input.cursorPos.x, 0.f} * 0.001f;
+  glm::vec3 rotation =
+      glm::vec3{-context.input.cursorPos.y, context.input.cursorPos.x, 0.f} *
+      0.001f;
 
   rotation.y = glm::mod(rotation.y, glm::two_pi<float>());
   rotation.x = glm::clamp(rotation.x, -1.5f, 1.5f);
