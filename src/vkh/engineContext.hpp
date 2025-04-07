@@ -92,10 +92,10 @@ struct EngineContext {
     glm::mat4 viewMatrix{1.f};
     glm::mat4 inverseViewMatrix{1.f};
   } camera;
-  enum { World, Pause } view{World};
   struct InputCallbackSystem {
     std::vector<std::function<void(int, int, int)>> mouseButton;
-    std::vector<std::function<void(int, int)>> cursorPosition;
+    std::vector<std::function<void(double, double)>> cursorPosition;
+    std::vector<std::function<void(unsigned int)>> character;
   };
   std::vector<InputCallbackSystem> inputCallbackSystems;
   std::size_t currentInputCallbackSystemIndex = 0;
