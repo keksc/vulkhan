@@ -26,7 +26,7 @@ const std::vector<VkVertexInputAttributeDescription> attributeDescriptions = {
 const std::vector<VkVertexInputBindingDescription> bindingDescriptions = {
     {0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX}};
 
-const int maxCharCount = 30;
+const int maxCharCount = 80;
 const int maxVertexCount = 4 * maxCharCount; // 4 vertices = 1 quad = 1 glyph
 const VkDeviceSize maxVertexSize = sizeof(Vertex) * maxVertexCount;
 const int maxIndexCount = maxCharCount * 6;
@@ -140,12 +140,11 @@ void createGlyphs(EngineContext &context) {
                       (pc.yoff2 - pc.yoff) / context.window.size.y};
     glm::vec2 offset = {pc.xoff, pc.yoff};
     Glyph glyph{.size = size,
-                .offset = offset,
+                .offset = offset/static_cast<glm::vec2>(context.window.size),
                 .uvOffset = glm::vec2(pc.x0, pc.y0) / bitmapExtent,
                 .uvExtent =
                     glm::vec2(pc.x1 - pc.x0, pc.y1 - pc.y0) / bitmapExtent,
-                .advance = pc.xadvance,
-                .normalizedAdvance = pc.xadvance / context.window.size.x};
+                .advance = pc.xadvance / context.window.size.x};
 
     glyphs[c] = glyph;
   }
@@ -169,8 +168,8 @@ void cleanup(EngineContext &context) {
   fontAtlas = nullptr;
   descriptorSetLayout = nullptr;
 }
-void render(EngineContext& context, size_t indicesSize) {
-    pipeline->bind(context.frameInfo.commandBuffer);
+void render(EngineContext &context, size_t indicesSize) {
+  pipeline->bind(context.frameInfo.commandBuffer);
 
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
@@ -181,12 +180,10 @@ void render(EngineContext& context, size_t indicesSize) {
   VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
                                        descriptorSet};
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0,
-                          2, descriptorSets, 0, nullptr);
+                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
+                          descriptorSets, 0, nullptr);
 
-  vkCmdDrawIndexed(context.frameInfo.commandBuffer, indicesSize,
-                   1, 0, 0, 0);
-
+  vkCmdDrawIndexed(context.frameInfo.commandBuffer, indicesSize, 1, 0, 0, 0);
 }
 } // namespace textSys
 } // namespace vkh
