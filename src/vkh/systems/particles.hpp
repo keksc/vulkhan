@@ -1,11 +1,16 @@
 #pragma once
 
-#include "../engineContext.hpp"
+#include "system.hpp"
 
 namespace vkh {
-namespace particleSys {
-void init(EngineContext &context);
-void cleanup(EngineContext &context);
-void render(EngineContext &context);
+class ParticleSys : public System {
+public:
+  ParticleSys(EngineContext &context);
+  void render();
+
+private:
+  void createPipeline();
+
+  std::unique_ptr<GraphicsPipeline> pipeline;
 }; // namespace particlesSys
 } // namespace vkh

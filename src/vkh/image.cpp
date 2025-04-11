@@ -14,6 +14,30 @@
 #include "deviceHelpers.hpp"
 
 namespace vkh {
+void Image::recordTransitionLayout(VkCommandBuffer cmdBuffer,
+                                   VkImageLayout oldLayout,
+                                   VkImageLayout newLayout) {
+  TransitionParams params = getTransitionParams(oldLayout, newLayout);
+
+  VkImageMemoryBarrier barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  barrier.oldLayout = oldLayout;
+  barrier.newLayout = newLayout;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.image = img;
+  barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  barrier.subresourceRange.baseMipLevel = 0;
+  barrier.subresourceRange.levelCount = 1;
+  barrier.subresourceRange.baseArrayLayer = 0;
+  barrier.subresourceRange.layerCount = 1;
+  barrier.srcAccessMask = params.srcAccessMask;
+  barrier.dstAccessMask = params.dstAccessMask;
+
+  vkCmdPipelineBarrier(cmdBuffer, params.srcStage, params.dstStage, 0, 0,
+                       nullptr, 0, nullptr, 1, &barrier);
+  layout = newLayout;
+}
 void Image::createImage(EngineContext &context, int w, int h,
                         VkImageUsageFlags usage) {
   const VkImageLayout initLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -188,14 +212,8 @@ Image::~Image() {
   vkDestroyImageView(context.vulkan.device, view, nullptr);
   vkFreeMemory(context.vulkan.device, memory, nullptr);
 }
-struct TransitionParams {
-  VkAccessFlags srcAccessMask;
-  VkAccessFlags dstAccessMask;
-  VkPipelineStageFlags srcStage;
-  VkPipelineStageFlags dstStage;
-};
 
-TransitionParams getTransitionParams(VkImageLayout oldLayout,
+Image::TransitionParams Image::getTransitionParams(VkImageLayout oldLayout,
                                      VkImageLayout newLayout) {
   TransitionParams params{};
   if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&

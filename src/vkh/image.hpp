@@ -70,7 +70,9 @@ public:
                         VkPipelineStageFlags dstStageMask);
 
   void copyBufferToImage_def(VkCommandBuffer cmdBuffer, VkBuffer buffer,
-                         uint32_t bufferOffset = 0);
+                             uint32_t bufferOffset = 0);
+  void recordTransitionLayout(VkCommandBuffer cmdBuffer,
+                              VkImageLayout oldLayout, VkImageLayout newLayout);
 
 private:
   void RecordImageBarrier(VkCommandBuffer cmdBuffer,
@@ -82,7 +84,15 @@ private:
 
   void createImageFromPixels(void *pixels, int w, int h);
   void createImage(EngineContext &context, int w, int h,
-                      VkImageUsageFlags usage);
+                   VkImageUsageFlags usage);
+  struct TransitionParams {
+    VkAccessFlags srcAccessMask;
+    VkAccessFlags dstAccessMask;
+    VkPipelineStageFlags srcStage;
+    VkPipelineStageFlags dstStage;
+  };
+  TransitionParams getTransitionParams(VkImageLayout oldLayout,
+                                       VkImageLayout newLayout);
 
   EngineContext &context;
 
