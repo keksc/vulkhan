@@ -1,12 +1,17 @@
 #pragma once
 
-#include "../engineContext.hpp"
+#include "system.hpp"
 
 namespace vkh {
-	namespace freezeAnimationSys {
-		void init(EngineContext& context);
-		void cleanup(EngineContext& context);
+class FreezeAnimationSys : public System {
+public:
+  FreezeAnimationSys(EngineContext &context);
 
-		void render(EngineContext& context);
-	};
-}  // namespace lve
+  void render();
+
+private:
+  void createPipeline();
+
+  std::unique_ptr<GraphicsPipeline> pipeline;
+};
+} // namespace vkh

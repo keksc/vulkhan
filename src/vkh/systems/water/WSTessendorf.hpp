@@ -8,8 +8,6 @@
 #include <glm/ext.hpp>
 #include <glm/glm.hpp>
 
-#include <fftw3.h>
-
 namespace vkh {
 /**
  * @brief Generates data used for rendering the water surface
@@ -40,7 +38,6 @@ public:
   using Displacement = glm::vec4;
   using Normal = glm::vec4;
 
-public:
   /**
    * @brief Sets up the surface's properties.
    *  1. Call "Prepare()" to setup necessary structures for computation of waves
@@ -117,6 +114,9 @@ public:
   void SetDamping(float damping);
 
 private:
+  static void ifft1d(std::complex<float> *data, int N);
+  static void ifft2d(std::complex<float> *data, int N);
+
   using Complex = std::complex<float>;
 
   struct WaveVector {
@@ -150,7 +150,6 @@ private:
   void SetupFFTW();
   void DestroyFFTW();
 
-private:
   // ---------------------------------------------------------------------
   // Properties
 
@@ -200,17 +199,6 @@ private:
   Complex *m_dzDisplacementX{nullptr};
 #endif
 
-  fftwf_plan m_PlanHeight{nullptr};
-  fftwf_plan m_PlanSlopeX{nullptr};
-  fftwf_plan m_PlanSlopeZ{nullptr};
-  fftwf_plan m_PlanDisplacementX{nullptr};
-  fftwf_plan m_PlanDisplacementZ{nullptr};
-  fftwf_plan m_PlandxDisplacementX{nullptr};
-  fftwf_plan m_PlandzDisplacementZ{nullptr};
-#ifdef COMPUTE_JACOBIAN
-  fftwf_plan m_PlandxDisplacementZ{nullptr};
-  fftwf_plan m_PlandzDisplacementX{nullptr};
-#endif
 
   float m_MinHeight{-1.0f};
   float m_MaxHeight{1.0f};

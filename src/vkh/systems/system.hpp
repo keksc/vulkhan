@@ -5,9 +5,8 @@
 
 namespace vkh {
 class System {
+protected:
   System(EngineContext &context) : context{context} {}
-
-private:
   EngineContext &context;
 };
 } // namespace vkh

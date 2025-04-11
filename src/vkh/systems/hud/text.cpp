@@ -15,36 +15,12 @@
 
 #include "../../buffer.hpp"
 #include "../../descriptors.hpp"
-#include "../../image.hpp"
 #include "../../pipeline.hpp"
 
 namespace vkh {
-namespace textSys {
-const std::vector<VkVertexInputAttributeDescription> attributeDescriptions = {
-    {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position)},
-    {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)}};
-const std::vector<VkVertexInputBindingDescription> bindingDescriptions = {
-    {0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX}};
+TextSys::GlyphRange TextSys::glyphRange;
 
-const int maxCharCount = 80;
-const int maxVertexCount = 4 * maxCharCount; // 4 vertices = 1 quad = 1 glyph
-const VkDeviceSize maxVertexSize = sizeof(Vertex) * maxVertexCount;
-const int maxIndexCount = maxCharCount * 6;
-const VkDeviceSize maxIndexSize = sizeof(uint32_t) * 6 * maxCharCount;
-std::unique_ptr<GraphicsPipeline> pipeline;
-std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
-VkDescriptorSet descriptorSet;
-
-std::unique_ptr<Buffer> vertexBuffer;
-std::unique_ptr<Buffer> indexBuffer;
-
-std::vector<char> fontDataChar;
-unsigned char *fontData;
-
-std::unordered_map<char, Glyph> glyphs;
-std::shared_ptr<Image> fontAtlas;
-
-void createBuffers(EngineContext &context) {
+void TextSys::createBuffers() {
   BufferCreateInfo bufInfo{};
   bufInfo.instanceSize = sizeof(Vertex);
   bufInfo.instanceCount = maxVertexCount;
@@ -60,7 +36,7 @@ void createBuffers(EngineContext &context) {
   indexBuffer = std::make_unique<Buffer>(context, bufInfo);
   indexBuffer->map();
 }
-void createDescriptors(EngineContext &context) {
+void TextSys::createDescriptors() {
   descriptorSetLayout =
       DescriptorSetLayout::Builder(context)
           .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -74,7 +50,7 @@ void createDescriptors(EngineContext &context) {
       .writeImage(0, &imageInfo)
       .build(descriptorSet);
 }
-void createPipeline(EngineContext &context) {
+void TextSys::createPipeline() {
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
       *context.vulkan.globalDescriptorSetLayout, *descriptorSetLayout};
 
@@ -98,11 +74,10 @@ void createPipeline(EngineContext &context) {
   pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/text.vert.spv", "shaders/text.frag.spv", pipelineInfo);
 }
-void initFont() {
-  fontDataChar = readFile("fonts/Roboto-Regular.ttf");
-  fontData = reinterpret_cast<unsigned char *>(fontDataChar.data());
-}
-void createGlyphs(EngineContext &context) {
+void TextSys::createGlyphs() {
+  std::vector<char> fontDataChar = readFile("fonts/Roboto-Regular.ttf");
+  unsigned char *fontData =
+      reinterpret_cast<unsigned char *>(fontDataChar.data());
   const glm::vec2 bitmapExtent = {512.f, 512.f};
   const int atlasSize = bitmapExtent.x * bitmapExtent.y;
   const float fontSize = 32.f;
@@ -130,45 +105,37 @@ void createGlyphs(EngineContext &context) {
   imageInfo.w = bitmapExtent.x;
   imageInfo.h = bitmapExtent.y;
   imageInfo.data = atlasData;
-  fontAtlas = std::make_shared<Image>(context, imageInfo);
+  fontAtlas = std::make_unique<Image>(context, imageInfo);
 
   for (int i = 0; i < charInfo.size(); i++) {
     char c = i + 32;
     const stbtt_packedchar &pc = charInfo[i];
 
-    glm::vec2 size = {(pc.xoff2 - pc.xoff) / context.window.size.x,
-                      (pc.yoff2 - pc.yoff) / context.window.size.y};
-    glm::vec2 offset = {pc.xoff, pc.yoff};
+    glm::vec2 size = glm::vec2{pc.xoff2 - pc.xoff, pc.yoff2 - pc.yoff} /
+                     static_cast<glm::vec2>(context.window.size);
+    glm::vec2 offset = glm::vec2{pc.xoff, pc.yoff} /
+                       static_cast<glm::vec2>(context.window.size);
+    float advance = pc.xadvance / context.window.size.x;
     Glyph glyph{.size = size,
-                .offset = offset/static_cast<glm::vec2>(context.window.size),
+                .offset = offset,
                 .uvOffset = glm::vec2(pc.x0, pc.y0) / bitmapExtent,
                 .uvExtent =
                     glm::vec2(pc.x1 - pc.x0, pc.y1 - pc.y0) / bitmapExtent,
-                .advance = pc.xadvance / context.window.size.x};
+                .advance = advance};
 
-    glyphs[c] = glyph;
+    glyphRange.glyphs[c] = glyph;
+    glyphRange.maxSizeY = glm::max(size.y, glyphRange.maxSizeY);
   }
   delete[] atlasData;
 }
-void init(EngineContext &context) {
-  initFont();
-  createGlyphs(context);
-  createBuffers(context);
-  createDescriptors(context);
+TextSys::TextSys(EngineContext &context) : System(context) {
+  createGlyphs();
+  createBuffers();
+  createDescriptors();
 
-  createPipeline(context);
+  createPipeline();
 }
-void cleanup(EngineContext &context) {
-  vertexBuffer->unmap();
-  vertexBuffer = nullptr;
-  indexBuffer->unmap();
-  indexBuffer = nullptr;
-  pipeline = nullptr;
-  glyphs.clear();
-  fontAtlas = nullptr;
-  descriptorSetLayout = nullptr;
-}
-void render(EngineContext &context, size_t indicesSize) {
+void TextSys::render(size_t indicesSize) {
   pipeline->bind(context.frameInfo.commandBuffer);
 
   VkBuffer buffers[] = {*vertexBuffer};
@@ -185,5 +152,4 @@ void render(EngineContext &context, size_t indicesSize) {
 
   vkCmdDrawIndexed(context.frameInfo.commandBuffer, indicesSize, 1, 0, 0, 0);
 }
-} // namespace textSys
 } // namespace vkh

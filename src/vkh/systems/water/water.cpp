@@ -8,115 +8,7 @@
 #include "WSTessendorf.hpp"
 
 namespace vkh {
-namespace waterSys {
-static const uint32_t maxTileSize{256};
-uint32_t m_TileSize{WSTessendorf::defaultTileSize};
-float m_VertexDistance{WSTessendorf::defaultTileLength /
-                       static_cast<float>(WSTessendorf::defaultTileSize)};
-
-std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
-std::vector<VkDescriptorSet> descriptorSets;
-std::vector<std::unique_ptr<Buffer>> uniformBuffers;
-std::unique_ptr<GraphicsPipeline> pipeline;
-std::unique_ptr<ComputePipeline> fftPipeline;
-std::unique_ptr<Mesh<Vertex>> mesh;
-
-std::unique_ptr<WSTessendorf> modelTess;
-FrameMapData frameMap;
-std::unique_ptr<Buffer> stagingBuffer;
-
-bool playAnimation{true};
-float animSpeed{3.0};
-
-static const inline glm::vec3 s_kWavelengthsRGB_m{680e-9, 550e-9, 440e-9};
-static const inline glm::vec3 s_kWavelengthsRGB_nm{680, 550, 440};
-
-uint32_t m_WaterTypeCoefIndex{0};
-uint32_t m_BaseScatterCoefIndex{0};
-
-static glm::vec3 ComputeScatteringCoefPA01(float b_lambda0) {
-  return b_lambda0 * ((-0.00113f * s_kWavelengthsRGB_nm + 1.62517f) /
-                      (-0.00113f * 514.0f + 1.62517f));
-}
-
-/**
- * @param b Scattering coefficient for each wavelength, in m^-1
- * @return Backscattering coefficient for each wavelength, from [PA01]
- */
-static glm::vec3 ComputeBackscatteringCoefPA01(const glm::vec3 &b) {
-  return 0.01829f * b + 0.00006f;
-}
-
-/**
- * @param C pigment concentration for an open water type, [mg/m^3]
- * @return Backscattering coefficient based on eqs.:24,25,26 [PA01]
- */
-static glm::vec3 ComputeBackscatteringCoefPigmentPA01(float C) {
-  // Morel. Optical modeling of the upper ocean in relation to its biogenus
-  //  matter content.
-  const glm::vec3 b_w(0.0007f, 0.00173f, 0.005f);
-
-  // Ratio of backscattering and scattering coeffiecients of the pigments
-  const glm::vec3 B_b =
-      0.002f + 0.02f *
-                   (0.5f - 0.25f * ((1.0f / glm::log(10.0f)) * glm::log(C))) *
-                   (550.0f / s_kWavelengthsRGB_nm);
-  // Scattering coefficient of the pigment
-  const float b_p = 0.3f * glm::pow(C, 0.62f);
-
-  return 0.5f * b_w + B_b * b_p;
-}
-
-struct VertexUBO {
-  alignas(16) glm::mat4 model;
-  alignas(16) glm::mat4 view;
-  alignas(16) glm::mat4 proj;
-  float WSHeightAmp;
-  float WSChoppy;
-  float scale{1.0f}; ///< Texture scale
-} vertexUBO{};
-
-struct WaterSurfaceUBO {
-  alignas(16) glm::vec3 camPos;
-  float height{50.0f};
-  alignas(16) glm::vec3 absorpCoef{glm::vec3{0.420, 0.063, 0.019}};
-  alignas(16) glm::vec3 scatterCoef{ComputeScatteringCoefPA01(0.037)};
-  alignas(16) glm::vec3 backscatterCoef{
-      ComputeBackscatteringCoefPA01(scatterCoef)};
-  // -------------------------------------------------
-  alignas(16) glm::vec3 terrainColor{0.964, 1.0, 0.824};
-  float skyIntensity{1.0};
-  float specularIntensity{1.0};
-  float specularHighlights{32.0};
-  SkyParams sky;
-} waterSurfaceUBO;
-
-/**
- * @pre size > 0
- * @return Size 'size' aligned to 'alignment'
- */
-static size_t alignSizeTo(size_t size, size_t alignment) {
-  return (size + alignment - 1) & ~(alignment - 1);
-}
-
-uint32_t getTotalVertexCount(const uint32_t kTileSize) {
-  return (kTileSize + 1) * (kTileSize + 1);
-}
-
-uint32_t getTotalIndexCount(const uint32_t totalVertexCount) {
-  const uint32_t indicesPerTriangle = 3, trianglesPerQuad = 2;
-  return totalVertexCount * indicesPerTriangle * trianglesPerQuad;
-}
-
-static uint32_t getMaxVertexCount() {
-  return (maxTileSize + 1) * (maxTileSize + 1);
-}
-static uint32_t getMaxIndexCount() {
-  const uint32_t indicesPerTriangle = 3, trianglesPerQuad = 2;
-  return getMaxVertexCount() * indicesPerTriangle * trianglesPerQuad;
-}
-
-void createPipeline(EngineContext &context) {
+void WaterSys::createPipeline() {
   PipelineCreateInfo pipelineInfo{};
   const VkDescriptorSetLayout dsl = *descriptorSetLayout;
 
@@ -128,11 +20,8 @@ void createPipeline(EngineContext &context) {
   pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/water.vert.spv", "shaders/water.frag.spv",
       pipelineInfo);
-
-  fftPipeline =
-      std::make_unique<ComputePipeline>(context, "shaders/radix-2.comp.spv");
 }
-void createUniformBuffers(EngineContext &context, const uint32_t bufferCount) {
+void WaterSys::createUniformBuffers(const uint32_t bufferCount) {
   const VkDeviceSize kBufferSize =
       getUniformBufferAlignment(context, sizeof(VertexUBO)) +
       getUniformBufferAlignment(context, sizeof(WaterSurfaceUBO));
@@ -148,7 +37,7 @@ void createUniformBuffers(EngineContext &context, const uint32_t bufferCount) {
     buffer->map();
   }
 }
-void createDescriptorSets(EngineContext &context, const uint32_t count) {
+void WaterSys::createDescriptorSets(const uint32_t count) {
   descriptorSets.resize(count);
   for (auto &set : descriptorSets) {
     context.vulkan.globalDescriptorPool->allocateDescriptorSet(
@@ -156,9 +45,9 @@ void createDescriptorSets(EngineContext &context, const uint32_t count) {
   }
 }
 
-void createRenderData(EngineContext &context, const uint32_t imageCount) {
-  createUniformBuffers(context, imageCount);
-  createDescriptorSets(context, imageCount);
+void WaterSys::createRenderData(const uint32_t imageCount) {
+  createUniformBuffers(imageCount);
+  createDescriptorSets(imageCount);
 }
 
 std::unique_ptr<Image> createMap(EngineContext &context,
@@ -175,7 +64,7 @@ std::unique_ptr<Image> createMap(EngineContext &context,
 
   return std::make_unique<Image>(context, imageInfo);
 }
-void createFrameMaps(EngineContext &context, VkCommandBuffer cmdBuffer) {
+void WaterSys::createFrameMaps(VkCommandBuffer cmdBuffer) {
   vkQueueWaitIdle(context.vulkan.graphicsQueue);
 
   const uint32_t kSize = WSTessendorf::defaultTileSize;
@@ -185,7 +74,7 @@ void createFrameMaps(EngineContext &context, VkCommandBuffer cmdBuffer) {
   frameMap.normalMap =
       createMap(context, cmdBuffer, kSize, mapFormat, useMipMapping);
 }
-void updateFrameMaps(VkCommandBuffer cmdBuffer, FrameMapData &frame) {
+void WaterSys::updateFrameMaps(VkCommandBuffer cmdBuffer, FrameMapData &frame) {
   VkDeviceSize stagingBufferOffset =
       alignSizeTo(mesh->getVerticesSize() + mesh->getIndicesSize(),
                   Image::formatSize(mapFormat));
@@ -203,7 +92,7 @@ void updateFrameMaps(VkCommandBuffer cmdBuffer, FrameMapData &frame) {
                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                   stagingBufferOffset);
 }
-void copyModelTessDataToStagingBuffer(EngineContext &context) {
+void WaterSys::copyModelTessDataToStagingBuffer() {
   assert(stagingBuffer != nullptr);
 
   const VkDeviceSize kDisplacementsSize =
@@ -240,18 +129,18 @@ void copyModelTessDataToStagingBuffer(EngineContext &context) {
                            Image::formatSize(mapFormat)) +
                    kDisplacementsSize + kNormalsSize));
 }
-void prepareModelTess(EngineContext &context, VkCommandBuffer cmdBuffer) {
+void WaterSys::prepareModelTess(VkCommandBuffer cmdBuffer) {
   modelTess->Prepare();
 
   // Do one pass to initialize the maps
 
   vertexUBO.WSHeightAmp = modelTess->computeWaves(glfwGetTime() * animSpeed);
-  copyModelTessDataToStagingBuffer(context);
+  copyModelTessDataToStagingBuffer();
 
   updateFrameMaps(cmdBuffer, frameMap);
 }
-std::vector<Vertex> createGridVertices(const uint32_t kTileSize,
-                                       const float kScale) {
+std::vector<WaterSys::Vertex>
+WaterSys::createGridVertices(const uint32_t kTileSize, const float kScale) {
   std::vector<Vertex> vertices;
 
   vertices.reserve(getTotalVertexCount(kTileSize));
@@ -278,7 +167,7 @@ std::vector<Vertex> createGridVertices(const uint32_t kTileSize,
   return vertices;
 }
 
-std::vector<uint32_t> createGridIndices(const uint32_t kTileSize) {
+std::vector<uint32_t> WaterSys::createGridIndices(const uint32_t kTileSize) {
   const uint32_t kVertexCount = kTileSize + 1;
 
   std::vector<uint32_t> indices;
@@ -302,7 +191,7 @@ std::vector<uint32_t> createGridIndices(const uint32_t kTileSize) {
 
   return indices;
 }
-void updateDescriptoaSet(EngineContext &context, VkDescriptorSet set) {
+void WaterSys::updateDescriptoaSet(VkDescriptorSet set) {
   // UBOs
   VkDescriptorBufferInfo bufferInfos[2] = {};
   bufferInfos[0].buffer = *uniformBuffers[context.frameInfo.frameIndex];
@@ -338,7 +227,7 @@ void updateDescriptoaSet(EngineContext &context, VkDescriptorSet set) {
 
   descriptorWriter.overwrite(set);
 }
-void updateUniformBuffer(EngineContext &context) {
+void WaterSys::updateUniformBuffer() {
   auto &buffer = uniformBuffers[context.frameInfo.frameIndex];
 
   buffer->write(&vertexUBO, sizeof(vertexUBO));
@@ -348,24 +237,23 @@ void updateUniformBuffer(EngineContext &context) {
 
   buffer->flush();
 }
-void prepare(EngineContext &context, VkCommandBuffer cmdBuffer) {
-  createFrameMaps(context, cmdBuffer);
+void WaterSys::prepare(VkCommandBuffer cmdBuffer) {
+  createFrameMaps(cmdBuffer);
 
-  prepareModelTess(context, cmdBuffer);
+  prepareModelTess(cmdBuffer);
 }
 
-void update(EngineContext &context) {
+void WaterSys::update() {
   if (playAnimation) {
-    auto cmd = beginSingleTimeCommands(context);
-    fftPipeline->bind(cmd);
-    vkCmdDispatch(cmd, 16, 16, 1);
-    endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
+    // auto cmd = beginSingleTimeCommands(context);
+    // vkCmdDispatch(cmd, 16, 16, 1);
+    // endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
     vertexUBO.WSHeightAmp = modelTess->computeWaves(glfwGetTime() * animSpeed);
-    copyModelTessDataToStagingBuffer(context);
+    copyModelTessDataToStagingBuffer();
   }
 }
 
-void prepareRender(EngineContext &context, const SkyParams &skyParams) {
+void WaterSys::prepareRender(const SkyParams &skyParams) {
   vertexUBO.model = glm::mat4(1.0f);
   vertexUBO.view = context.camera.viewMatrix;
   vertexUBO.proj = context.camera.projectionMatrix;
@@ -375,9 +263,9 @@ void prepareRender(EngineContext &context, const SkyParams &skyParams) {
   waterSurfaceUBO.camPos = context.camera.position;
   waterSurfaceUBO.sky = skyParams;
 
-  updateUniformBuffer(context);
+  updateUniformBuffer();
   // UpdateMeshBuffers(device, cmdBuffer);
-  updateDescriptoaSet(context, descriptorSets[context.frameInfo.frameIndex]);
+  updateDescriptoaSet(descriptorSets[context.frameInfo.frameIndex]);
 
   // No need to update the texture with the same data over again
   if (playAnimation) {
@@ -385,7 +273,7 @@ void prepareRender(EngineContext &context, const SkyParams &skyParams) {
   }
 }
 
-void render(EngineContext &context) {
+void WaterSys::render() {
   pipeline->bind(context.frameInfo.commandBuffer);
 
   const uint32_t kFirstSet = 0, kDescriptorSetCount = 1;
@@ -402,7 +290,7 @@ void render(EngineContext &context) {
   mesh->draw(context.frameInfo.commandBuffer);
 }
 
-void createDescriptorSetLayout(EngineContext &context) {
+void WaterSys::createDescriptorSetLayout() {
   uint32_t bindingPoint = 0;
 
   descriptorSetLayout =
@@ -422,14 +310,14 @@ void createDescriptorSetLayout(EngineContext &context) {
           .build();
 }
 
-void createTessendorfModel() {
+void WaterSys::createTessendorfModel() {
   const auto sampleCount = modelTess->defaultTileSize;
   const auto waveLength = modelTess->defaultTileLength;
 
   modelTess = std::make_unique<WSTessendorf>(sampleCount, waveLength);
 }
 
-void createMesh(EngineContext &context) {
+void WaterSys::createMesh() {
   const VkDeviceSize kMaxVerticesSize = sizeof(Vertex) * getMaxVertexCount();
   const VkDeviceSize kMaxIndicesSize = sizeof(uint32_t) * getMaxIndexCount();
 
@@ -441,7 +329,7 @@ void createMesh(EngineContext &context) {
   mesh = std::make_unique<Mesh<Vertex>>(context, meshInfo);
 }
 
-void createStagingBuffer(EngineContext &context) {
+void WaterSys::createStagingBuffer() {
   const VkDeviceSize kVerticesSize =
       sizeof(Vertex) * getTotalVertexCount(m_TileSize);
   const VkDeviceSize indicesSize =
@@ -459,29 +347,15 @@ void createStagingBuffer(EngineContext &context) {
   stagingBuffer = std::make_unique<Buffer>(context, bufInfo);
   stagingBuffer->map();
 }
-void init(EngineContext &context) {
-  createDescriptorSetLayout(context);
+WaterSys::WaterSys(EngineContext &context) : System(context) {
+  createDescriptorSetLayout();
 
-  createPipeline(context);
+  createPipeline();
 
   createTessendorfModel();
 
-  createStagingBuffer(context);
+  createStagingBuffer();
 
-  createMesh(context);
+  createMesh();
 }
-void cleanup() {
-  fftPipeline = nullptr;
-  descriptorSetLayout = nullptr;
-  for (auto &buffer : uniformBuffers) {
-    buffer = nullptr;
-  }
-  pipeline = nullptr;
-  mesh = nullptr;
-  modelTess = nullptr;
-  stagingBuffer = nullptr;
-  frameMap.displacementMap = nullptr;
-  frameMap.normalMap = nullptr;
-}
-} // namespace waterSys
 } // namespace vkh

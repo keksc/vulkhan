@@ -16,14 +16,11 @@
 #include "../renderer.hpp"
 
 namespace vkh {
-namespace particleSys {
-std::unique_ptr<GraphicsPipeline> pipeline;
-
 struct PushConstantData {
   int particleIndex;
 };
 
-void createPipeline(EngineContext &context) {
+void ParticleSys::createPipeline() {
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
       *context.vulkan.globalDescriptorSetLayout};
 
@@ -51,11 +48,9 @@ void createPipeline(EngineContext &context) {
       context, "shaders/particles.vert.spv", "shaders/particles.frag.spv",
       pipelineConfig);
 }
-void init(EngineContext &context) { createPipeline(context); }
+ParticleSys::ParticleSys(EngineContext &context) : System(context) { createPipeline(); }
 
-void cleanup(EngineContext &context) { pipeline = nullptr; }
-
-void render(EngineContext &context) {
+void ParticleSys::render() {
   pipeline->bind(context.frameInfo.commandBuffer);
 
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
@@ -70,5 +65,4 @@ void render(EngineContext &context) {
     vkCmdDraw(context.frameInfo.commandBuffer, 1, 1, 0, 0);
   }
 }
-} // namespace particleSys
 } // namespace vkh

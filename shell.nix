@@ -22,7 +22,6 @@ pkgs.mkShell {
     simdjson
     curl
     gcc
-    fftwFloat
   ];
 
   shellHook = ''

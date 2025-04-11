@@ -61,5 +61,6 @@ void main() {
 
   float alpha = smoothstep(0.0, 1.0, (func-radius)*6.0);
 
+  if(alpha == 0.0) discard;
   outColor = vec4(0.054, 0.57, 0.8, alpha);
 }

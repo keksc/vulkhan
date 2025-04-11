@@ -15,70 +15,189 @@
 #include "../../engineContext.hpp"
 #include "../../image.hpp"
 #include "../../mesh.hpp"
+#include "../system.hpp"
 #include "WSTessendorf.hpp"
 #include "skyPreetham.hpp"
 
 namespace vkh {
-namespace waterSys {
+class WaterSys : public System {
+public:
+  WaterSys(EngineContext &context);
+  void prepare(VkCommandBuffer cmdBuffer);
+  void createRenderData(const uint32_t imageCount);
+  void render();
+  void update();
 
-struct SkyParams {
-  alignas(16) glm::vec3 sunColor{1.0};
-  float sunIntensity{1.0};
-  // -------------------------------------------------
-  SkyPreetham::Props props;
-};
-/**
- * @brief Creates vertex and index buffers to accomodate maximum size of
- *  vertices and indices.
- *  To render the mesh, fnc "Prepare()" must be called with the size of tile
- */
-void init(EngineContext &context);
-void cleanup();
-void createRenderData(EngineContext &context, const uint32_t imageCount);
-void prepare(EngineContext &context, VkCommandBuffer cmdBuffer);
-void update(EngineContext &context);
-void prepareRender(EngineContext &context,
-                   const SkyParams &skyParams);
-void render(EngineContext &context);
+  struct SkyParams {
+    alignas(16) glm::vec3 sunColor{1.0};
+    float sunIntensity{1.0};
+    // -------------------------------------------------
+    SkyPreetham::Props props;
+  };
 
-struct Vertex {
-  glm::vec3 pos;
-  glm::vec2 uv;
+  void prepareRender(const SkyParams &skyParams);
 
-  Vertex(const glm::vec3 &position, const glm::vec2 &texCoord)
-      : pos(position), uv(texCoord) {}
+private:
+  struct Vertex {
+    glm::vec3 pos;
+    glm::vec2 uv;
 
-  constexpr static VkVertexInputBindingDescription GetBindingDescription() {
-    return VkVertexInputBindingDescription{.binding = 0,
-                                           .stride = sizeof(Vertex),
-                                           .inputRate =
-                                               VK_VERTEX_INPUT_RATE_VERTEX};
+    Vertex(const glm::vec3 &position, const glm::vec2 &texCoord)
+        : pos(position), uv(texCoord) {}
+
+    constexpr static VkVertexInputBindingDescription GetBindingDescription() {
+      return VkVertexInputBindingDescription{.binding = 0,
+                                             .stride = sizeof(Vertex),
+                                             .inputRate =
+                                                 VK_VERTEX_INPUT_RATE_VERTEX};
+    }
+
+    static std::vector<VkVertexInputAttributeDescription>
+    GetAttributeDescriptions() {
+      return std::vector<VkVertexInputAttributeDescription>{
+          {.location = 0,
+           .binding = 0,
+           .format = VK_FORMAT_R32G32B32_SFLOAT,
+           .offset = offsetof(Vertex, pos)},
+          {.location = 1,
+           .binding = 0,
+           .format = VK_FORMAT_R32G32_SFLOAT,
+           .offset = offsetof(Vertex, uv)}};
+    }
+
+    static const inline std::vector<VkVertexInputBindingDescription>
+        s_BindingDescriptions{GetBindingDescription()};
+
+    static const inline std::vector<VkVertexInputAttributeDescription>
+        s_AttribDescriptions{GetAttributeDescriptions()};
+  };
+  static constexpr VkFormat mapFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+  static constexpr bool useMipMapping = false;
+  struct FrameMapData {
+    std::unique_ptr<Image> displacementMap{nullptr};
+    std::unique_ptr<Image> normalMap{nullptr};
+  };
+  static const uint32_t maxTileSize{256};
+  uint32_t m_TileSize{WSTessendorf::defaultTileSize};
+  float m_VertexDistance{WSTessendorf::defaultTileLength /
+                         static_cast<float>(WSTessendorf::defaultTileSize)};
+
+  std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
+  std::vector<VkDescriptorSet> descriptorSets;
+  std::vector<std::unique_ptr<Buffer>> uniformBuffers;
+  std::unique_ptr<GraphicsPipeline> pipeline;
+  std::unique_ptr<Mesh<Vertex>> mesh;
+
+  std::unique_ptr<WSTessendorf> modelTess;
+  FrameMapData frameMap;
+  std::unique_ptr<Buffer> stagingBuffer;
+
+  bool playAnimation{true};
+  float animSpeed{3.0};
+
+  static const inline glm::vec3 s_kWavelengthsRGB_m{680e-9, 550e-9, 440e-9};
+  static const inline glm::vec3 s_kWavelengthsRGB_nm{680, 550, 440};
+
+  uint32_t m_WaterTypeCoefIndex{0};
+  uint32_t m_BaseScatterCoefIndex{0};
+
+  static glm::vec3 ComputeScatteringCoefPA01(float b_lambda0) {
+    return b_lambda0 * ((-0.00113f * s_kWavelengthsRGB_nm + 1.62517f) /
+                        (-0.00113f * 514.0f + 1.62517f));
   }
 
-  static std::vector<VkVertexInputAttributeDescription>
-  GetAttributeDescriptions() {
-    return std::vector<VkVertexInputAttributeDescription>{
-        {.location = 0,
-         .binding = 0,
-         .format = VK_FORMAT_R32G32B32_SFLOAT,
-         .offset = offsetof(Vertex, pos)},
-        {.location = 1,
-         .binding = 0,
-         .format = VK_FORMAT_R32G32_SFLOAT,
-         .offset = offsetof(Vertex, uv)}};
+  /**
+   * @param b Scattering coefficient for each wavelength, in m^-1
+   * @return Backscattering coefficient for each wavelength, from [PA01]
+   */
+  static glm::vec3 ComputeBackscatteringCoefPA01(const glm::vec3 &b) {
+    return 0.01829f * b + 0.00006f;
   }
 
-  static const inline std::vector<VkVertexInputBindingDescription>
-      s_BindingDescriptions{GetBindingDescription()};
+  /**
+   * @param C pigment concentration for an open water type, [mg/m^3]
+   * @return Backscattering coefficient based on eqs.:24,25,26 [PA01]
+   */
+  static glm::vec3 ComputeBackscatteringCoefPigmentPA01(float C) {
+    // Morel. Optical modeling of the upper ocean in relation to its biogenus
+    //  matter content.
+    const glm::vec3 b_w(0.0007f, 0.00173f, 0.005f);
 
-  static const inline std::vector<VkVertexInputAttributeDescription>
-      s_AttribDescriptions{GetAttributeDescriptions()};
+    // Ratio of backscattering and scattering coeffiecients of the pigments
+    const glm::vec3 B_b =
+        0.002f + 0.02f *
+                     (0.5f - 0.25f * ((1.0f / glm::log(10.0f)) * glm::log(C))) *
+                     (550.0f / s_kWavelengthsRGB_nm);
+    // Scattering coefficient of the pigment
+    const float b_p = 0.3f * glm::pow(C, 0.62f);
+
+    return 0.5f * b_w + B_b * b_p;
+  }
+
+  struct VertexUBO {
+    alignas(16) glm::mat4 model;
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 proj;
+    float WSHeightAmp;
+    float WSChoppy;
+    float scale{1.0f}; ///< Texture scale
+  } vertexUBO{};
+
+  struct WaterSurfaceUBO {
+    alignas(16) glm::vec3 camPos;
+    float height{50.0f};
+    alignas(16) glm::vec3 absorpCoef{glm::vec3{0.420, 0.063, 0.019}};
+    alignas(16) glm::vec3 scatterCoef{ComputeScatteringCoefPA01(0.037)};
+    alignas(16) glm::vec3 backscatterCoef{
+        ComputeBackscatteringCoefPA01(scatterCoef)};
+    // -------------------------------------------------
+    alignas(16) glm::vec3 terrainColor{0.964, 1.0, 0.824};
+    float skyIntensity{1.0};
+    float specularIntensity{1.0};
+    float specularHighlights{32.0};
+    SkyParams sky;
+  } waterSurfaceUBO;
+
+  /**
+   * @pre size > 0
+   * @return Size 'size' aligned to 'alignment'
+   */
+  static size_t alignSizeTo(size_t size, size_t alignment) {
+    return (size + alignment - 1) & ~(alignment - 1);
+  }
+
+  uint32_t getTotalVertexCount(const uint32_t kTileSize) {
+    return (kTileSize + 1) * (kTileSize + 1);
+  }
+
+  uint32_t getTotalIndexCount(const uint32_t totalVertexCount) {
+    const uint32_t indicesPerTriangle = 3, trianglesPerQuad = 2;
+    return totalVertexCount * indicesPerTriangle * trianglesPerQuad;
+  }
+
+  static uint32_t getMaxVertexCount() {
+    return (maxTileSize + 1) * (maxTileSize + 1);
+  }
+  static uint32_t getMaxIndexCount() {
+    const uint32_t indicesPerTriangle = 3, trianglesPerQuad = 2;
+    return getMaxVertexCount() * indicesPerTriangle * trianglesPerQuad;
+  }
+
+  void createPipeline();
+  void createUniformBuffers(const uint32_t bufferCount);
+  void createDescriptorSets(const uint32_t count);
+  void createFrameMaps(VkCommandBuffer cmdBuffer);
+  void updateFrameMaps(VkCommandBuffer cmdBuffer, FrameMapData &frame);
+  void copyModelTessDataToStagingBuffer();
+  void prepareModelTess(VkCommandBuffer cmdBuffer);
+  std::vector<Vertex> createGridVertices(const uint32_t kTileSize,
+                                         const float kScale);
+  std::vector<uint32_t> createGridIndices(const uint32_t kTileSize);
+  void updateDescriptoaSet(VkDescriptorSet set);
+  void updateUniformBuffer();
+  void createDescriptorSetLayout();
+  void createTessendorfModel();
+  void createMesh();
+  void createStagingBuffer();
 };
-static constexpr VkFormat mapFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
-static constexpr bool useMipMapping = false;
-struct FrameMapData {
-  std::unique_ptr<Image> displacementMap{nullptr};
-  std::unique_ptr<Image> normalMap{nullptr};
-};
-} // namespace waterSys
 } // namespace vkh
