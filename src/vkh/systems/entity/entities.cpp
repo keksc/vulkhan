@@ -11,22 +11,20 @@
 #include <stdexcept>
 #include <vector>
 
-#include "../descriptors.hpp"
-#include "../entity.hpp"
-#include "../mesh.hpp"
-#include "../pipeline.hpp"
-#include "../renderer.hpp"
+#include "../../descriptors.hpp"
+#include "../../mesh.hpp"
+#include "../../pipeline.hpp"
+#include "../../renderer.hpp"
+#include "entity.hpp"
 
 namespace vkh {
-namespace entitySys {
-std::unique_ptr<GraphicsPipeline> pipeline;
 
 struct PushConstantData {
   glm::mat4 modelMatrix{1.f};
   glm::mat4 normalMatrix{1.f};
 };
 
-void init(EngineContext &context) {
+EntitySys::EntitySys(EngineContext &context) : System(context) {
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags =
       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -48,17 +46,14 @@ void init(EngineContext &context) {
   PipelineCreateInfo pipelineConfig{};
   pipelineConfig.layoutInfo = pipelineLayoutInfo;
   pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
-  pipelineConfig.attributeDescriptions =
-      Vertex::getAttributeDescriptions();
+  pipelineConfig.attributeDescriptions = Vertex::getAttributeDescriptions();
   pipelineConfig.bindingDescriptions = Vertex::getBindingDescriptions();
   pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/entities.vert.spv", "shaders/entities.frag.spv",
       pipelineConfig);
 }
 
-void cleanup(EngineContext &context) { pipeline = nullptr; }
-
-void render(EngineContext &context) {
+void EntitySys::render() {
   pipeline->bind(context.frameInfo.commandBuffer);
 
   /*vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
@@ -78,9 +73,10 @@ void render(EngineContext &context) {
                        VK_SHADER_STAGE_VERTEX_BIT |
                            VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(PushConstantData), &push);
-    model->bind(context, context.frameInfo.commandBuffer, *pipeline, {context.frameInfo.globalDescriptorSet, model->textureDescriptorSet});
+    model->bind(
+        context, context.frameInfo.commandBuffer, *pipeline,
+        {context.frameInfo.globalDescriptorSet, model->textureDescriptorSet});
     model->draw(context.frameInfo.commandBuffer);
   }
 }
-} // namespace entitySys
 } // namespace vkh

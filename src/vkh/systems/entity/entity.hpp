@@ -6,11 +6,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-#include <memory>
-
-#include "engineContext.hpp"
-#include "mesh.hpp"
-#include "systems/entities.hpp"
+#include "../../engineContext.hpp"
+#include "../../mesh.hpp"
+#include "entities.hpp"
 
 namespace vkh {
 
@@ -36,7 +34,7 @@ struct RigidBody {
 struct Entity {
   Transform transform;
   RigidBody rigidBody;
-  std::unique_ptr<Mesh<entitySys::Vertex>> model;
+  std::unique_ptr<Mesh<EntitySys::Vertex>> model;
 
   Entity(EngineContext &context, Transform transform, RigidBody rigidBody = {});
 

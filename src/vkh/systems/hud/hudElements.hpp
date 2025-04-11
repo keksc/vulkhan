@@ -1,6 +1,5 @@
 #pragma once
 
-#include <fmt/core.h>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 
@@ -13,7 +12,7 @@
 #include "text.hpp"
 
 namespace vkh {
-namespace hudSys {
+namespace hud {
 struct SolidColorVertex {
   glm::vec2 position{};
   glm::vec3 color{};
@@ -21,35 +20,35 @@ struct SolidColorVertex {
 struct DrawInfo {
   std::vector<SolidColorVertex> solidColorVertices;
   std::vector<uint32_t> solidColorIndices;
-  std::vector<textSys::Vertex> textVertices;
+  std::vector<TextSys::Vertex> textVertices;
   std::vector<uint32_t> textIndices;
 };
 class Element {
 public:
   Element(glm::vec2 position, glm::vec2 size)
       : position{position}, size{size} {}
-  virtual void addToDrawInfo(DrawInfo &drawInfo) = 0;
   void addChild(std::shared_ptr<Element> element) {
     element->fitIntoParent(position, size);
     children.push_back(element);
   };
 
-protected:
-  virtual void fitIntoParent(glm::vec2 &parentPosition,
-                             glm::vec2 &parentSize) = 0;
+  virtual void addToDrawInfo(DrawInfo &drawInfo) = 0;
+  std::vector<std::shared_ptr<Element>> children;
 
   glm::vec2 position{};
   glm::vec2 size{};
 
-private:
-  std::vector<std::shared_ptr<Element>> children;
-  friend void addElementToDraw(std::shared_ptr<Element> element);
+protected:
+  virtual void fitIntoParent(glm::vec2 &parentPosition,
+                             glm::vec2 &parentSize) = 0;
 };
 class Rect : public Element {
 public:
   Rect(glm::vec2 position, glm::vec2 size, glm::vec3 color)
       : Element(position, size), color{color} {};
   glm::vec3 color{};
+
+protected:
   void addToDrawInfo(DrawInfo &drawInfo) override {
     uint32_t baseIndex = drawInfo.solidColorVertices.size();
     // TODO: this might be optimizable when nothing changes, maybe add a
@@ -136,21 +135,26 @@ public:
   Text(glm::vec2 position, const std::string &content)
       : Element(position, {0.f, 0.f}), content{content} {}
   std::string content;
+
+protected:
   void addToDrawInfo(DrawInfo &drawInfo) override {
     float cursorX = position.x;
-    float maxSizeY = 0.f;
 
+    float maxSizeY = 0.f;
+    for (auto &c : content) {
+      auto &ch = TextSys::glyphRange.glyphs[c];
+      maxSizeY = glm::max(maxSizeY, ch.size.y);
+    }
+    size.y = maxSizeY;
     for (auto &c : content) {
       uint32_t baseIndex = drawInfo.textVertices.size();
-      auto &ch = textSys::glyphs[c];
+      auto &ch = TextSys::glyphRange.glyphs[c];
 
       // Calculate vertex positions for this character
       float x0 = cursorX + ch.offset.x;
       float x1 = x0 + ch.size.x;
-      float y0 = position.y;
-      float y1 = ch.size.y + y0;
-
-      maxSizeY = glm::max(maxSizeY, ch.size.y);
+      float y0 = position.y + ch.offset.y + maxSizeY;
+      float y1 = y0 + ch.size.y;
 
       // Add four vertices for this character
       drawInfo.textVertices.push_back(
@@ -174,7 +178,6 @@ public:
       // Move cursor to next character position
       cursorX += ch.advance;
     }
-    size.y = maxSizeY;
     size.x = cursorX - position.x;
   }
   void fitIntoParent(glm::vec2 &parentPosition,
@@ -187,8 +190,7 @@ public:
 class TextInput
     : public Text,
       public EventListener<&EngineContext::InputCallbackSystem::character>,
-      public EventListener<
-          &EngineContext::InputCallbackSystem::cursorPosition> {
+      public EventListener<&EngineContext::InputCallbackSystem::mouseButton> {
 public:
   TextInput(EngineContext &context, std::size_t inputCallbackSystemIndex,
             glm::vec2 position)
@@ -196,10 +198,10 @@ public:
         EventListener<&EngineContext::InputCallbackSystem::character>(
             context, inputCallbackSystemIndex,
             [this](unsigned int codepoint) { characterCallback(codepoint); }),
-        EventListener<&EngineContext::InputCallbackSystem::cursorPosition>(
+        EventListener<&EngineContext::InputCallbackSystem::mouseButton>(
             context, inputCallbackSystemIndex,
-            [this](double xpos, double ypos) {
-              cursorPositionCallback(xpos, ypos);
+            [this](int button, int action, int mods) {
+              mouseButtonCallback(button, action, mods);
             }),
         context{context} {}
   TextInput(EngineContext &context, std::size_t inputCallbackSystemIndex,
@@ -208,10 +210,10 @@ public:
         EventListener<&EngineContext::InputCallbackSystem::character>(
             context, inputCallbackSystemIndex,
             [this](unsigned int codepoint) { characterCallback(codepoint); }),
-        EventListener<&EngineContext::InputCallbackSystem::cursorPosition>(
+        EventListener<&EngineContext::InputCallbackSystem::mouseButton>(
             context, inputCallbackSystemIndex,
-            [this](double xpos, double ypos) {
-              cursorPositionCallback(xpos, ypos);
+            [this](int button, int action, int mods) {
+              mouseButtonCallback(button, action, mods);
             }),
         context{context} {}
 
@@ -224,22 +226,88 @@ private:
     char c = static_cast<char>(codepoint);
     content.push_back(c);
   }
-  void cursorPositionCallback(double xpos, double ypos) {
-    glm::vec2 cursorPos = {static_cast<float>(xpos), static_cast<float>(ypos)};
+  void mouseButtonCallback(int button, int action, int mods) {
     glm::vec2 normalizedCursorPos =
-        cursorPos / static_cast<glm::vec2>(context.window.size) *
-            glm::vec2(2.0) -
+        static_cast<glm::vec2>(context.input.cursorPos) /
+            static_cast<glm::vec2>(context.window.size) * glm::vec2(2.0) -
         glm::vec2(1.0);
     const glm::vec2 min = glm::min(position, position + size);
     const glm::vec2 max = glm::max(position, position + size);
     if (glm::all(glm::greaterThanEqual(normalizedCursorPos, min)) &&
         glm::all(glm::lessThanEqual(normalizedCursorPos, max)))
       selected = true;
-    else {
+    else
       selected = false;
-    }
   }
+
   bool selected = false;
+  EngineContext &context;
+};
+class Slider
+    : public Element,
+      public EventListener<&EngineContext::InputCallbackSystem::mouseButton>,
+      public EventListener<
+          &EngineContext::InputCallbackSystem::cursorPosition> {
+public:
+  Slider(EngineContext &context, std::size_t inputCallbackSystemIndex,
+         glm::vec2 position, glm::vec2 size, glm::vec2 bounds)
+      : Element(position, size),
+        EventListener<&EngineContext::InputCallbackSystem::mouseButton>(
+            context, inputCallbackSystemIndex,
+            [this](int button, int action, int mods) {
+              mouseButtonCallback(button, action, mods);
+            }),
+        EventListener<&EngineContext::InputCallbackSystem::cursorPosition>(
+            context, inputCallbackSystemIndex,
+            [this](double xpos, double ypos) {
+              cursorPositionCallback(xpos, ypos);
+            }),
+        context{context} {}
+  glm::vec3 color;
+
+protected:
+  void addToDrawInfo(DrawInfo &drawInfo) override {
+    uint32_t baseIndex = drawInfo.solidColorVertices.size();
+    // TODO: this might be optimizable when nothing changes, maybe add a
+    // "changed" flag
+    float x0 = position.x;
+    float x1 = x0 + size.x;
+    float y0 = position.y;
+    float y1 = y0 + size.y;
+    drawInfo.solidColorVertices.push_back({{x0, y0}, color});
+    drawInfo.solidColorVertices.push_back({{x1, y0}, color});
+    drawInfo.solidColorVertices.push_back({{x1, y1}, color});
+    drawInfo.solidColorVertices.push_back({{x0, y1}, color});
+
+    drawInfo.solidColorIndices.push_back(baseIndex + 0);
+    drawInfo.solidColorIndices.push_back(baseIndex + 1);
+    drawInfo.solidColorIndices.push_back(baseIndex + 2);
+    drawInfo.solidColorIndices.push_back(baseIndex + 0);
+    drawInfo.solidColorIndices.push_back(baseIndex + 2);
+    drawInfo.solidColorIndices.push_back(baseIndex + 3);
+  };
+  void fitIntoParent(glm::vec2 &parentPosition,
+                     glm::vec2 &parentSize) override {
+    position = parentPosition + position * parentSize;
+    size = parentSize * size;
+  };
+
+private:
+  void mouseButtonCallback(int button, int action, int mods) {
+    glm::vec2 normalizedCursorPos =
+        static_cast<glm::vec2>(context.input.cursorPos) /
+            static_cast<glm::vec2>(context.window.size) * glm::vec2(2.0) -
+        glm::vec2(1.0);
+    const glm::vec2 min = glm::min(position, position + size);
+    const glm::vec2 max = glm::max(position, position + size);
+    // if (glm::all(glm::greaterThanEqual(normalizedCursorPos, min)) &&
+    //     glm::all(glm::lessThanEqual(normalizedCursorPos, max)))
+    //   selected = true;
+    // else
+    //   selected = false;
+  }
+  void cursorPositionCallback(double xpos, double ypos) {}
+
   EngineContext &context;
 };
 // time to cook b*tch
@@ -284,15 +352,14 @@ public:
                                        inputCallbackSystemIndex);
   }
 
-private:
-  EngineContext &context;
-  std::vector<std::shared_ptr<Element>> elements;
-  std::size_t inputCallbackSystemIndex;
   void setCurrent() {
     context.currentInputCallbackSystemIndex = inputCallbackSystemIndex;
   }
 
-  friend void setView(View &newView);
+private:
+  EngineContext &context;
+  std::vector<std::shared_ptr<Element>> elements;
+  std::size_t inputCallbackSystemIndex;
 };
-} // namespace hudSys
+} // namespace hud
 } // namespace vkh

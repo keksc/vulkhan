@@ -1,5 +1,6 @@
 #include "vulkhan.hpp"
 #include "deviceHelpers.hpp"
+#include "systems/hud/hudElements.hpp"
 #include <vulkan/vulkan_core.h>
 
 #include <GLFW/glfw3.h>
@@ -19,13 +20,13 @@
 #include "cleanupVulkan.hpp"
 #include "descriptors.hpp"
 #include "engineContext.hpp"
-#include "entity.hpp"
 #include "initVulkan.hpp"
 #include "input.hpp"
 #include "renderer.hpp"
 #include "swapChain.hpp"
 #include "systems/axes.hpp"
-#include "systems/entities.hpp"
+#include "systems/entity/entities.hpp"
+#include "systems/entity/entity.hpp"
 #include "systems/freezeAnimation.hpp"
 #include "systems/hud/hud.hpp"
 #include "systems/particles.hpp"
@@ -102,6 +103,7 @@ void run() {
             .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                          MAX_SAMPLERS)
             .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, MAX_STORAGE_IMAGES)
+            .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_STORAGE_BUFFERS)
             .build();
 
     std::vector<std::unique_ptr<Buffer>> uboBuffers(
@@ -133,21 +135,21 @@ void run() {
 
     // std::thread(generateDungeon, std::ref(context)).detach();
 
-    waterSys::SkyParams skyParams;
+    WaterSys::SkyParams skyParams;
     SkyPreetham sky({0.f, 3.f, .866f});
     skyParams.props = sky.GetProperties();
 
-    entitySys::init(context);
-    axesSys::init(context);
-    particleSys::init(context);
-    freezeAnimationSys::init(context);
-    waterSys::init(context);
+    EntitySys entitySys(context);
+    AxesSys axesSys(context);
+    ParticleSys particleSys(context);
+    FreezeAnimationSys freezeAnimationSys(context);
+    WaterSys waterSys(context);
 
-    waterSys::createRenderData(context, context.vulkan.swapChain->imageCount());
+    waterSys.createRenderData(context.vulkan.swapChain->imageCount());
     auto cmd = beginSingleTimeCommands(context);
-    waterSys::prepare(context, cmd);
+    waterSys.prepare(cmd);
     endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
-    hudSys::init(context);
+    HudSys hudSys(context);
 
     std::vector<VkDescriptorSet> globalDescriptorSets(
         SwapChain::MAX_FRAMES_IN_FLIGHT);
@@ -159,40 +161,46 @@ void run() {
           .build(globalDescriptorSets[i]);
     }
 
-    hudSys::View hudWorld(context);
-    hudSys::View hudPause(context);
-    auto rect = hudWorld.createElement<hudSys::Rect>(
-        glm::vec2{-.4f, -.4f}, glm::vec2{.5f, .5f}, glm::vec3{.5f, .5f, .5f});
-    rect->addChild(hudWorld.createElement<hudSys::Button>(
-        glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f} * context.window.aspectRatio,
-        glm::vec3{1.f, .5f, 1.f}, [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            fmt::println("go2pause");
-            hudSys::setView(hudPause);
-          }
-        }));
-    auto worldtxt =
-        hudWorld.createElement<hudSys::Text>(glm::vec2{0.f, 0.f}, "FPS: 0");
-    rect->addChild(worldtxt);
+    hud::View hudWorld(context);
+    // hud::View hudPause(context);
+    auto rect = hudWorld.createElement<hud::Rect>(
+        glm::vec2{-1.f, -.7f}, glm::vec2{.0f, .0f}, glm::vec3{.0f, .5f,
+        .0f});
+    // rect->addChild(hudWorld.createElement<hud::Button>(
+    //     glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f} *
+    //     context.window.aspectRatio, glm::vec3{1.f, .5f, 1.f}, [&](int button,
+    //     int action, int) {
+    //       if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+    //         fmt::println("go2pause");
+    //         hudSys.setView(&hudPause);
+    //       }
+    //     }));
+    auto fpstxt = hudWorld.createElement<hud::Text>(glm::vec2{-1.f, -.7f});
+    hudWorld.addElement(fpstxt);
     hudWorld.addElement(rect);
+    //
+    // rect = hudPause.createElement<hud::Rect>(
+    //     glm::vec2{-.4f, -.4f}, glm::vec2{.5f, .5f}, glm::vec3{.5f, .5f,
+    //     .5f});
+    // auto btn = hudPause.createElement<hud::Button>(
+    //     glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, .5f, 1.f},
+    //     [&](int button, int action, int) {
+    //       if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+    //         fmt::println("go2world");
+    //         hudSys.setView(&hudWorld);
+    //       }
+    //     });
+    // rect->addChild(btn);
+    // hudPause.addElement<hud::Text>(glm::vec2{0.f, 0.f}, "aaa");
+    // hudPause.addElement(rect);
+    // hudPause.addElement<hud::TextInput>(glm::vec2{-1.f, .7f}, "aaa");
+    // hudPause.addElement<hud::Rect>(glm::vec2{-1.f, .7f}, glm::vec2{.1f, .1f},
+    //                                glm::vec3{0.f, 1.f, 0.f});
+    // hudPause.addElement<hud::Slider>(glm::vec2{0.f, 0.f}, glm::vec2{.5f,
+    // .2f}, glm::vec2{0.f, 1.f}); 
+    hudSys.setView(&hudWorld);
 
-    rect = hudPause.createElement<hudSys::Rect>(
-        glm::vec2{-.4f, -.4f}, glm::vec2{.5f, .5f}, glm::vec3{.5f, .5f, .5f});
-    auto btn = hudPause.createElement<hudSys::Button>(
-        glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, .5f, 1.f},
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            fmt::println("go2world");
-            hudSys::setView(hudWorld);
-          }
-        });
-    rect->addChild(btn);
-    hudPause.addElement<hudSys::Text>(glm::vec2{0.f, 0.f}, "aaa");
-    hudPause.addElement(rect);
-    hudPause.addElement<hudSys::TextInput>(glm::vec2{-1.f, .7f}, "aaa");
-    hudPause.addElement<hudSys::Rect>(glm::vec2{-1.f, .7f}, glm::vec2{.1f, .1f}, glm::vec3{0.f, 1.f, 0.f});
-    hudSys::setView(hudPause);
-    // btn->addChild(std::make_shared<hudSys::Rect>(
+    // btn->addChild(std::make_shared<hud::Rect>(
     //     glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, 0.f, 0.f}));
 
     auto currentTime = std::chrono::high_resolution_clock::now();
@@ -204,9 +212,9 @@ void run() {
           std::chrono::duration<float, std::chrono::seconds::period>(
               newTime - currentTime)
               .count();
-      // fontSys::updateText(
-      //     context, fmt::format("FPS: {}", static_cast<int>(1.f /
-      //     frameTime)));
+      fpstxt->content =
+          fmt::format("FPS: {}", static_cast<int>(1.f / frameTime));
+      rect->size = fpstxt->size;
       currentTime = newTime;
 
       input::moveInPlaneXZ(context);
@@ -254,17 +262,17 @@ void run() {
         renderer::beginSwapChainRenderPass(context, commandBuffer);
 
         // order here matters
-        hudSys::render(context);
-        if (&hudSys::getView() == &hudWorld) {
-          entitySys::render(context);
-          axesSys::render(context);
-          // freezeAnimationSys::render(context);
-          // waterSys::update(context);
-          // waterSys::prepareRender(context, skyParams);
-          // waterSys::render(context);
+        hudSys.render();
+        // if (hudSys.getView() == &hudWorld) {
+        entitySys.render();
+        axesSys.render();
+        waterSys.update();
+        waterSys.prepareRender(skyParams);
+        waterSys.render();
+        freezeAnimationSys.render();
 
-          particleSys::render(context);
-        }
+        particleSys.render();
+        // }
 
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
@@ -272,19 +280,11 @@ void run() {
     }
 
     vkDeviceWaitIdle(context.vulkan.device);
-
-    entitySys::cleanup(context);
-    axesSys::cleanup(context);
-    freezeAnimationSys::cleanup(context);
-    particleSys::cleanup(context);
-    waterSys::cleanup();
-    hudSys::cleanup(context);
-
-    context.entities.clear();
-    context.vulkan.globalDescriptorSetLayout = nullptr;
-    context.vulkan.modelDescriptorSetLayout = nullptr;
-    context.vulkan.globalDescriptorPool = nullptr;
   }
+  context.entities.clear();
+  context.vulkan.globalDescriptorSetLayout = nullptr;
+  context.vulkan.modelDescriptorSetLayout = nullptr;
+  context.vulkan.globalDescriptorPool = nullptr;
 
   renderer::cleanup(context);
   cleanupVulkan(context);

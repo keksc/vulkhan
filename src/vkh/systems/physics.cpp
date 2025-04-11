@@ -1,6 +1,6 @@
 #include "physics.hpp"
 
-#include "../entity.hpp"
+#include "entity/entity.hpp"
 #include <fmt/format.h>
 
 namespace vkh {

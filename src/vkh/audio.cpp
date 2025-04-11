@@ -11,7 +11,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
-#include "entity.hpp"
+#include "systems/entity/entity.hpp"
 
 namespace vkh {
 namespace audio {

@@ -3,7 +3,51 @@
 #include <algorithm>
 
 namespace vkh {
+void WSTessendorf::ifft1d(std::complex<float> *data, int N) {
+  const float pi = 3.14159265358979323846f;
+  int j = 0;
+  for (int i = 0; i < N - 1; ++i) {
+    if (i < j)
+      std::swap(data[i], data[j]);
+    int k = N >> 1;
+    while (k <= j)
+      j -= k, k >>= 1;
+    j += k;
+  }
 
+  int mmax = 1;
+  while (mmax < N) {
+    int istep = mmax << 1;
+    float theta = 2.0f * pi / istep;
+    std::complex<float> wp(cos(theta), sin(theta));
+    std::complex<float> w(1.0f, 0.0f);
+    for (int m = 0; m < mmax; ++m) {
+      for (int i = m; i < N; i += istep) {
+        int j = i + mmax;
+        std::complex<float> temp = w * data[j];
+        data[j] = data[i] - temp;
+        data[i] += temp;
+      }
+      w *= wp;
+    }
+    mmax = istep;
+  }
+}
+void WSTessendorf::ifft2d(std::complex<float> *data, int N) {
+  // Process rows
+  for (int i = 0; i < N; ++i)
+    ifft1d(data + i * N, N);
+
+  // Process columns
+  std::vector<std::complex<float>> col(N);
+  for (int j = 0; j < N; ++j) {
+    for (int i = 0; i < N; ++i)
+      col[i] = data[i * N + j];
+    ifft1d(col.data(), N);
+    for (int i = 0; i < N; ++i)
+      data[i * N + j] = col[i];
+  }
+}
 WSTessendorf::WSTessendorf(uint32_t tileSize, float tileLength) {
   SetTileSize(tileSize);
   SetTileLength(tileLength);
@@ -18,8 +62,6 @@ WSTessendorf::WSTessendorf(uint32_t tileSize, float tileLength) {
 
 WSTessendorf::~WSTessendorf() {
   DestroyFFTW();
-
-  fftwf_cleanup();
 }
 
 void WSTessendorf::Prepare() {
@@ -109,15 +151,15 @@ void WSTessendorf::SetupFFTW() {
   const uint32_t kSize = m_TileSize;
   const uint32_t kSize2 = kSize * kSize;
 
+#ifndef CAREFUL_ALLOC
 #ifndef COMPUTE_JACOBIAN
   const uint32_t kTotalInputs = 7;
 #else
-  const uint32_t kTotalInputs = 7 + 2;
+  const uint32_t kTotalInputs = 9;
 #endif
-
-  m_Height = (Complex *)fftwf_alloc_complex(kTotalInputs * kSize2);
-
-  m_SlopeX = m_Height + kSize2;
+  Complex *buffer = new Complex[kTotalInputs * kSize2];
+  m_Height = buffer;
+  m_SlopeX = buffer + kSize2;
   m_SlopeZ = m_SlopeX + kSize2;
   m_DisplacementX = m_SlopeZ + kSize2;
   m_DisplacementZ = m_DisplacementX + kSize2;
@@ -127,87 +169,51 @@ void WSTessendorf::SetupFFTW() {
   m_dzDisplacementX = m_dzDisplacementZ + kSize2;
   m_dxDisplacementZ = m_dzDisplacementX + kSize2;
 #endif
-
-#ifdef CAREFUL_ALLOC
-  m_Height = (Complex *)fftwf_alloc_complex(kSize * kSize);
-  m_SlopeX = (Complex *)fftwf_alloc_complex(kSize * kSize);
-  m_SlopeZ = (Complex *)fftwf_alloc_complex(kSize * kSize);
-  m_DisplacementX = (Complex *)fftwf_alloc_complex(kSize * kSize);
-  m_DisplacementZ = (Complex *)fftwf_alloc_complex(kSize * kSize);
-  m_dxDisplacementX = (Complex *)fftwf_alloc_complex(kSize * kSize);
-  m_dzDisplacementZ = (Complex *)fftwf_alloc_complex(kSize * kSize);
+#else
+  m_Height = new Complex[kSize2];
+  m_SlopeX = new Complex[kSize2];
+  m_SlopeZ = new Complex[kSize2];
+  m_DisplacementX = new Complex[kSize2];
+  m_DisplacementZ = new Complex[kSize2];
+  m_dxDisplacementX = new Complex[kSize2];
+  m_dzDisplacementZ = new Complex[kSize2];
 #ifdef COMPUTE_JACOBIAN
-  m_dzDisplacementX = (Complex *)fftwf_alloc_complex(kSize * kSize);
-  m_dxDisplacementZ = (Complex *)fftwf_alloc_complex(kSize * kSize);
+  m_dzDisplacementX = new Complex[kSize2];
+  m_dxDisplacementZ = new Complex[kSize2];
 #endif
-#endif
-
-  m_PlanHeight = fftwf_plan_dft_2d(
-      kSize, kSize, reinterpret_cast<fftwf_complex *>(m_Height),
-      reinterpret_cast<fftwf_complex *>(m_Height), FFTW_BACKWARD, FFTW_MEASURE);
-  m_PlanSlopeX = fftwf_plan_dft_2d(
-      kSize, kSize, reinterpret_cast<fftwf_complex *>(m_SlopeX),
-      reinterpret_cast<fftwf_complex *>(m_SlopeX), FFTW_BACKWARD, FFTW_MEASURE);
-  m_PlanSlopeZ = fftwf_plan_dft_2d(
-      kSize, kSize, reinterpret_cast<fftwf_complex *>(m_SlopeZ),
-      reinterpret_cast<fftwf_complex *>(m_SlopeZ), FFTW_BACKWARD, FFTW_MEASURE);
-  m_PlanDisplacementX = fftwf_plan_dft_2d(
-      kSize, kSize, reinterpret_cast<fftwf_complex *>(m_DisplacementX),
-      reinterpret_cast<fftwf_complex *>(m_DisplacementX), FFTW_BACKWARD,
-      FFTW_MEASURE);
-  m_PlanDisplacementZ = fftwf_plan_dft_2d(
-      kSize, kSize, reinterpret_cast<fftwf_complex *>(m_DisplacementZ),
-      reinterpret_cast<fftwf_complex *>(m_DisplacementZ), FFTW_BACKWARD,
-      FFTW_MEASURE);
-  m_PlandxDisplacementX = fftwf_plan_dft_2d(
-      kSize, kSize, reinterpret_cast<fftwf_complex *>(m_dxDisplacementX),
-      reinterpret_cast<fftwf_complex *>(m_dxDisplacementX), FFTW_BACKWARD,
-      FFTW_MEASURE);
-  m_PlandzDisplacementZ = fftwf_plan_dft_2d(
-      kSize, kSize, reinterpret_cast<fftwf_complex *>(m_dzDisplacementZ),
-      reinterpret_cast<fftwf_complex *>(m_dzDisplacementZ), FFTW_BACKWARD,
-      FFTW_MEASURE);
-#ifdef COMPUTE_JACOBIAN
-  m_PlandzDisplacementX = fftwf_plan_dft_2d(
-      kSize, kSize, reinterpret_cast<fftwf_complex *>(m_dzDisplacementX),
-      reinterpret_cast<fftwf_complex *>(m_dzDisplacementX), FFTW_BACKWARD,
-      FFTW_MEASURE);
-  m_PlandxDisplacementZ = fftwf_plan_dft_2d(
-      kSize, kSize, reinterpret_cast<fftwf_complex *>(m_dxDisplacementZ),
-      reinterpret_cast<fftwf_complex *>(m_dxDisplacementZ), FFTW_BACKWARD,
-      FFTW_MEASURE);
 #endif
 }
 
 void WSTessendorf::DestroyFFTW() {
-  if (m_PlanHeight == nullptr)
+  if (m_Height == nullptr)
     return;
 
-  fftwf_destroy_plan(m_PlanHeight);
-  m_PlanHeight = nullptr;
-  fftwf_destroy_plan(m_PlanSlopeX);
-  fftwf_destroy_plan(m_PlanSlopeZ);
-  fftwf_destroy_plan(m_PlanDisplacementX);
-  fftwf_destroy_plan(m_PlanDisplacementZ);
-  fftwf_destroy_plan(m_PlandxDisplacementX);
-  fftwf_destroy_plan(m_PlandzDisplacementZ);
+#ifndef CAREFUL_ALLOC
+  delete[] m_Height;
+#else
+  delete[] m_Height;
+  delete[] m_SlopeX;
+  delete[] m_SlopeZ;
+  delete[] m_DisplacementX;
+  delete[] m_DisplacementZ;
+  delete[] m_dxDisplacementX;
+  delete[] m_dzDisplacementZ;
 #ifdef COMPUTE_JACOBIAN
-  fftwf_destroy_plan(m_PlandxDisplacementZ);
-  fftwf_destroy_plan(m_PlandzDisplacementX);
+  delete[] m_dxDisplacementZ;
+  delete[] m_dzDisplacementX;
+#endif
 #endif
 
-  fftwf_free((fftwf_complex *)m_Height);
-#ifdef CAREFUL_ALLOC
-  fftwf_free((fftwf_complex *)m_SlopeX);
-  fftwf_free((fftwf_complex *)m_SlopeZ);
-  fftwf_free((fftwf_complex *)m_DisplacementX);
-  fftwf_free((fftwf_complex *)m_DisplacementZ);
-  fftwf_free((fftwf_complex *)m_dxDisplacementX);
-  fftwf_free((fftwf_complex *)m_dzDisplacementZ);
+  m_Height = nullptr;
+  m_SlopeX = nullptr;
+  m_SlopeZ = nullptr;
+  m_DisplacementX = nullptr;
+  m_DisplacementZ = nullptr;
+  m_dxDisplacementX = nullptr;
+  m_dzDisplacementZ = nullptr;
 #ifdef COMPUTE_JACOBIAN
-  fftwf_free((fftwf_complex *)m_dxDisplacementZ);
-  fftwf_free((fftwf_complex *)m_dzDisplacementX);
-#endif
+  m_dxDisplacementZ = nullptr;
+  m_dzDisplacementX = nullptr;
 #endif
 }
 
@@ -264,40 +270,40 @@ float WSTessendorf::computeWaves(float t) {
     {
 #pragma omp section
       {
-        fftwf_execute(m_PlanHeight);
+        ifft2d(m_Height, m_TileSize);
       }
 #pragma omp section
       {
-        fftwf_execute(m_PlanSlopeX);
+        ifft2d(m_SlopeX, m_TileSize);
       }
 #pragma omp section
       {
-        fftwf_execute(m_PlanSlopeZ);
+        ifft2d(m_SlopeZ, m_TileSize);
       }
 #pragma omp section
       {
-        fftwf_execute(m_PlanDisplacementX);
+        ifft2d(m_DisplacementX, m_TileSize);
       }
 #pragma omp section
       {
-        fftwf_execute(m_PlanDisplacementZ);
+        ifft2d(m_DisplacementZ, m_TileSize);
       }
 #pragma omp section
       {
-        fftwf_execute(m_PlandxDisplacementX);
+        ifft2d(m_dxDisplacementX, m_TileSize);
       }
 #pragma omp section
       {
-        fftwf_execute(m_PlandzDisplacementZ);
+        ifft2d(m_dzDisplacementZ, m_TileSize);
       }
 #ifdef COMPUTE_JACOBIAN
 #pragma omp section
       {
-        fftwf_execute(m_PlandzDisplacementX);
+        ifft2d(m_dzDisplacementX, m_TileSize);
       }
 #pragma omp section
       {
-        fftwf_execute(m_PlandxDisplacementZ);
+        ifft2d(m_dxDisplacementZ, m_TileSize);
       }
 #endif
     }

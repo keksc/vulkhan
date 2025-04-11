@@ -1,12 +1,17 @@
 #pragma once
 
-#include "../engineContext.hpp"
+#include "system.hpp"
 
 namespace vkh {
-	namespace axesSys {
-		void init(EngineContext& context);
-		void cleanup(EngineContext& context);
+class AxesSys : public System {
+public:
+  AxesSys(EngineContext &context);
 
-		void render(EngineContext& context);
-	};
-}  // namespace lve
+  void render();
+
+private:
+  void createPipeline();
+
+  std::unique_ptr<GraphicsPipeline> pipeline;
+};
+} // namespace vkh

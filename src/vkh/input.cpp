@@ -10,7 +10,7 @@
 #include <limits>
 #include <thread>
 
-#include "entity.hpp"
+#include "systems/entity/entity.hpp"
 
 namespace vkh {
 namespace input {
@@ -53,12 +53,13 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
     player.rigidBody.velocity.y = player.rigidBody.jumpVelocity;*/
   }
 }
-static void cursorPositionCallback(GLFWwindow *window, double xpos,
-                                   double ypos) {
+void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   context->input.cursorPos.x = static_cast<int>(xpos);
   context->input.cursorPos.y = static_cast<int>(ypos);
+  if (context->inputCallbackSystems.empty())
+    return;
   for (auto &callback :
        context->inputCallbackSystems[context->currentInputCallbackSystemIndex]
            .cursorPosition)
@@ -84,6 +85,8 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
   }
   if (button == GLFW_MOUSE_BUTTON_RIGHT) {
   }
+  if (context->inputCallbackSystems.empty())
+    return;
   for (auto &callback :
        context->inputCallbackSystems[context->currentInputCallbackSystemIndex]
            .mouseButton)
@@ -92,6 +95,8 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
 void charCallback(GLFWwindow *window, unsigned int codepoint) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
+  if (context->inputCallbackSystems.empty())
+    return;
   for (auto &callback :
        context->inputCallbackSystems[context->currentInputCallbackSystemIndex]
            .character)

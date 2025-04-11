@@ -14,14 +14,11 @@
 #include "../renderer.hpp"
 
 namespace vkh {
-namespace freezeAnimationSys {
-std::unique_ptr<GraphicsPipeline> pipeline;
-
 struct PushConstantData {
   float time;
 };
 
-void createPipeline(EngineContext &context) {
+void FreezeAnimationSys::createPipeline() {
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   pushConstantRange.offset = 0;
@@ -47,11 +44,9 @@ void createPipeline(EngineContext &context) {
       context, "shaders/freezeAnimation.vert.spv",
       "shaders/freezeAnimation.frag.spv", pipelineInfo);
 }
-void init(EngineContext &context) { createPipeline(context); }
+FreezeAnimationSys::FreezeAnimationSys(EngineContext &context) : System(context) { createPipeline(); }
 
-void cleanup(EngineContext &context) { pipeline = nullptr; }
-
-void render(EngineContext &context) {
+void FreezeAnimationSys::render() {
   pipeline->bind(context.frameInfo.commandBuffer);
 
   vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
@@ -66,5 +61,4 @@ void render(EngineContext &context) {
                      &push);
   vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
 }
-} // namespace freezeAnimationSys
 } // namespace vkh

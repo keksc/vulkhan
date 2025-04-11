@@ -9,6 +9,15 @@
 #include <cstring>
 
 namespace vkh {
+void Buffer::copyFromBuffer(VkCommandBuffer cmdBuffer, Buffer &srcBuffer,
+                            VkDeviceSize size, VkDeviceSize srcOffset,
+                            VkDeviceSize dstOffset) {
+  VkBufferCopy copyRegion{};
+  copyRegion.srcOffset = srcOffset;
+  copyRegion.dstOffset = dstOffset;
+  copyRegion.size = size == VK_WHOLE_SIZE ? bufSize : size;
+  vkCmdCopyBuffer(cmdBuffer, srcBuffer.buf, buf, 1, &copyRegion);
+}
 /**
  * Returns the minimum instance size required to be compatible with devices
  * minOffsetAlignment
@@ -28,7 +37,7 @@ VkDeviceSize Buffer::getAlignment(VkDeviceSize instanceSize,
 }
 Buffer::Buffer(EngineContext &context, const BufferCreateInfo &createInfo)
     : context{context} {
-  //alignmentSize = getAlignment(createInfo.instanceSize, 1);
+  // alignmentSize = getAlignment(createInfo.instanceSize, 1);
   bufSize = createInfo.instanceSize * createInfo.instanceCount;
   instanceSize = createInfo.instanceSize;
   createBuffer(context, bufSize, createInfo.usage, createInfo.memoryProperties,

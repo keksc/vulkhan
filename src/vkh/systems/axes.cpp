@@ -7,17 +7,13 @@
 #include <glm/gtc/constants.hpp>
 
 #include <cassert>
-#include <stdexcept>
 
 #include "../descriptors.hpp"
 #include "../pipeline.hpp"
 #include "../renderer.hpp"
 
 namespace vkh {
-namespace axesSys {
-std::unique_ptr<GraphicsPipeline> pipeline;
-
-void createPipeline(EngineContext &context) {
+void AxesSys::createPipeline() {
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
       *context.vulkan.globalDescriptorSetLayout};
 
@@ -36,15 +32,9 @@ void createPipeline(EngineContext &context) {
       context, "shaders/axes.vert.spv", "shaders/axes.frag.spv",
       pipelineConfig);
 }
-void init(EngineContext &context) {
-  createPipeline(context);
-}
+AxesSys::AxesSys(EngineContext &context) : System(context) { createPipeline(); }
 
-void cleanup(EngineContext &context) {
-  pipeline = nullptr;
-}
-
-void render(EngineContext &context) {
+void AxesSys::render() {
   pipeline->bind(context.frameInfo.commandBuffer);
 
   auto projectionView =
@@ -56,5 +46,4 @@ void render(EngineContext &context) {
 
   vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
 }
-} // namespace axesSys
 } // namespace vkh
