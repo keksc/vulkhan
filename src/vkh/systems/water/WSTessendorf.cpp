@@ -1,10 +1,91 @@
 #include "WSTessendorf.hpp"
 
+#include <vulkan/vulkan_core.h>
+
 #include <algorithm>
 
+#include "../../descriptors.hpp"
+#include "../../deviceHelpers.hpp"
+
 namespace vkh {
+void WSTessendorf::gpuIfft2d(Complex *data) {
+  glm::vec2 *gpuData = static_cast<glm::vec2 *>(fftDataBuf->map());
+  for (uint32_t i = 0; i < m_TileSize * m_TileSize; ++i) {
+    gpuData[i] = glm::vec2(data[i].real(), data[i].imag());
+  }
+  fftDataBuf->unmap();
+
+  auto cmd = beginSingleTimeCommands(context);
+
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          bitReversalPipeline->getLayout(), 0, 1, &set, 0,
+                          nullptr);
+
+  PushConstants pc;
+  pc.N = m_TileSize;
+  pc.log2N = static_cast<int>(std::log2(m_TileSize));
+
+  VkMemoryBarrier barrier = {.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+                             .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                             .dstAccessMask = VK_ACCESS_SHADER_READ_BIT};
+
+  pc.mode = 0;
+
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, *bitReversalPipeline);
+  vkCmdPushConstants(cmd, bitReversalPipeline->getLayout(),
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants),
+                     &pc);
+  vkCmdDispatch(cmd, m_TileSize, m_TileSize, 1);
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0,
+                       nullptr, 0, nullptr);
+
+  butterflyPipeline->bind(cmd);
+  for (int s = 0; s < pc.log2N; ++s) {
+    pc.mmax = 1 << s;
+    vkCmdPushConstants(cmd, butterflyPipeline->getLayout(),
+                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants),
+                       &pc);
+    vkCmdDispatch(cmd, m_TileSize, m_TileSize, 1);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier,
+                         0, nullptr, 0, nullptr);
+  }
+
+  pc.mode = 1;
+
+  bitReversalPipeline->bind(cmd);
+  vkCmdPushConstants(cmd, bitReversalPipeline->getLayout(),
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants),
+                     &pc);
+  vkCmdDispatch(cmd, m_TileSize, m_TileSize, 1);
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0,
+                       nullptr, 0, nullptr);
+
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, *butterflyPipeline);
+  for (int s = 0; s < pc.log2N; ++s) {
+    pc.mmax = 1 << s;
+    vkCmdPushConstants(cmd, butterflyPipeline->getLayout(),
+                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants),
+                       &pc);
+    vkCmdDispatch(cmd, m_TileSize, m_TileSize, 1);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier,
+                         0, nullptr, 0, nullptr);
+  }
+
+  endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
+  vkQueueWaitIdle(context.vulkan.computeQueue);
+
+  gpuData = static_cast<glm::vec2 *>(fftDataBuf->map());
+  for (uint32_t i = 0; i < m_TileSize * m_TileSize; ++i) {
+    data[i] = Complex(gpuData[i].x, gpuData[i].y);
+  }
+  fftDataBuf->unmap();
+}
 void WSTessendorf::ifft1d(std::complex<float> *data, int N) {
-  const float pi = 3.14159265358979323846f;
+  const float pi = glm::pi<float>();
   int j = 0;
   for (int i = 0; i < N - 1; ++i) {
     if (i < j)
@@ -48,21 +129,60 @@ void WSTessendorf::ifft2d(std::complex<float> *data, int N) {
       data[i * N + j] = col[i];
   }
 }
-WSTessendorf::WSTessendorf(uint32_t tileSize, float tileLength) {
-  SetTileSize(tileSize);
-  SetTileLength(tileLength);
-
+WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   SetWindDirection(defaultWindDir);
   SetWindSpeed(defaultWindSpeed);
   SetAnimationPeriod(defaultAnimPeriod);
-
-  SetPhillipsConst(defaultPhillipsConst);
   SetDamping(defaultPhillipsDamping);
+
+  // 1. Create descriptor set layout
+  setLayout = DescriptorSetLayout::Builder(context)
+                  .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                              VK_SHADER_STAGE_COMPUTE_BIT)
+                  .build();
+
+  // 2. Configure pipeline layout with push constants
+  VkPushConstantRange pushConstantRange{.stageFlags =
+                                            VK_SHADER_STAGE_COMPUTE_BIT,
+                                        .offset = 0,
+                                        .size = sizeof(PushConstants)};
+
+  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
+      *setLayout,
+  };
+  VkPipelineLayoutCreateInfo layoutInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+      .setLayoutCount = 1,
+      .pSetLayouts = descriptorSetLayouts
+                         .data(), // Assuming dereference operator is overloaded
+      .pushConstantRangeCount = 1,
+      .pPushConstantRanges = &pushConstantRange};
+
+  // 3. Create compute pipelines
+  bitReversalPipeline = std::make_unique<ComputePipeline>(
+      context, "shaders/ifft/bitReversal.comp.spv", layoutInfo);
+
+  butterflyPipeline = std::make_unique<ComputePipeline>(
+      context, "shaders/ifft/butterfly.comp.spv", layoutInfo);
+
+  // 4. Create and update descriptor set
+  BufferCreateInfo bufInfo{
+      .instanceSize = sizeof(glm::vec2),        // std::complex<float> = vec2
+      .instanceCount = m_TileSize * m_TileSize, // 7 buffers × N² elements
+      .usage =
+          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+      .memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
+
+  fftDataBuf = std::make_unique<Buffer>(context, bufInfo);
+
+  VkDescriptorBufferInfo bufferInfo = fftDataBuf->descriptorInfo();
+  DescriptorWriter(*setLayout, *context.vulkan.globalDescriptorPool)
+      .writeBuffer(0, &bufferInfo)
+      .build(set);
 }
 
-WSTessendorf::~WSTessendorf() {
-  DestroyFFTW();
-}
+WSTessendorf::~WSTessendorf() { DestroyFFT(); }
 
 void WSTessendorf::Prepare() {
   m_WaveVectors = ComputeWaveVectors();
@@ -78,8 +198,8 @@ void WSTessendorf::Prepare() {
   const Normal kDefaultNormal{0.0, 1.0, 0.0, 0.0};
   m_Normals.resize(kSize * kSize, kDefaultNormal);
 
-  DestroyFFTW();
-  SetupFFTW();
+  DestroyFFT();
+  SetupFFT();
 }
 
 std::vector<WSTessendorf::WaveVector> WSTessendorf::ComputeWaveVectors() const {
@@ -122,7 +242,6 @@ WSTessendorf::ComputeBaseWaveHeightField(
   assert(m_WaveVectors.size() == baseWaveHeights.size());
   assert(baseWaveHeights.size() == gaussRandomArray.size());
 
-#pragma omp parallel for collapse(2) schedule(guided)
   for (uint32_t m = 0; m < kSize; ++m) {
     for (uint32_t n = 0; n < kSize; ++n) {
       const uint32_t kIndex = m * kSize + n;
@@ -147,7 +266,7 @@ WSTessendorf::ComputeBaseWaveHeightField(
   return baseWaveHeights;
 }
 
-void WSTessendorf::SetupFFTW() {
+void WSTessendorf::SetupFFT() {
   const uint32_t kSize = m_TileSize;
   const uint32_t kSize2 = kSize * kSize;
 
@@ -184,7 +303,7 @@ void WSTessendorf::SetupFFTW() {
 #endif
 }
 
-void WSTessendorf::DestroyFFTW() {
+void WSTessendorf::DestroyFFT() {
   if (m_Height == nullptr)
     return;
 
@@ -223,17 +342,14 @@ float WSTessendorf::computeWaves(float t) {
   float masterMaxHeight = std::numeric_limits<float>::min();
   float masterMinHeight = std::numeric_limits<float>::max();
 
-#pragma omp parallel shared(masterMaxHeight, masterMinHeight)
   {
-#pragma omp for collapse(2) schedule(static)
     for (uint32_t m = 0; m < kTileSize; ++m)
       for (uint32_t n = 0; n < kTileSize; ++n) {
         m_Height[m * kTileSize + n] =
             WaveHeightFT(m_BaseWaveHeights[m * kTileSize + n], t);
       }
 
-// Slopes for normals computation
-#pragma omp for collapse(2) schedule(static) nowait
+    // Slopes for normals computation
     for (uint32_t m = 0; m < kTileSize; ++m)
       for (uint32_t n = 0; n < kTileSize; ++n) {
         const uint32_t kIndex = m * kTileSize + n;
@@ -243,8 +359,7 @@ float WSTessendorf::computeWaves(float t) {
         m_SlopeZ[kIndex] = Complex(0, kWaveVec.y) * m_Height[kIndex];
       }
 
-// Displacement vectors
-#pragma omp for collapse(2) schedule(static)
+    // Displacement vectors
     for (uint32_t m = 0; m < kTileSize; ++m)
       for (uint32_t n = 0; n < kTileSize; ++n) {
         const uint32_t kIndex = m * kTileSize + n;
@@ -264,49 +379,21 @@ float WSTessendorf::computeWaves(float t) {
         m_dxDisplacementZ[kIndex] =
             Complex(0, kWaveVec.vec.x) * m_DisplacementZ[kIndex];
 #endif
-      }
+      } // After generating m_Height, m_SlopeX, etc. on CPU
 
-#pragma omp sections
-    {
-#pragma omp section
-      {
-        ifft2d(m_Height, m_TileSize);
-      }
-#pragma omp section
-      {
-        ifft2d(m_SlopeX, m_TileSize);
-      }
-#pragma omp section
-      {
-        ifft2d(m_SlopeZ, m_TileSize);
-      }
-#pragma omp section
-      {
-        ifft2d(m_DisplacementX, m_TileSize);
-      }
-#pragma omp section
-      {
-        ifft2d(m_DisplacementZ, m_TileSize);
-      }
-#pragma omp section
-      {
-        ifft2d(m_dxDisplacementX, m_TileSize);
-      }
-#pragma omp section
-      {
-        ifft2d(m_dzDisplacementZ, m_TileSize);
-      }
+    // gpuIfft2d(m_Height);
+    ifft2d(m_Height, m_TileSize);
+    ifft2d(m_SlopeX, m_TileSize);
+    ifft2d(m_SlopeZ, m_TileSize);
+    ifft2d(m_DisplacementX, m_TileSize);
+    ifft2d(m_DisplacementZ, m_TileSize);
+    ifft2d(m_dxDisplacementX, m_TileSize);
+    ifft2d(m_dzDisplacementZ, m_TileSize);
+
 #ifdef COMPUTE_JACOBIAN
-#pragma omp section
-      {
-        ifft2d(m_dzDisplacementX, m_TileSize);
-      }
-#pragma omp section
-      {
-        ifft2d(m_dxDisplacementZ, m_TileSize);
-      }
+    ifft2d(m_dzDisplacementX, m_TileSize);
+    ifft2d(m_dxDisplacementZ, m_TileSize);
 #endif
-    }
 
     float maxHeight = std::numeric_limits<float>::min();
     float minHeight = std::numeric_limits<float>::max();
@@ -315,7 +402,6 @@ float WSTessendorf::computeWaves(float t) {
     //  [-m_TileSize/2, ..., 0, ..., m_TileSize/2]
     const float kSigns[] = {1.0f, -1.0f};
 
-#pragma omp for collapse(2) schedule(static) nowait
     for (uint32_t m = 0; m < kTileSize; ++m) {
       for (uint32_t n = 0; n < kTileSize; ++n) {
         const uint32_t kIndex = m * kTileSize + n;
@@ -333,14 +419,12 @@ float WSTessendorf::computeWaves(float t) {
         displacement.w = 1.0f;
       }
     }
-// TODO reduction
-#pragma omp critical
+    // TODO reduction
     {
       masterMaxHeight = glm::max(maxHeight, masterMaxHeight);
       masterMinHeight = glm::min(minHeight, masterMinHeight);
     }
 
-#pragma omp for collapse(2) schedule(static) nowait
     for (uint32_t m = 0; m < kTileSize; ++m) {
       for (uint32_t n = 0; n < kTileSize; ++n) {
         const uint32_t kIndex = m * kTileSize + n;
@@ -380,20 +464,6 @@ float WSTessendorf::NormalizeHeights(float minHeight, float maxHeight) {
 
 // =============================================================================
 
-void WSTessendorf::SetTileSize(uint32_t size) {
-  const bool kSizeIsPowerOfTwo = (size & (size - 1)) == 0;
-  assert(size > 0 && kSizeIsPowerOfTwo && "Tile size must be power of two");
-  if (!kSizeIsPowerOfTwo)
-    return;
-
-  m_TileSize = size;
-}
-
-void WSTessendorf::SetTileLength(float length) {
-  assert(length > 0.0);
-  m_TileLength = length;
-}
-
 void WSTessendorf::SetWindDirection(const glm::vec2 &w) {
   m_WindDir = glm::normalize(w);
 }
@@ -404,8 +474,6 @@ void WSTessendorf::SetAnimationPeriod(float T) {
   m_AnimationPeriod = T;
   m_BaseFreq = 2.0f * M_PI / m_AnimationPeriod;
 }
-
-void WSTessendorf::SetPhillipsConst(float A) { m_A = A; }
 
 void WSTessendorf::SetLambda(float lambda) { m_Lambda = lambda; }
 

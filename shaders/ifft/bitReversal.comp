@@ -1,0 +1,52 @@
+#version 450
+#extension GL_KHR_shader_subgroup_arithmetic : enable
+#extension GL_EXT_scalar_block_layout : enable
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, scalar) buffer Data {
+    vec2 data[];
+} fftData;
+
+layout(push_constant) uniform PushConstants {
+    int N;     // FFT size
+    int log2N; // log2(N)
+    int mmax;  // Not used
+    int mode;  // 0=rows, 1=columns
+} pc;
+
+// Compute bit-reversed index
+uint bitReverse(uint index, uint bits) {
+    uint reversed = 0;
+    for (uint i = 0; i < bits; ++i) {
+        reversed = (reversed << 1) | ((index >> i) & 1);
+    }
+    return reversed;
+}
+
+void main() {
+    uint row = gl_GlobalInvocationID.y;
+    uint col = gl_GlobalInvocationID.x;
+
+    if (row >= pc.N || col >= pc.N) return;
+
+    uint idx, srcIdx, dstIdx;
+    if (pc.mode == 0) {
+        // Rows: Each row is an independent 1D FFT
+        idx = col;
+        srcIdx = row * pc.N + idx;
+        dstIdx = row * pc.N + bitReverse(idx, pc.log2N);
+    } else {
+        // Columns: Each column is an independent 1D FFT
+        idx = row;
+        srcIdx = idx * pc.N + col;
+        dstIdx = bitReverse(idx, pc.log2N) * pc.N + col;
+    }
+
+    // Swap if srcIdx < dstIdx to avoid conflicts in-place
+    if (srcIdx < dstIdx) {
+        vec2 temp = fftData.data[srcIdx];
+        fftData.data[srcIdx] = fftData.data[dstIdx];
+        fftData.data[dstIdx] = temp;
+    }
+}

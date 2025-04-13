@@ -144,11 +144,6 @@ void run() {
     ParticleSys particleSys(context);
     FreezeAnimationSys freezeAnimationSys(context);
     WaterSys waterSys(context);
-
-    waterSys.createRenderData(context.vulkan.swapChain->imageCount());
-    auto cmd = beginSingleTimeCommands(context);
-    waterSys.prepare(cmd);
-    endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
     HudSys hudSys(context);
 
     std::vector<VkDescriptorSet> globalDescriptorSets(
@@ -164,7 +159,7 @@ void run() {
     hud::View hudWorld(context);
     // hud::View hudPause(context);
     auto rect = hudWorld.createElement<hud::Rect>(
-        glm::vec2{-1.f, -.7f}, glm::vec2{.0f, .0f}, glm::vec3{.0f, .5f,
+        glm::vec2{-1.f, -1.f}, glm::vec2{.0f, .0f}, glm::vec3{.0f, .5f,
         .0f});
     // rect->addChild(hudWorld.createElement<hud::Button>(
     //     glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f} *
@@ -175,7 +170,7 @@ void run() {
     //         hudSys.setView(&hudPause);
     //       }
     //     }));
-    auto fpstxt = hudWorld.createElement<hud::Text>(glm::vec2{-1.f, -.7f});
+    auto fpstxt = hudWorld.createElement<hud::Text>(glm::vec2{-1.f, -1.f});
     hudWorld.addElement(fpstxt);
     hudWorld.addElement(rect);
     //
@@ -255,6 +250,7 @@ void run() {
           skyParams.props.sunDir.x += .1f * context.frameInfo.dt;
           sky.update();
         }
+        waterSys.update(skyParams);
         uboBuffers[frameIndex]->write(&ubo);
         uboBuffers[frameIndex]->flush();
 
@@ -266,8 +262,6 @@ void run() {
         // if (hudSys.getView() == &hudWorld) {
         entitySys.render();
         axesSys.render();
-        waterSys.update();
-        waterSys.prepareRender(skyParams);
         waterSys.render();
         freezeAnimationSys.render();
 

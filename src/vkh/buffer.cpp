@@ -48,9 +48,10 @@ Buffer::~Buffer() {
   vkDestroyBuffer(context.vulkan.device, buf, nullptr);
   vkFreeMemory(context.vulkan.device, memory, nullptr);
 }
-void Buffer::map(VkDeviceSize size, VkDeviceSize offset) {
+void *Buffer::map(VkDeviceSize size, VkDeviceSize offset) {
   assert(buf && memory && "Called map on buffer before create");
   vkMapMemory(context.vulkan.device, memory, offset, size, 0, &mapped);
+  return mapped;
 }
 void Buffer::unmap() {
   if (mapped) {
