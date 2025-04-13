@@ -15,11 +15,17 @@ find_package(OpenAL REQUIRED)
 find_package(CURL REQUIRED)
 
 add_subdirectory(3rdparty/fastgltf)
-#add_subdirectory(3rdparty/VkFFT)
 
 link_directories(3rdparty/lib)
 include_directories(3rdparty/include)
-link_libraries(Vulkan::Vulkan glfw fmt::fmt OpenAL::OpenAL fastgltf::fastgltf GameAnalytics CURL::libcurl fftw3f)# VkFFT)
+link_libraries(
+  Vulkan::Vulkan
+  glfw
+  fmt::fmt
+  OpenAL::OpenAL
+  fastgltf::fastgltf
+  GameAnalytics
+  CURL::libcurl)
 file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   set(FLAGS WIN32)
@@ -30,6 +36,7 @@ endif()
 add_executable(vulkhan ${FLAGS} ${SOURCES})
 
 file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/shaders")
+
 find_program(
   GLSLC glslc
   HINTS ${Vulkan_GLSLANG_VALIDATOR_EXECUTABLE}
@@ -40,22 +47,41 @@ find_program(
         $ENV{VULKAN_SDK}/Bin/
         $ENV{VULKAN_SDK}/Bin32/)
 
-file(GLOB_RECURSE GLSL_SOURCE_FILES "${PROJECT_SOURCE_DIR}/shaders/*.frag"
-     "${PROJECT_SOURCE_DIR}/shaders/*.vert"
-     "${PROJECT_SOURCE_DIR}/shaders/*.comp")
+# Recursively find all shaders in subdirectories
+file(GLOB_RECURSE GLSL_SOURCE_FILES 
+  "${PROJECT_SOURCE_DIR}/shaders/*.frag"
+  "${PROJECT_SOURCE_DIR}/shaders/*.vert"
+  "${PROJECT_SOURCE_DIR}/shaders/*.comp"
+)
 
 foreach(GLSL ${GLSL_SOURCE_FILES})
-  get_filename_component(FILE_NAME ${GLSL} NAME)
-  set(SPIRV "${PROJECT_BINARY_DIR}/shaders/${FILE_NAME}.spv")
+  # Get relative path from PROJECT_SOURCE_DIR/shaders
+  file(RELATIVE_PATH RELATIVE_GLSL_PATH 
+    "${PROJECT_SOURCE_DIR}/shaders" 
+    ${GLSL}
+  )
+  
+  # Split into directory and filename components
+  get_filename_component(RELATIVE_DIR ${RELATIVE_GLSL_PATH} DIRECTORY)
+  get_filename_component(FILE_NAME ${RELATIVE_GLSL_PATH} NAME)
+
+  # Create output directory
+  set(SPIRV_OUTPUT_DIR "${PROJECT_BINARY_DIR}/shaders/${RELATIVE_DIR}")
+  file(MAKE_DIRECTORY ${SPIRV_OUTPUT_DIR})
+
+  # Set output path
+  set(SPIRV "${SPIRV_OUTPUT_DIR}/${FILE_NAME}.spv")
+
   add_custom_command(
     OUTPUT ${SPIRV}
     COMMAND ${GLSLC} ${GLSL} -o ${SPIRV}
-    DEPENDS ${GLSL})
+    DEPENDS ${GLSL}
+    COMMENT "Compiling shader ${RELATIVE_GLSL_PATH}"
+  )
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
-endforeach(GLSL)
+endforeach()
 
 add_custom_target(Shaders DEPENDS ${SPIRV_BINARY_FILES})
-
 add_dependencies(vulkhan Shaders)
 
 file(COPY "${PROJECT_SOURCE_DIR}/models" DESTINATION "${PROJECT_BINARY_DIR}")

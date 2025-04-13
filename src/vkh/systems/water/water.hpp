@@ -22,12 +22,6 @@
 namespace vkh {
 class WaterSys : public System {
 public:
-  WaterSys(EngineContext &context);
-  void prepare(VkCommandBuffer cmdBuffer);
-  void createRenderData(const uint32_t imageCount);
-  void render();
-  void update();
-
   struct SkyParams {
     alignas(16) glm::vec3 sunColor{1.0};
     float sunIntensity{1.0};
@@ -35,7 +29,11 @@ public:
     SkyPreetham::Props props;
   };
 
-  void prepareRender(const SkyParams &skyParams);
+  WaterSys(EngineContext &context);
+  void prepare();
+  void createRenderData();
+  void render();
+  void update(const SkyParams &skyParams);
 
 private:
   struct Vertex {
@@ -77,10 +75,10 @@ private:
     std::unique_ptr<Image> displacementMap{nullptr};
     std::unique_ptr<Image> normalMap{nullptr};
   };
-  static const uint32_t maxTileSize{256};
-  uint32_t m_TileSize{WSTessendorf::defaultTileSize};
-  float m_VertexDistance{WSTessendorf::defaultTileLength /
-                         static_cast<float>(WSTessendorf::defaultTileSize)};
+  static const uint32_t maxTileSize{512};
+  uint32_t m_TileSize{maxTileSize};
+  float m_VertexDistance{1000.f /
+                         static_cast<float>(maxTileSize)};
 
   std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
   std::vector<VkDescriptorSet> descriptorSets;
@@ -88,7 +86,7 @@ private:
   std::unique_ptr<GraphicsPipeline> pipeline;
   std::unique_ptr<Mesh<Vertex>> mesh;
 
-  std::unique_ptr<WSTessendorf> modelTess;
+  WSTessendorf modelTess;
   FrameMapData frameMap;
   std::unique_ptr<Buffer> stagingBuffer;
 
@@ -193,10 +191,9 @@ private:
   std::vector<Vertex> createGridVertices(const uint32_t kTileSize,
                                          const float kScale);
   std::vector<uint32_t> createGridIndices(const uint32_t kTileSize);
-  void updateDescriptoaSet(VkDescriptorSet set);
+  void updateDescriptorSet(VkDescriptorSet set);
   void updateUniformBuffer();
   void createDescriptorSetLayout();
-  void createTessendorfModel();
   void createMesh();
   void createStagingBuffer();
 };

@@ -5,9 +5,23 @@
 #include <vulkan/vulkan_core.h>
 
 #include "../../pipeline.hpp"
+#include "../../swapChain.hpp"
 #include "WSTessendorf.hpp"
 
 namespace vkh {
+WaterSys::WaterSys(EngineContext &context)
+    : System(context), modelTess(context) {
+  createDescriptorSetLayout();
+
+  createPipeline();
+
+  createStagingBuffer();
+
+  createMesh();
+
+  createRenderData();
+  prepare();
+}
 void WaterSys::createPipeline() {
   PipelineCreateInfo pipelineInfo{};
   const VkDescriptorSetLayout dsl = *descriptorSetLayout;
@@ -45,7 +59,8 @@ void WaterSys::createDescriptorSets(const uint32_t count) {
   }
 }
 
-void WaterSys::createRenderData(const uint32_t imageCount) {
+void WaterSys::createRenderData() {
+  uint32_t imageCount = context.vulkan.swapChain->imageCount();
   createUniformBuffers(imageCount);
   createDescriptorSets(imageCount);
 }
@@ -67,7 +82,7 @@ std::unique_ptr<Image> createMap(EngineContext &context,
 void WaterSys::createFrameMaps(VkCommandBuffer cmdBuffer) {
   vkQueueWaitIdle(context.vulkan.graphicsQueue);
 
-  const uint32_t kSize = WSTessendorf::defaultTileSize;
+  const uint32_t kSize = maxTileSize;
 
   frameMap.displacementMap =
       createMap(context, cmdBuffer, kSize, mapFormat, useMipMapping);
@@ -96,9 +111,9 @@ void WaterSys::copyModelTessDataToStagingBuffer() {
   assert(stagingBuffer != nullptr);
 
   const VkDeviceSize kDisplacementsSize =
-      sizeof(WSTessendorf::Displacement) * modelTess->getDisplacementCount();
+      sizeof(WSTessendorf::Displacement) * modelTess.getDisplacementCount();
   const VkDeviceSize kNormalsSize =
-      sizeof(WSTessendorf::Normal) * modelTess->getNormalCount();
+      sizeof(WSTessendorf::Normal) * modelTess.getNormalCount();
 
   // StagingBuffer layout:
   //  ----------------------------------------------
@@ -113,7 +128,7 @@ void WaterSys::copyModelTessDataToStagingBuffer() {
     offset = alignSizeTo(mesh->getVerticesSize() + mesh->getIndicesSize(),
                          Image::formatSize(mapFormat));
 
-    stagingBuffer->write(modelTess->getDisplacements().data(),
+    stagingBuffer->write(modelTess.getDisplacements().data(),
                          kDisplacementsSize, offset);
   }
 
@@ -121,7 +136,7 @@ void WaterSys::copyModelTessDataToStagingBuffer() {
   {
     offset += kDisplacementsSize;
 
-    stagingBuffer->write(modelTess->getNormals().data(), kNormalsSize, offset);
+    stagingBuffer->write(modelTess.getNormals().data(), kNormalsSize, offset);
   }
 
   stagingBuffer->flush(getNonCoherentAtomSizeAlignment(
@@ -130,11 +145,11 @@ void WaterSys::copyModelTessDataToStagingBuffer() {
                    kDisplacementsSize + kNormalsSize));
 }
 void WaterSys::prepareModelTess(VkCommandBuffer cmdBuffer) {
-  modelTess->Prepare();
+  modelTess.Prepare();
 
   // Do one pass to initialize the maps
 
-  vertexUBO.WSHeightAmp = modelTess->computeWaves(glfwGetTime() * animSpeed);
+  vertexUBO.WSHeightAmp = modelTess.computeWaves(glfwGetTime() * animSpeed);
   copyModelTessDataToStagingBuffer();
 
   updateFrameMaps(cmdBuffer, frameMap);
@@ -191,7 +206,7 @@ std::vector<uint32_t> WaterSys::createGridIndices(const uint32_t kTileSize) {
 
   return indices;
 }
-void WaterSys::updateDescriptoaSet(VkDescriptorSet set) {
+void WaterSys::updateDescriptorSet(VkDescriptorSet set) {
   // UBOs
   VkDescriptorBufferInfo bufferInfos[2] = {};
   bufferInfos[0].buffer = *uniformBuffers[context.frameInfo.frameIndex];
@@ -237,39 +252,34 @@ void WaterSys::updateUniformBuffer() {
 
   buffer->flush();
 }
-void WaterSys::prepare(VkCommandBuffer cmdBuffer) {
-  createFrameMaps(cmdBuffer);
+void WaterSys::prepare() {
+  auto cmd = beginSingleTimeCommands(context);
+  createFrameMaps(cmd);
 
-  prepareModelTess(cmdBuffer);
+  prepareModelTess(cmd);
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 }
 
-void WaterSys::update() {
-  if (playAnimation) {
-    // auto cmd = beginSingleTimeCommands(context);
-    // vkCmdDispatch(cmd, 16, 16, 1);
-    // endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
-    vertexUBO.WSHeightAmp = modelTess->computeWaves(glfwGetTime() * animSpeed);
-    copyModelTessDataToStagingBuffer();
-  }
-}
-
-void WaterSys::prepareRender(const SkyParams &skyParams) {
+void WaterSys::update(const SkyParams &skyParams) {
   vertexUBO.model = glm::mat4(1.0f);
   vertexUBO.view = context.camera.viewMatrix;
   vertexUBO.proj = context.camera.projectionMatrix;
 
-  vertexUBO.WSChoppy = modelTess->getDisplacementLambda();
+  vertexUBO.WSChoppy = modelTess.getDisplacementLambda();
 
   waterSurfaceUBO.camPos = context.camera.position;
   waterSurfaceUBO.sky = skyParams;
 
   updateUniformBuffer();
   // UpdateMeshBuffers(device, cmdBuffer);
-  updateDescriptoaSet(descriptorSets[context.frameInfo.frameIndex]);
-
-  // No need to update the texture with the same data over again
+  updateDescriptorSet(descriptorSets[context.frameInfo.frameIndex]);
   if (playAnimation) {
     updateFrameMaps(context.frameInfo.commandBuffer, frameMap);
+    // auto cmd = beginSingleTimeCommands(context);
+    // vkCmdDispatch(cmd, 16, 16, 1);
+    // endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
+    vertexUBO.WSHeightAmp = modelTess.computeWaves(glfwGetTime() * animSpeed);
+    copyModelTessDataToStagingBuffer();
   }
 }
 
@@ -310,21 +320,14 @@ void WaterSys::createDescriptorSetLayout() {
           .build();
 }
 
-void WaterSys::createTessendorfModel() {
-  const auto sampleCount = modelTess->defaultTileSize;
-  const auto waveLength = modelTess->defaultTileLength;
-
-  modelTess = std::make_unique<WSTessendorf>(sampleCount, waveLength);
-}
-
 void WaterSys::createMesh() {
   const VkDeviceSize kMaxVerticesSize = sizeof(Vertex) * getMaxVertexCount();
   const VkDeviceSize kMaxIndicesSize = sizeof(uint32_t) * getMaxIndexCount();
 
   std::vector<Vertex> vertices =
       createGridVertices(m_TileSize, m_VertexDistance);
-
   std::vector<uint32_t> indices = createGridIndices(m_TileSize);
+
   MeshCreateInfo<Vertex> meshInfo{.vertices = vertices, .indices = indices};
   mesh = std::make_unique<Mesh<Vertex>>(context, meshInfo);
 }
@@ -346,16 +349,5 @@ void WaterSys::createStagingBuffer() {
   bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
   stagingBuffer = std::make_unique<Buffer>(context, bufInfo);
   stagingBuffer->map();
-}
-WaterSys::WaterSys(EngineContext &context) : System(context) {
-  createDescriptorSetLayout();
-
-  createPipeline();
-
-  createTessendorfModel();
-
-  createStagingBuffer();
-
-  createMesh();
 }
 } // namespace vkh
