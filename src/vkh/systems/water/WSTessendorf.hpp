@@ -1,12 +1,16 @@
 #pragma once
 
+#include <glm/ext.hpp>
+#include <glm/glm.hpp>
+#include <vulkan/vulkan_core.h>
+
 #include <complex>
 #include <memory>
 #include <random>
 #include <vector>
 
-#include <glm/ext.hpp>
-#include <glm/glm.hpp>
+#include "../../buffer.hpp"
+#include "../system.hpp"
 
 namespace vkh {
 /**
@@ -23,11 +27,8 @@ namespace vkh {
  *      on the grid is same as the number of waves, and it is
  *      a power of two. Commonly used sizes: 256 or 512
  */
-class WSTessendorf {
+class WSTessendorf : public System {
 public:
-  static constexpr uint32_t defaultTileSize{512};
-  static constexpr float defaultTileLength{1000.0f};
-
   static inline const glm::vec2 defaultWindDir{1.0f, 1.0f};
   static constexpr float defaultWindSpeed{30.0f};
   static constexpr float defaultAnimPeriod{200.0f};
@@ -46,8 +47,7 @@ public:
    *  must be power of two
    * @param tileLength Length of tile, or wave length
    */
-  WSTessendorf(uint32_t tileSize = WSTessendorf::defaultTileSize,
-               float tileLength = WSTessendorf::defaultTileLength);
+  WSTessendorf(EngineContext &context);
   ~WSTessendorf();
 
   /**
@@ -94,9 +94,6 @@ public:
   // ---------------------------------------------------------------------
   // Setters
 
-  void SetTileSize(uint32_t size);
-  void SetTileLength(float length);
-
   /** @param w Unit vector - direction of wind blowing */
   void SetWindDirection(const glm::vec2 &w);
 
@@ -105,7 +102,6 @@ public:
   void SetWindSpeed(float v);
 
   void SetAnimationPeriod(float T);
-  void SetPhillipsConst(float A);
 
   /** @param lambda Importance of displacement vector */
   void SetLambda(float lambda);
@@ -147,20 +143,20 @@ private:
    */
   float NormalizeHeights(float minHeight, float maxHeight);
 
-  void SetupFFTW();
-  void DestroyFFTW();
+  void SetupFFT();
+  void DestroyFFT();
 
   // ---------------------------------------------------------------------
   // Properties
 
-  uint32_t m_TileSize;
-  float m_TileLength;
+  const uint32_t m_TileSize = 512;
+  const float m_TileLength = 1000.0f;
 
   glm::vec2 m_WindDir; ///< Unit vector
   float m_WindSpeed;
 
   // Phillips spectrum
-  float m_A;
+  const float m_A = 3e-7f;
   float m_Damping;
 
   float m_AnimationPeriod;
@@ -198,7 +194,6 @@ private:
   Complex *m_dxDisplacementZ{nullptr};
   Complex *m_dzDisplacementX{nullptr};
 #endif
-
 
   float m_MinHeight{-1.0f};
   float m_MaxHeight{1.0f};
@@ -285,6 +280,21 @@ private:
   inline constexpr float DispersionSmallWaves(float k, float L) const {
     return glm::sqrt(s_kG * k * (1 + k * k * L * L));
   }
-};
 
+  std::unique_ptr<ComputePipeline> bitReversalPipeline;
+  std::unique_ptr<ComputePipeline> butterflyPipeline;
+
+  std::unique_ptr<DescriptorSetLayout> setLayout;
+  VkDescriptorSet set;
+
+  std::unique_ptr<Buffer> fftDataBuf;
+
+  struct PushConstants {
+    int N;     // FFT size
+    int log2N; // log2(N)
+    int mmax;  // Current stage size (butterfly only)
+    int mode;  // 0=rows, 1=columns
+  };
+  void gpuIfft2d(Complex *data);
+};
 } // namespace vkh
