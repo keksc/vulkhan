@@ -86,25 +86,28 @@ void ParticleSys::update() {
   //      glm::normalize(glm::vec3{rand(rng), 1.f, rand(rng)} * 2.f - 1.f)
   //      * 10.f, static_cast<float>(glfwGetTime()) + rand(rng) * 5.f + 2.f});
 
-  Particle newParticle{};
-  newParticle.pos = {3.f, 0.f, 0.f};
-  newParticle.col = glm::vec3{1.0 - rand(rng) * 0.5, 0.1, 0.1};
-  newParticle.velocity =
-      glm::normalize(glm::vec3{1.f, rand(rng), rand(rng)} * 2.f - 1.f) * 10.f;
-  newParticle.timeOfDeath = glfwGetTime() + 1.f;
-  newParticle.onDeath = [&](Particle &parent) {
+  for (int i = 0; i < 100; i++) {
     Particle newParticle{};
-    newParticle.col.b = 1.f;
-    newParticle.pos = parent.pos;
-    newParticle.velocity = -parent.velocity;
-    newParticle.timeOfDeath = glfwGetTime() + .2f;
-    newborns.push_back(newParticle);
-    newParticle.col = {1.f, 1.f, 0.f};
-    newParticle.velocity = -1.5f*parent.velocity;
-    newborns.push_back(newParticle);
-  };
+    newParticle.pos = {3.f, 0.f, 0.f};
+    newParticle.col = glm::vec3{1.0 - rand(rng) * 0.5, 0.1, 0.1};
+    newParticle.velocity =
+        glm::normalize(glm::vec3{1.f, rand(rng), rand(rng)} * 2.f - 1.f) * 10.f;
+    newParticle.timeOfDeath = glfwGetTime() + 1.f;
+    newParticle.onDeath = [&](Particle &parent) {
+      Particle newParticle{};
+      newParticle.col.b = 1.f;
+      newParticle.pos = parent.pos;
+      newParticle.velocity = -parent.velocity;
+      newParticle.timeOfDeath = glfwGetTime() + .2f;
+      newborns.push_back(newParticle);
+      newParticle.col = {1.f, 1.f, 0.f};
+      newParticle.velocity = -(rand(rng) + .5f) * parent.velocity;
+      newParticle.timeOfDeath = glfwGetTime() + .3f;
+      newborns.push_back(newParticle);
+    };
 
-  particles.push_back(newParticle);
+    particles.push_back(newParticle);
+  }
 
   if (!newborns.empty()) {
     particles.insert(particles.end(), std::make_move_iterator(newborns.begin()),
