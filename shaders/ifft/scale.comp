@@ -1,0 +1,17 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint size;
+} pc;
+
+layout(binding = 0, rg32f) uniform image2D buf0;
+
+void main()
+{
+  ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+  vec2 a = imageLoad(buf0, id).xy;
+  imageStore(buf0, id, vec4(a/(pc.size*pc.size), 0.0, 0.0));
+}
+
