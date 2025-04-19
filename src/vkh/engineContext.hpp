@@ -22,23 +22,12 @@ const int MAX_STORAGE_BUFFERS = 100;
 class DescriptorPool;
 class DescriptorSetLayout;
 
-struct Particle {
-  alignas(16) glm::vec3 position{};
-  alignas(16) glm::vec3 color{};
-};
-
-const int MAX_PARTICLES = 10;
-
 struct GlobalUbo {
   alignas(16) glm::mat4 projection{1.f};
   alignas(16) glm::mat4 view{1.f};
   alignas(16) glm::mat4 inverseView{1.f};
-  alignas(16) Particle particles[MAX_PARTICLES];
-  alignas(4) int numParticles;
   alignas(4) float aspectRatio;
 };
-
-const float GROUND_LEVEL = -.5f;
 
 const int NUM_BUFFERS = 2;
 
@@ -79,7 +68,6 @@ struct EngineContext {
     VkSampler modelSampler;
   } vulkan;
   std::vector<Entity> entities;
-  std::vector<Particle> particles;
   struct {
     int frameIndex;
     float dt;
