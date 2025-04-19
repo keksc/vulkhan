@@ -8,19 +8,10 @@ layout(location = 0) out vec3 fragPosWorld;
 layout(location = 1) out vec3 fragNormalWorld;
 layout(location = 2) out vec2 fragUV;
 
-struct Particle {
-  vec3 position;
-  vec3 color;
-};
-
-const int MAX_PARTICLES = 10;
-
 layout(set = 0, binding = 0) uniform GlobalUbo {
   mat4 projection;
   mat4 view;
   mat4 inverseView;
-  Particle particles[MAX_PARTICLES];
-  int numParticles;
   float aspectRatio;
 } ubo;
 

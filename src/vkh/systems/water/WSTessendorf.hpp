@@ -70,7 +70,7 @@ public:
   // ---------------------------------------------------------------------
   // Getters
 
-  auto getTileSize() const { return m_TileSize; }
+  auto getTileSize() const { return tileSize; }
   auto getTileLength() const { return m_TileLength; }
   auto getWindDir() const { return m_WindDir; }
   auto getWindSpeed() const { return m_WindSpeed; }
@@ -110,8 +110,8 @@ public:
   void SetDamping(float damping);
 
 private:
-  static void ifft1d(std::complex<float> *data, int N);
-  static void ifft2d(std::complex<float> *data, int N);
+  void ifft1d(std::complex<float> *data);
+  void ifft2d(std::complex<float> *data);
 
   using Complex = std::complex<float>;
 
@@ -149,7 +149,7 @@ private:
   // ---------------------------------------------------------------------
   // Properties
 
-  const uint32_t m_TileSize = 512;
+  const uint32_t tileSize = 512;
   const float m_TileLength = 1000.0f;
 
   glm::vec2 m_WindDir; ///< Unit vector
@@ -281,18 +281,23 @@ private:
     return glm::sqrt(s_kG * k * (1 + k * k * L * L));
   }
 
-  std::unique_ptr<ComputePipeline> bitReversalPipeline;
-  std::unique_ptr<ComputePipeline> butterflyPipeline;
+  std::unique_ptr<ComputePipeline>
+      precomputeTwiddleFactorAndInputIndicesPipeline;
+  std::unique_ptr<ComputePipeline> horizontalStepInverseFFTPipeline;
+  std::unique_ptr<ComputePipeline> verticalStepInverseFFTPipeline;
+  std::unique_ptr<ComputePipeline> scalePipeline;
+  std::unique_ptr<ComputePipeline> permutePipeline;
 
   std::unique_ptr<DescriptorSetLayout> setLayout;
   VkDescriptorSet set;
 
-  std::unique_ptr<Buffer> fftDataBuf;
+  std::unique_ptr<Buffer> fftDataBuf0;
+  std::unique_ptr<Buffer> fftDataBuf1;
+  std::unique_ptr<Buffer> precomputeBuf;
 
   struct PushConstants {
     int N;     // FFT size
-    int log2N; // log2(N)
-    int mmax;  // Current stage size (butterfly only)
+    int stage; // Current stage (0 to log2(N)-1)
     int mode;  // 0=rows, 1=columns
   };
   void gpuIfft2d(Complex *data);

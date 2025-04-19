@@ -193,12 +193,14 @@ private:
 
     bufInfo.memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-    bufInfo.instanceSize = sizeof(uint32_t)*indexCount;
+    bufInfo.instanceSize = sizeof(uint32_t);
+    bufInfo.instanceCount = indexCount;
     bufInfo.usage =
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     indexBuffer = std::make_unique<Buffer>(context, bufInfo);
 
-    bufInfo.instanceSize = sizeof(T)*vertexCount;
+    bufInfo.instanceSize = sizeof(T);
+    bufInfo.instanceCount = vertexCount;
     bufInfo.usage =
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     vertexBuffer = std::make_unique<Buffer>(context, bufInfo);
