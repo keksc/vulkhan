@@ -10,6 +10,7 @@ namespace vkh {
 class TextSys : public System {
 public:
   TextSys(EngineContext &context);
+  ~TextSys();
   struct Glyph {
     glm::vec2 size;
     glm::vec2 offset;
@@ -36,6 +37,7 @@ private:
   void createDescriptors();
   void createPipeline();
   void createGlyphs();
+  void createSampler();
 
   const std::vector<VkVertexInputAttributeDescription> attributeDescriptions = {
       {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position)},
@@ -51,5 +53,6 @@ private:
   std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
   VkDescriptorSet descriptorSet;
   std::unique_ptr<Image> fontAtlas;
+  VkSampler sampler;
 };
 } // namespace vkh

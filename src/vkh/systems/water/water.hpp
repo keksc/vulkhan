@@ -8,7 +8,6 @@
 #include <glm/gtc/quaternion.hpp>
 #include <vulkan/vulkan_core.h>
 
-#include <array>
 #include <memory>
 #include <vector>
 
@@ -30,12 +29,16 @@ public:
   };
 
   WaterSys(EngineContext &context);
+  ~WaterSys();
   void prepare();
   void createRenderData();
   void render();
   void update(const SkyParams &skyParams);
 
 private:
+  void createSampler();
+
+  VkSampler sampler;
   struct Vertex {
     glm::vec3 pos;
     glm::vec2 uv;

@@ -13,7 +13,7 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 
 layout(push_constant) uniform Push {
   float time;
-} push;
+} pc;
 
 //xy is pos, z is initial angle
 vec3 snowflakes[] = {
@@ -28,7 +28,8 @@ vec3 snowflakes[] = {
 void main() {
   vec2 uv = inPos;
   uv.x *= ubo.aspectRatio;
-  /*uv *= 1.0 / min(pow(push.time * 0.5, 2.0) + 0.5, 1.0);
+
+  uv *= 1.0 / smoothstep(0.1, 2.0, pc.time);
 
   // Adjust snowflakes array positions for aspect ratio
   vec3 closestSnowflake = vec3(snowflakes[0].x * ubo.aspectRatio, snowflakes[0].yz);
@@ -41,16 +42,16 @@ void main() {
       closestSnowflakeDist = dist;
       closestSnowflake = adjustedSnowflake;
     }
-  }*/
+  }
 
-  vec2 pos = snowflakes[0].xy - uv;
+  vec2 pos = closestSnowflake.xy - uv;
 
   float radius = length(pos)*6.0;
-  float angle = atan(pos.y, pos.x)+snowflakes[0].z;
+  float angle = atan(pos.y, pos.x)+closestSnowflake.z;
 
   float func = pow(abs(cos(angle * 12.0) * sin(angle * 3.0)) * 0.8 + 0.1, 4);
 
-  float alpha = smoothstep(0.0, 1.0, (func-radius)*6.0);
+  float alpha = smoothstep(0.0, 1.0, (func-radius)*6.0 * smoothstep(0.0, 1.0, pc.time*0.2));
 
   if(alpha == 0.0) discard;
   outColor = vec4(0.054, 0.57, 0.8, alpha);

@@ -2,15 +2,11 @@
 #include "engineContext.hpp"
 
 #include <GLFW/glfw3.h>
-#include <chrono>
-#include <fmt/core.h>
 #include <fmt/format.h>
-#include <glm/gtc/quaternion.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/norm.hpp>
 
 #include <limits>
-#include <thread>
-
-#include "systems/entity/entity.hpp"
 
 namespace vkh {
 namespace input {
@@ -44,63 +40,53 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
   if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
     glfwSetWindowShouldClose(context->window, GLFW_TRUE);
   }
-  if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
-    Entity &player = context->entities[0];
-    player.rigidBody.velocity.y -= 1.f;
-    /*if (player.rigidBody.isJumping)
-      return;
-    player.rigidBody.isJumping = true;
-    player.rigidBody.velocity.y = player.rigidBody.jumpVelocity;*/
-  }
+  if (!context->currentInputCallbackSystemKey)
+    return;
+  for (auto &pair :
+       context->inputCallbackSystems[context->currentInputCallbackSystemKey]
+           .key)
+    pair.second(key, scancode, action, mods);
 }
 void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   context->input.cursorPos.x = static_cast<int>(xpos);
   context->input.cursorPos.y = static_cast<int>(ypos);
-  if (context->inputCallbackSystems.empty())
+  if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &callback :
-       context->inputCallbackSystems[context->currentInputCallbackSystemIndex]
+  for (auto &pair :
+       context->inputCallbackSystems[context->currentInputCallbackSystemKey]
            .cursorPosition)
-    callback(xpos, ypos);
+    pair.second(xpos, ypos);
 }
 int scroll{};
 void scrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
   scroll += static_cast<int>(yoffset);
 }
-void animateSword(EngineContext &context) {
-  Entity &sword = context.entities[1];
-  for (float i = 0.0; i < 0.5; i += 0.01) {
-    sword.transform.orientation =
-        glm::angleAxis(glm::pi<float>() * i, glm::vec3(0.0f, 0.0f, 1.0f));
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
-  }
-}
 void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
-  if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-    std::thread(animateSword, std::ref(*context)).detach();
-  }
+  // if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+  //   std::thread(animateSword, std::ref(*context)).detach();
+  // }
   if (button == GLFW_MOUSE_BUTTON_RIGHT) {
   }
-  if (context->inputCallbackSystems.empty())
+  if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &callback :
-       context->inputCallbackSystems[context->currentInputCallbackSystemIndex]
+  for (auto &pair :
+       context->inputCallbackSystems[context->currentInputCallbackSystemKey]
            .mouseButton)
-    callback(button, action, mods);
+    pair.second(button, action, mods);
 }
 void charCallback(GLFWwindow *window, unsigned int codepoint) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
-  if (context->inputCallbackSystems.empty())
+  if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &callback :
-       context->inputCallbackSystems[context->currentInputCallbackSystemIndex]
+  for (auto &pair :
+       context->inputCallbackSystems[context->currentInputCallbackSystemKey]
            .character)
-    callback(codepoint);
+    pair.second(codepoint);
 }
 void init(EngineContext &context) {
   glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -111,46 +97,55 @@ void init(EngineContext &context) {
   glfwSetScrollCallback(context.window, scrollCallback);
   glfwSetMouseButtonCallback(context.window, mouseButtonCallback);
 }
-
 void moveInPlaneXZ(EngineContext &context) {
-  Entity &player = context.entities[0];
-  glm::mat3 rotationMatrix = glm::mat3(
-      player.transform
-          .orientation); // glm::eulerAngles(player.transform.orientation);
-  glm::vec3 rotation =
-      glm::vec3{-context.input.cursorPos.y, context.input.cursorPos.x, 0.f} *
-      0.001f;
+  static glm::vec2 lastCursorPos = context.input.cursorPos;
+  glm::vec2 currentCursorPos = context.input.cursorPos;
 
-  rotation.y = glm::mod(rotation.y, glm::two_pi<float>());
-  rotation.x = glm::clamp(rotation.x, -1.5f, 1.5f);
+  glm::vec2 delta = (currentCursorPos - lastCursorPos) * 0.001f;
+  lastCursorPos = currentCursorPos;
 
-  // player.transform.orientation = glm::quat(rotation);
-  float yaw = rotation.y;
-  const glm::vec3 forwardDir{-sin(yaw), 0.f, -cos(yaw)};
-  const glm::vec3 rightDir{forwardDir.z, 0.f, -forwardDir.x};
-  const glm::vec3 upDir{0.f, 1.f, 0.f};
+  static float yaw = 0.0f;
+  static float pitch = 0.0f;
 
-  glm::vec3 moveDir{0.f};
+  yaw += delta.x;
+  pitch -= delta.y;
+
+  pitch = glm::clamp(pitch, -glm::half_pi<float>() + 0.01f,
+                     glm::half_pi<float>() - 0.01f);
+
+  glm::quat q_yaw = glm::angleAxis(yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+
+  glm::quat q_pitch = glm::angleAxis(pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+
+  context.camera.orientation = q_yaw * q_pitch;
+
+  glm::vec3 forward = context.camera.orientation *
+                      glm::vec3(0.0f, 0.0f, -1.0f);
+  glm::vec3 right = context.camera.orientation *
+                    glm::vec3(-1.0f, 0.0f, 0.0f);
+  glm::vec3 up = context.camera.orientation *
+                 glm::vec3(0.0f, 1.0f, 0.0f);
+
+  glm::vec3 moveDir{0.0f};
   if (glfwGetKey(context.window, GLFW_KEY_W))
-    moveDir += forwardDir;
+    moveDir += forward;
   if (glfwGetKey(context.window, GLFW_KEY_S))
-    moveDir -= forwardDir;
+    moveDir -= forward;
   if (glfwGetKey(context.window, GLFW_KEY_D))
-    moveDir += rightDir;
+    moveDir += right;
   if (glfwGetKey(context.window, GLFW_KEY_A))
-    moveDir -= rightDir;
+    moveDir -= right;
   if (glfwGetKey(context.window, GLFW_KEY_SPACE))
-    moveDir += upDir;
+    moveDir += up;
   if (glfwGetKey(context.window, GLFW_KEY_LEFT_CONTROL))
-    moveDir -= upDir;
+    moveDir -= up;
 
-  if (glm::dot(moveDir, moveDir) > std::numeric_limits<float>::epsilon()) {
-    float sprint = glfwGetKey(context.window, GLFW_KEY_LEFT_SHIFT) ? 4.0 : 1.0;
-    player.transform.position +=
-        sprint * moveSpeed * context.frameInfo.dt * glm::normalize(moveDir);
+  if (glm::length2(moveDir) > std::numeric_limits<float>::epsilon()) {
+    float sprint =
+        glfwGetKey(context.window, GLFW_KEY_LEFT_SHIFT) ? 4.0f : 1.0f;
+    context.camera.position +=
+        glm::normalize(moveDir) * sprint * moveSpeed * context.frameInfo.dt;
   }
-  glm::quat rotationQuat = glm::quat(rotation);
-  player.transform.orientation = rotationQuat;
 }
 } // namespace input
 } // namespace vkh
