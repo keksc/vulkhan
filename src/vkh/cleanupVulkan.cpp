@@ -1,10 +1,17 @@
 #include "cleanupVulkan.hpp"
+
 #include <vulkan/vulkan_core.h>
+
+#include "buffer.hpp"
+#include "descriptors.hpp"
 
 namespace vkh {
 void cleanupVulkan(EngineContext &context) {
-  vkDestroySampler(context.vulkan.device, context.vulkan.modelSampler, nullptr);
-  vkDestroySampler(context.vulkan.device, context.vulkan.fontSampler, nullptr);
+  context.vulkan.globalDescriptorSetLayout = nullptr;
+  context.vulkan.globalDescriptorPool = nullptr;
+  context.vulkan.globalDescriptorSets.clear();
+  context.vulkan.globalUBOs.clear();
+
   vkDestroyCommandPool(context.vulkan.device, context.vulkan.commandPool,
                        nullptr);
   vkDestroyDevice(context.vulkan.device, nullptr);

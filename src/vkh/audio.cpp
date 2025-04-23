@@ -11,8 +11,6 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
-#include "systems/entity/entity.hpp"
-
 namespace vkh {
 namespace audio {
 ALCdevice *device = nullptr;
@@ -74,15 +72,14 @@ void init() {
 }
 
 void update(EngineContext &context) {
-  const Transform &transform = context.entities[0].transform;
   glm::vec3 forward = glm::rotate(
-      transform.orientation, glm::vec3(0.0f, 0.0f, 1.0f)); // Forward vector
+      context.camera.orientation, glm::vec3(0.0f, 0.0f, 1.0f));
 
-  glm::vec3 up = glm::rotate(transform.orientation,
-                             glm::vec3(0.0f, -1.0f, 0.0f)); // Up vector
+  glm::vec3 up = glm::rotate(context.camera.orientation,
+                             glm::vec3(0.0f, 1.0f, 0.0f));
 
-  alListener3f(AL_POSITION, transform.position.x, transform.position.y,
-               transform.position.z);
+  alListener3f(AL_POSITION, context.camera.position.x, context.camera.position.y,
+               context.camera.position.z);
   float orientationArray[6] = {forward.x, forward.y, forward.z,
                                up.x,      up.y,      up.z};
   alListenerfv(AL_ORIENTATION, orientationArray);

@@ -9,7 +9,6 @@
 namespace vkh {
 
 namespace camera {
-  const float HEIGHT = 1.f;
   void calcViewDirection(EngineContext& context, glm::vec3 direction,
                          glm::vec3 up = glm::vec3{0.f, -1.f, 0.f});
   void calcViewTarget(EngineContext& context, glm::vec3 target,

@@ -1,11 +1,14 @@
 #pragma once
 
+#include "../../mesh.hpp"
 #include "../system.hpp"
+#include <algorithm>
 
 namespace vkh {
 class EntitySys : public System {
 public:
   EntitySys(EngineContext &context);
+  ~EntitySys();
   struct Vertex {
     glm::vec3 pos{};
     glm::vec3 normal{};
@@ -33,9 +36,36 @@ public:
       return attributeDescriptions;
     }
   };
-  void render();
+  struct Transform {
+    glm::vec3 position{};
+    glm::vec3 scale{1.f, 1.f, 1.f};
+    glm::quat orientation{};
+
+    glm::mat4 mat4();
+    glm::mat3 normalMatrix();
+  };
+
+  struct RigidBody {
+    glm::vec3 velocity{0.f};
+    float mass{1.f};
+    const glm::vec3 computeWeight() const { return {0, mass * 9.81f, 0}; }
+  };
+
+  struct Entity {
+    Transform transform;
+    RigidBody rigidBody;
+    std::unique_ptr<Mesh<Vertex>> mesh;
+  };
+  void render(std::vector<Entity> &entities);
+  void addEntity(std::vector<Entity> &entities, Transform transform,
+                 const std::filesystem::path &path, RigidBody rigidBody);
 
 private:
+  void createSampler();
+  void createSetLayout();
+
   std::unique_ptr<GraphicsPipeline> pipeline;
+  VkSampler sampler;
+  std::unique_ptr<DescriptorSetLayout> setLayout;
 };
 } // namespace vkh

@@ -24,11 +24,11 @@ template <typename T> struct MeshCreateInfo {
 };
 template <typename T> class Mesh {
 public:
-  Mesh(EngineContext &context, const std::filesystem::path &path)
+  Mesh(EngineContext &context, const std::filesystem::path &path,
+       VkSampler sampler, DescriptorSetLayout& setLayout)
       : context{context} {
     loadModel(path);
-
-    createDescriptors();
+    createDescriptors(sampler, setLayout);
   }
   Mesh(EngineContext &context, const MeshCreateInfo<T> &createInfo)
       : context{context} {
@@ -172,8 +172,8 @@ public:
 
   VkDescriptorSet textureDescriptorSet;
 
-  size_t getIndicesSize() const {return indexCount;}
-  size_t getVerticesSize() const {return vertexCount;}
+  size_t getIndicesSize() const { return indexCount; }
+  size_t getVerticesSize() const { return vertexCount; }
 
 private:
   void createBuffers(const std::vector<T> &vertices,
@@ -222,10 +222,9 @@ private:
     vkCmdCopyBuffer(cmd, stagingBuffer, *vertexBuffer, 1, &copyRegion);
     endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
   }
-  void createDescriptors() {
-    auto descriptorInfo = texture->getDescriptorInfo();
-    DescriptorWriter(*context.vulkan.modelDescriptorSetLayout,
-                     *context.vulkan.globalDescriptorPool)
+  void createDescriptors(VkSampler sampler, DescriptorSetLayout &setLayout) {
+    auto descriptorInfo = texture->getDescriptorInfo(sampler);
+    DescriptorWriter(setLayout, *context.vulkan.globalDescriptorPool)
         .writeImage(0, &descriptorInfo)
         .build(textureDescriptorSet);
   }

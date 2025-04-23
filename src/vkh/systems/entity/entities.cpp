@@ -8,14 +8,12 @@
 #include <glm/gtc/quaternion.hpp>
 #include <vulkan/vulkan_core.h>
 
-#include <stdexcept>
 #include <vector>
 
 #include "../../descriptors.hpp"
 #include "../../mesh.hpp"
 #include "../../pipeline.hpp"
 #include "../../renderer.hpp"
-#include "entity.hpp"
 
 namespace vkh {
 
@@ -24,7 +22,43 @@ struct PushConstantData {
   glm::mat4 normalMatrix{1.f};
 };
 
+void EntitySys::createSetLayout() {
+  setLayout = DescriptorSetLayout::Builder(context)
+                  .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                              VK_SHADER_STAGE_FRAGMENT_BIT)
+                  .build();
+}
+void EntitySys::createSampler() {
+  VkPhysicalDeviceProperties properties{};
+  vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice, &properties);
+
+  VkSamplerCreateInfo samplerInfo{};
+  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  samplerInfo.magFilter = VK_FILTER_LINEAR;
+  samplerInfo.minFilter = VK_FILTER_LINEAR;
+  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.anisotropyEnable = VK_TRUE;
+  samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
+  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+  samplerInfo.unnormalizedCoordinates = VK_FALSE;
+  samplerInfo.compareEnable = VK_FALSE;
+  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr, &sampler) !=
+      VK_SUCCESS) {
+    throw std::runtime_error("failed to create texture sampler!");
+  }
+}
+EntitySys::~EntitySys() {
+  vkDestroySampler(context.vulkan.device, sampler, nullptr);
+}
 EntitySys::EntitySys(EngineContext &context) : System(context) {
+  createSampler();
+  createSetLayout();
+
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags =
       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -32,8 +66,7 @@ EntitySys::EntitySys(EngineContext &context) : System(context) {
   pushConstantRange.size = sizeof(PushConstantData);
 
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
-      *context.vulkan.globalDescriptorSetLayout,
-      *context.vulkan.modelDescriptorSetLayout};
+      *context.vulkan.globalDescriptorSetLayout, *setLayout};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -53,18 +86,16 @@ EntitySys::EntitySys(EngineContext &context) : System(context) {
       pipelineConfig);
 }
 
-void EntitySys::render() {
+void EntitySys::render(std::vector<Entity> &entities) {
   pipeline->bind(context.frameInfo.commandBuffer);
 
   /*vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);*/
 
-  for (auto &entity : context.entities) {
-    if (entity.model == nullptr)
-      continue;
+  for (auto &entity : entities) {
     auto &transform = entity.transform;
-    auto &model = entity.model;
+    auto &model = entity.mesh;
     PushConstantData push{};
     push.modelMatrix = transform.mat4();
     push.normalMatrix = transform.normalMatrix();
@@ -78,5 +109,12 @@ void EntitySys::render() {
         {context.frameInfo.globalDescriptorSet, model->textureDescriptorSet});
     model->draw(context.frameInfo.commandBuffer);
   }
+}
+void EntitySys::addEntity(std::vector<Entity> &entities, Transform transform,
+                          const std::filesystem::path &path,
+                          RigidBody rigidBody) {
+  entities.emplace_back(
+      transform, rigidBody,
+      std::make_unique<Mesh<EntitySys::Vertex>>(context, path, sampler, *setLayout));
 }
 } // namespace vkh

@@ -10,7 +10,10 @@
 #include <unordered_set>
 #include <vector>
 
+#include "buffer.hpp"
+#include "descriptors.hpp"
 #include "deviceHelpers.hpp"
+#include "swapChain.hpp"
 
 namespace vkh {
 const std::vector<const char *> validationLayers = {
@@ -308,45 +311,40 @@ void displayInitInfo(EngineContext &context) {
 
   fmt::print("{:=<60}\n", ""); // Table border
 }
-void createSamplers(EngineContext &context) {
-  VkPhysicalDeviceProperties properties{};
-  vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice, &properties);
+void setupGlobResources(EngineContext &context) {
+  context.vulkan.globalDescriptorPool =
+      DescriptorPool::Builder(context)
+          .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT + MAX_SAMPLERS)
+          .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                       SwapChain::MAX_FRAMES_IN_FLIGHT + 90)
+          .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_SAMPLERS)
+          .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, MAX_STORAGE_IMAGES)
+          .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_STORAGE_BUFFERS)
+          .build();
 
-  VkSamplerCreateInfo samplerInfo{};
-  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-  samplerInfo.magFilter = VK_FILTER_LINEAR;
-  samplerInfo.minFilter = VK_FILTER_LINEAR;
-  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.anisotropyEnable = VK_TRUE;
-  samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-  samplerInfo.unnormalizedCoordinates = VK_FALSE;
-  samplerInfo.compareEnable = VK_FALSE;
-  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-
-  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr,
-                      &context.vulkan.modelSampler) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create texture sampler!");
+  context.vulkan.globalUBOs.resize(SwapChain::MAX_FRAMES_IN_FLIGHT);
+  for (int i = 0; i < context.vulkan.globalUBOs.size(); i++) {
+    BufferCreateInfo bufInfo{};
+    bufInfo.instanceSize = sizeof(GlobalUbo);
+    bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+    context.vulkan.globalUBOs[i] = std::make_unique<Buffer>(context, bufInfo);
+    context.vulkan.globalUBOs[i]->map();
   }
 
-  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  samplerInfo.anisotropyEnable = VK_FALSE;
-  samplerInfo.maxAnisotropy = 1.0f;
-  samplerInfo.compareEnable = VK_FALSE;
-  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  samplerInfo.mipLodBias = 0.0f;
-  samplerInfo.minLod = 0.0f;
-  samplerInfo.maxLod = 0.0f;
+  context.vulkan.globalDescriptorSetLayout =
+      DescriptorSetLayout::Builder(context)
+          .addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+          .build();
 
-  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr,
-                      &context.vulkan.fontSampler) != VK_SUCCESS) {
-    throw std::runtime_error("Failed to create font sampler!");
+  context.vulkan.globalDescriptorSets.resize(SwapChain::MAX_FRAMES_IN_FLIGHT);
+  for (int i = 0; i < context.vulkan.globalDescriptorSets.size(); i++) {
+    auto bufferInfo = context.vulkan.globalUBOs[i]->descriptorInfo();
+    DescriptorWriter(*context.vulkan.globalDescriptorSetLayout,
+                     *context.vulkan.globalDescriptorPool)
+        .writeBuffer(0, &bufferInfo)
+        .build(context.vulkan.globalDescriptorSets[i]);
   }
 }
 void initVulkan(EngineContext &context) {
@@ -358,6 +356,6 @@ void initVulkan(EngineContext &context) {
   createLogicalDevice(context);
   createCommandPool(context);
   displayInitInfo(context);
-  createSamplers(context);
+  setupGlobResources(context);
 }
 } // namespace vkh

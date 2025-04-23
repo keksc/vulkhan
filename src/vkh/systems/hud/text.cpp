@@ -19,7 +19,9 @@
 
 namespace vkh {
 TextSys::GlyphRange TextSys::glyphRange;
-
+TextSys::~TextSys() {
+  vkDestroySampler(context.vulkan.device, sampler, nullptr);
+}
 void TextSys::createBuffers() {
   BufferCreateInfo bufInfo{};
   bufInfo.instanceSize = sizeof(Vertex);
@@ -45,7 +47,7 @@ void TextSys::createDescriptors() {
   VkDescriptorImageInfo imageInfo{};
   imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   imageInfo.imageView = fontAtlas->getImageView();
-  imageInfo.sampler = context.vulkan.fontSampler;
+  imageInfo.sampler = sampler;
   DescriptorWriter(*descriptorSetLayout, *context.vulkan.globalDescriptorPool)
       .writeImage(0, &imageInfo)
       .build(descriptorSet);
@@ -128,7 +130,34 @@ void TextSys::createGlyphs() {
   }
   delete[] atlasData;
 }
+void TextSys::createSampler() {
+  VkSamplerCreateInfo samplerInfo{};
+  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  samplerInfo.magFilter = VK_FILTER_LINEAR;
+  samplerInfo.minFilter = VK_FILTER_LINEAR;
+  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+  samplerInfo.unnormalizedCoordinates = VK_FALSE;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.anisotropyEnable = VK_FALSE;
+  samplerInfo.maxAnisotropy = 1.0f;
+  samplerInfo.compareEnable = VK_FALSE;
+  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  samplerInfo.mipLodBias = 0.0f;
+  samplerInfo.minLod = 0.0f;
+  samplerInfo.maxLod = 0.0f;
+
+  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr, &sampler) !=
+      VK_SUCCESS) {
+    throw std::runtime_error("Failed to create font sampler!");
+  }
+}
 TextSys::TextSys(EngineContext &context) : System(context) {
+  createSampler();
+
   createGlyphs();
   createBuffers();
   createDescriptors();

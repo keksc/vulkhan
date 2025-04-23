@@ -12,15 +12,14 @@
 
 #include <functional>
 #include <memory>
-#include <vector>
 
 namespace vkh {
-struct Entity;
 const int MAX_SAMPLERS = 1000;
 const int MAX_STORAGE_IMAGES = 100;
 const int MAX_STORAGE_BUFFERS = 100;
 class DescriptorPool;
 class DescriptorSetLayout;
+class Buffer;
 
 struct GlobalUbo {
   alignas(16) glm::mat4 projection{1.f};
@@ -62,12 +61,10 @@ struct EngineContext {
     VkCommandPool commandPool;
     std::unique_ptr<SwapChain> swapChain;
     std::unique_ptr<DescriptorPool> globalDescriptorPool;
-    std::unique_ptr<DescriptorSetLayout> modelDescriptorSetLayout;
     std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout;
-    VkSampler fontSampler;
-    VkSampler modelSampler;
+    std::vector<std::unique_ptr<Buffer>> globalUBOs;
+    std::vector<VkDescriptorSet> globalDescriptorSets;
   } vulkan;
-  std::vector<Entity> entities;
   struct {
     int frameIndex;
     float dt;
@@ -75,19 +72,23 @@ struct EngineContext {
     VkDescriptorSet globalDescriptorSet;
   } frameInfo;
   struct {
-    glm::vec3 position{0.f, 0.f, -2.5f};
-    glm::quat orientation;
+    float yaw = 0.f;
+    float pitch = 0.f;
+    glm::vec3 position{};
+    glm::quat orientation{};
     glm::mat4 projectionMatrix{1.f};
     glm::mat4 viewMatrix{1.f};
     glm::mat4 inverseViewMatrix{1.f};
   } camera;
   struct InputCallbackSystem {
-    std::vector<std::function<void(int, int, int)>> mouseButton;
-    std::vector<std::function<void(double, double)>> cursorPosition;
-    std::vector<std::function<void(unsigned int)>> character;
+    std::unordered_map<void *, std::function<void(int, int, int)>> mouseButton;
+    std::unordered_map<void *, std::function<void(double, double)>>
+        cursorPosition;
+    std::unordered_map<void *, std::function<void(unsigned int)>> character;
+    std::unordered_map<void *, std::function<void(int, int, int, int)>> key;
   };
-  std::vector<InputCallbackSystem> inputCallbackSystems;
-  std::size_t currentInputCallbackSystemIndex = 0;
+  std::unordered_map<void *, InputCallbackSystem> inputCallbackSystems;
+  void *currentInputCallbackSystemKey;
   struct {
     glm::ivec2 cursorPos;
   } input;
