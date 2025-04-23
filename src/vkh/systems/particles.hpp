@@ -54,7 +54,7 @@ private:
   void createPipeline();
   void createBuffer();
 
-  const int maxParticles = 100000;
+  const int maxParticles = 10000;
 
   std::unique_ptr<GraphicsPipeline> pipeline;
   std::unique_ptr<Buffer> vertexBuffer;

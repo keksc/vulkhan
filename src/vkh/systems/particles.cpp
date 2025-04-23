@@ -86,7 +86,7 @@ void ParticleSys::update() {
   //      glm::normalize(glm::vec3{rand(rng), 1.f, rand(rng)} * 2.f - 1.f)
   //      * 10.f, static_cast<float>(glfwGetTime()) + rand(rng) * 5.f + 2.f});
 
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < 10; i++) {
     Particle newParticle{};
     newParticle.pos = {3.f, 0.f, 0.f};
     newParticle.col = glm::vec3{1.0 - rand(rng) * 0.5, 0.1, 0.1};

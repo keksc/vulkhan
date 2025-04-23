@@ -30,7 +30,7 @@ private:
   std::shared_ptr<Image> fontAtlas;
 
   hud::DrawInfo drawInfo;
-  const int maxHudRects = 10;
+  const int maxHudRects = 1000;
   const int maxVertexCount = 4 * maxHudRects; // 4 vertices = 1 quad = 1 glyph
   VkDeviceSize maxVertexSize = sizeof(hud::SolidColorVertex) * maxVertexCount;
 

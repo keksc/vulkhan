@@ -1,10 +1,8 @@
-#include "entity.hpp"
-#include <glm/ext/matrix_transform.hpp>
-#include <memory>
+#include "entities.hpp"
 
 namespace vkh {
 
-glm::mat4 Transform::mat4() {
+glm::mat4 EntitySys::Transform::mat4() {
   /*const float c1 = glm::cos(rotation.y);
   const float c2 = glm::cos(rotation.x);
   const float c3 = glm::cos(rotation.z);
@@ -56,7 +54,7 @@ glm::mat4 Transform::mat4() {
   return transform;
 }
 
-glm::mat3 Transform::normalMatrix() {
+glm::mat3 EntitySys::Transform::normalMatrix() {
   /*const float c1 = glm::cos(rotation.y);
   const float c2 = glm::cos(rotation.x);
   const float c3 = glm::cos(rotation.z);
@@ -88,11 +86,4 @@ glm::mat3 Transform::normalMatrix() {
                 0.0f, 1.0f / scale.z);
   return rotationMatrix * scaleMatrix;
 }
-Entity::Entity(EngineContext &context, Transform transform, RigidBody rigidBody)
-    : transform(transform), rigidBody(rigidBody) {}
-
-Entity::Entity(EngineContext &context, Transform transform,
-               const std::filesystem::path &path, RigidBody rigidBody)
-    : transform(transform), rigidBody(rigidBody),
-      model(std::make_unique<Mesh<EntitySys::Vertex>>(context, path)) {}
 } // namespace vkh

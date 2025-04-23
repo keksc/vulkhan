@@ -40,8 +40,8 @@ public:
 
   static uint32_t formatSize(VkFormat format);
 
-  VkDescriptorImageInfo getDescriptorInfo() {
-    return VkDescriptorImageInfo{.sampler = context.vulkan.modelSampler,
+  VkDescriptorImageInfo getDescriptorInfo(VkSampler sampler) {
+    return VkDescriptorImageInfo{.sampler = sampler,
                                  .imageView = view,
                                  .imageLayout = layout};
   }

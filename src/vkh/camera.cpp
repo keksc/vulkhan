@@ -49,38 +49,24 @@ void calcViewTarget(EngineContext &context, glm::vec3 target, glm::vec3 up) {
 }
 
 void calcViewYXZ(EngineContext &context) {
-  glm::quat orientation = context.camera.orientation;
+  const glm::quat &q = context.camera.orientation;
+  const glm::vec3 &p = context.camera.position;
 
-  glm::mat3 rotationMatrix = glm::mat3(orientation);
+  // Inverse rotation (conjugate of unit quaternion)
+  glm::quat invRot = glm::conjugate(q);
 
-  const glm::vec3 u = rotationMatrix[0];
-  const glm::vec3 v = rotationMatrix[1];
-  const glm::vec3 w = rotationMatrix[2];
+  // View matrix is the inverse of the camera's world transform
+  // R^T * T^-1 (rotation transpose * translation inverse)
+  context.camera.viewMatrix = glm::mat4_cast(invRot);
+  context.camera.viewMatrix[3] =
+      glm::vec4(-glm::vec3(context.camera.viewMatrix[0]) * p.x -
+                    glm::vec3(context.camera.viewMatrix[1]) * p.y -
+                    glm::vec3(context.camera.viewMatrix[2]) * p.z,
+                1.0f);
 
-  context.camera.viewMatrix = glm::mat4{1.0f};
-
-  context.camera.viewMatrix[0][0] = u.x;
-  context.camera.viewMatrix[1][0] = u.y;
-  context.camera.viewMatrix[2][0] = u.z;
-  context.camera.viewMatrix[0][1] = v.x;
-  context.camera.viewMatrix[1][1] = v.y;
-  context.camera.viewMatrix[2][1] = v.z;
-  context.camera.viewMatrix[0][2] = w.x;
-  context.camera.viewMatrix[1][2] = w.y;
-  context.camera.viewMatrix[2][2] = w.z;
-
-  context.camera.viewMatrix[3][0] = -glm::dot(u, context.camera.position);
-  context.camera.viewMatrix[3][1] = -glm::dot(v, context.camera.position);
-  context.camera.viewMatrix[3][2] = -glm::dot(w, context.camera.position);
-
-  context.camera.inverseViewMatrix = glm::mat4{1.0f};
-
-  context.camera.inverseViewMatrix[0] = glm::vec4(u, 0.0f);
-  context.camera.inverseViewMatrix[1] = glm::vec4(v, 0.0f);
-  context.camera.inverseViewMatrix[2] = glm::vec4(w, 0.0f);
-
-  context.camera.inverseViewMatrix[3] =
-      glm::vec4(context.camera.position, 1.0f);
+  // Inverse view matrix is camera transform: T * R
+  context.camera.inverseViewMatrix = glm::mat4_cast(q);
+  context.camera.inverseViewMatrix[3] = glm::vec4(p, 1.0f);
 }
 } // namespace camera
 } // namespace vkh

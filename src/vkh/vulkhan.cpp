@@ -1,5 +1,4 @@
 #include "vulkhan.hpp"
-#include "deviceHelpers.hpp"
 #include "systems/hud/hudElements.hpp"
 #include <vulkan/vulkan_core.h>
 
@@ -26,11 +25,9 @@
 #include "swapChain.hpp"
 #include "systems/axes.hpp"
 #include "systems/entity/entities.hpp"
-#include "systems/entity/entity.hpp"
 #include "systems/freezeAnimation.hpp"
 #include "systems/hud/hud.hpp"
 #include "systems/particles.hpp"
-#include "systems/physics.hpp"
 #include "systems/water/water.hpp"
 #include "window.hpp"
 
@@ -40,126 +37,65 @@
 #include <vector>
 
 namespace vkh {
-void loadObjects(EngineContext &context) {
-  auto &playerTransform = context.entities[0].transform;
-  context.entities.push_back(
-      {context,
-       {.position = {.5f, .5f, .5f}, .scale = {.5f, .5f, .5f}},
-       "models/sword.glb"});
-
-  context.entities.push_back(
-      {context,
-       {.position = {5.f, .5f, .5f}, .scale = {.5f, .5f, .5f}},
-       "models/westwingassets.glb"});
-}
-void updateObjs(EngineContext &context) {}
-
 void run() {
   EngineContext context{};
   initWindow(context);
   initVulkan(context);
   // audio::init();
   renderer::init(context);
-  { // {} to handle call destructors of buffers before vulkah is cleaned up
-    input::init(context);
-
-    context.vulkan.globalDescriptorPool =
-        DescriptorPool::Builder(context)
-            .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT + MAX_SAMPLERS)
-            .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                         SwapChain::MAX_FRAMES_IN_FLIGHT + 90)
-            .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                         MAX_SAMPLERS)
-            .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, MAX_STORAGE_IMAGES)
-            .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_STORAGE_BUFFERS)
-            .build();
-
-    std::vector<std::unique_ptr<Buffer>> uboBuffers(
-        SwapChain::MAX_FRAMES_IN_FLIGHT);
-    for (int i = 0; i < uboBuffers.size(); i++) {
-      BufferCreateInfo bufInfo{};
-      bufInfo.instanceSize = sizeof(GlobalUbo);
-      bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-      bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
-      uboBuffers[i] = std::make_unique<Buffer>(context, bufInfo);
-      uboBuffers[i]->map();
-    }
-
-    context.vulkan.globalDescriptorSetLayout =
-        DescriptorSetLayout::Builder(context)
-            .addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                        VK_SHADER_STAGE_VERTEX_BIT |
-                            VK_SHADER_STAGE_FRAGMENT_BIT)
-            .build();
-    context.vulkan.modelDescriptorSetLayout =
-        DescriptorSetLayout::Builder(context)
-            .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                        VK_SHADER_STAGE_FRAGMENT_BIT)
-            .build();
-
-    context.entities.push_back({context, {.position = {0.f, 0.f, 10.f}}});
-    loadObjects(context);
-
+  { // {} to handle call destructors of buffers before vulkan is cleaned up
     // std::thread(generateDungeon, std::ref(context)).detach();
+    context.camera.position = {0.f, 2.f, -2.5f};
+    context.camera.orientation = {0.f, 0.f, 1.f, 0.f};
 
     WaterSys::SkyParams skyParams;
     SkyPreetham sky({0.f, 3.f, .866f});
     skyParams.props = sky.GetProperties();
 
     EntitySys entitySys(context);
+    std::vector<EntitySys::Entity> entities;
+    entitySys.addEntity(entities,
+                        {.position = {.5f, .5f, .5f}, .scale = {.5f, .5f, .5f}},
+                        "models/sword.glb", {});
+
+    entitySys.addEntity(entities,
+                        {.position = {5.f, .5f, .5f}, .scale = {.5f, .5f, .5f}},
+                        "models/westwingassets.glb", {});
+
     AxesSys axesSys(context);
     ParticleSys particleSys(context);
     FreezeAnimationSys freezeAnimationSys(context);
     // WaterSys waterSys(context);
     HudSys hudSys(context);
 
-    std::vector<VkDescriptorSet> globalDescriptorSets(
-        SwapChain::MAX_FRAMES_IN_FLIGHT);
-    for (int i = 0; i < globalDescriptorSets.size(); i++) {
-      auto bufferInfo = uboBuffers[i]->descriptorInfo();
-      DescriptorWriter(*context.vulkan.globalDescriptorSetLayout,
-                       *context.vulkan.globalDescriptorPool)
-          .writeBuffer(0, &bufferInfo)
-          .build(globalDescriptorSets[i]);
-    }
-
     hud::View hudWorld(context);
-    // hud::View hudPause(context);
-    auto rect = hudWorld.createElement<hud::Rect>(
-        glm::vec2{-1.f, -1.f}, glm::vec2{.0f, .0f}, glm::vec3{.0f, .5f, .0f});
-    // rect->addChild(hudWorld.createElement<hud::Button>(
-    //     glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f} *
-    //     context.window.aspectRatio, glm::vec3{1.f, .5f, 1.f}, [&](int button,
-    //     int action, int) {
-    //       if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-    //         fmt::println("go2pause");
-    //         hudSys.setView(&hudPause);
-    //       }
-    //     }));
-    auto fpstxt = hudWorld.createElement<hud::Text>(glm::vec2{-1.f, -1.f});
-    hudWorld.addElement(fpstxt);
-    hudWorld.addElement(rect);
-    //
-    // rect = hudPause.createElement<hud::Rect>(
-    //     glm::vec2{-.4f, -.4f}, glm::vec2{.5f, .5f}, glm::vec3{.5f, .5f,
-    //     .5f});
-    // auto btn = hudPause.createElement<hud::Button>(
-    //     glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, .5f, 1.f},
-    //     [&](int button, int action, int) {
-    //       if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-    //         fmt::println("go2world");
-    //         hudSys.setView(&hudWorld);
-    //       }
-    //     });
-    // rect->addChild(btn);
-    // hudPause.addElement<hud::Text>(glm::vec2{0.f, 0.f}, "aaa");
-    // hudPause.addElement(rect);
-    // hudPause.addElement<hud::TextInput>(glm::vec2{-1.f, .7f}, "aaa");
-    // hudPause.addElement<hud::Rect>(glm::vec2{-1.f, .7f}, glm::vec2{.1f, .1f},
-    //                                glm::vec3{0.f, 1.f, 0.f});
-    // hudPause.addElement<hud::Slider>(glm::vec2{0.f, 0.f}, glm::vec2{.5f,
-    // .2f}, glm::vec2{0.f, 1.f});
-    hudSys.setView(&hudWorld);
+    hud::View hudPause(context);
+    auto rect = hudWorld.addElement<hud::Rect>(glm::vec2{-1.f, -1.f},
+                                               glm::vec2{.3f, .3f},
+                                               glm::vec3{.678f, .007f, .388f});
+    auto fpstxt = rect->addChild<hud::Text>(glm::vec2{0.f, 0.f});
+    auto orientationtxt = hudWorld.addElement<hud::Text>(glm::vec2{1.f, -1.f});
+    hudWorld.addElement<hud::Button>(
+        glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f}, glm::vec3{1.f, .5f, 1.f},
+        [&](int button, int action, int) {
+          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            fmt::println("go2pause");
+            hudSys.setView(&hudPause);
+          }
+        });
+
+    auto btn = hudPause.addElement<hud::Button>(
+        glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, .5f, 1.f},
+        [&](int button, int action, int) {
+          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            fmt::println("go2world");
+            hudSys.setView(&hudWorld);
+          }
+        });
+    auto slider = hudPause.addElement<hud::Slider>(glm::vec2{-1.f, -1.f}, glm::vec2{.5f, .2f},
+                                     glm::vec2{0.f, 1.f}, glm::vec3{.5f, .5f, .8f});
+    slider->value = .9f;
+    hudSys.setView(&hudPause);
 
     // btn->addChild(std::make_shared<hud::Rect>(
     //     glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, 0.f, 0.f}));
@@ -179,6 +115,8 @@ void run() {
     //        .timeOfDeath = static_cast<float>(glfwGetTime()) + 10.f});
     // }
 
+    input::init(context);
+
     auto currentTime = std::chrono::high_resolution_clock::now();
     while (!glfwWindowShouldClose(context.window)) {
       glfwPollEvents();
@@ -191,12 +129,14 @@ void run() {
       fpstxt->content =
           fmt::format("FPS: {}", static_cast<int>(1.f / frameTime));
       rect->size = fpstxt->size;
+      orientationtxt->position.x = 1.f - orientationtxt->size.x;
+      orientationtxt->content = fmt::format(
+          "Orientation:\n{}\n{}\n{}\n{}", context.camera.orientation.w,
+          context.camera.orientation.x, context.camera.orientation.y,
+          context.camera.orientation.z);
       currentTime = newTime;
 
       input::moveInPlaneXZ(context);
-      context.camera.position = context.entities[0].transform.position +
-                                glm::vec3{0.f, camera::HEIGHT, 0.f};
-      context.camera.orientation = context.entities[0].transform.orientation;
 
       // audio::update(context);
 
@@ -214,26 +154,23 @@ void run() {
             frameIndex,
             frameTime,
             commandBuffer,
-            globalDescriptorSets[frameIndex],
+            context.vulkan.globalDescriptorSets[frameIndex],
         };
 
         // update
-        updateObjs(context);
         GlobalUbo ubo{};
         ubo.projection = context.camera.projectionMatrix;
         ubo.view = context.camera.viewMatrix;
         ubo.inverseView = context.camera.inverseViewMatrix;
         ubo.aspectRatio = aspect;
-        if (glfwGetKey(context.window, GLFW_KEY_G))
-          physicsSys::update(context);
         particleSys.update();
         if (glfwGetKey(context.window, GLFW_KEY_U)) {
           skyParams.props.sunDir.x += .1f * context.frameInfo.dt;
           sky.update();
         }
         // waterSys.update(skyParams);
-        uboBuffers[frameIndex]->write(&ubo);
-        uboBuffers[frameIndex]->flush();
+        context.vulkan.globalUBOs[frameIndex]->write(&ubo);
+        context.vulkan.globalUBOs[frameIndex]->flush();
 
         // render
         renderer::beginSwapChainRenderPass(context, commandBuffer);
@@ -241,26 +178,23 @@ void run() {
         // order here matters
         hudSys.render();
         if (hudSys.getView() == &hudWorld) {
-          entitySys.render();
+          entitySys.render(entities);
           axesSys.render();
           // waterSys.render();
-          freezeAnimationSys.render();
 
           particleSys.render();
+
+          if (glm::length2(entities[1].transform.position -
+                           context.camera.position) < 25.f)
+            freezeAnimationSys.render();
         }
 
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
       }
     }
-
     vkDeviceWaitIdle(context.vulkan.device);
   }
-  context.entities.clear();
-  context.vulkan.globalDescriptorSetLayout = nullptr;
-  context.vulkan.modelDescriptorSetLayout = nullptr;
-  context.vulkan.globalDescriptorPool = nullptr;
-
   renderer::cleanup(context);
   cleanupVulkan(context);
   cleanupWindow(context);
