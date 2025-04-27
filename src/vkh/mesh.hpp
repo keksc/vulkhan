@@ -48,7 +48,7 @@ public:
     vkCmdBindIndexBuffer(commandBuffer, *indexBuffer, 0, VK_INDEX_TYPE_UINT32);
     if (!descriptorSets.empty()) {
       vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              pipelineLayout, 0, descriptorSets.size(),
+                              pipelineLayout, 0, static_cast<uint32_t>(descriptorSets.size()),
                               descriptorSets.data(), 0, nullptr);
     }
   }
@@ -153,7 +153,6 @@ public:
                       // all buffers are already loaded into a vector.
                       [](auto &arg) {},
                       [&](fastgltf::sources::Array &vector) {
-                        int width, height, nrChannels;
                         texture = std::make_shared<Image>(
                             context,
                             reinterpret_cast<const void *>(
@@ -178,8 +177,8 @@ public:
 private:
   void createBuffers(const std::vector<T> &vertices,
                      const std::vector<uint32_t> &indices) {
-    indexCount = indices.size();
-    vertexCount = vertices.size();
+    indexCount = static_cast<uint32_t>(indices.size());
+    vertexCount = static_cast<uint32_t>(vertices.size());
 
     VkDeviceSize indicesSize = sizeof(uint32_t) * indexCount;
     VkDeviceSize verticesSize = sizeof(T) * vertexCount;

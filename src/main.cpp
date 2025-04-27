@@ -1,11 +1,11 @@
 #include "vkh/vulkhan.hpp"
 
-#include <GameAnalytics/GameAnalytics.h>
+//#include <GameAnalytics/GameAnalytics.h>
 #include <fmt/format.h>
 
 #include <stdexcept>
 
-void setupAnalytics() {
+/*void setupAnalytics() {
   gameanalytics::GameAnalytics::setEnabledInfoLog(false);
   gameanalytics::GameAnalytics::setEnabledVerboseLog(false);
 
@@ -16,7 +16,7 @@ void setupAnalytics() {
   gameanalytics::GameAnalytics::initialize(
       "99cf79ca1f6f9a87f9438ac39067640b",
       "7974f4f0c8f62b2f947aa5bf6a67aa81bbec784e");
-}
+}*/
 
 #if defined(WIN32) && defined(NDEBUG)
 #include <windows.h>

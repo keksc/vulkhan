@@ -16,12 +16,8 @@ namespace audio {
 ALCdevice *device = nullptr;
 ALCcontext *context = nullptr;
 
-struct Sound {
-  ALuint source;
-  ALuint buffer;
-  // add the time at which the resources should be destroyed
-};
-std::vector<Sound> sounds;
+std::vector<ALuint> sources;
+std::vector<ALuint> buffers;
 
 std::vector<short> convertTo16Bit(const AudioFile<float> &audioFile) {
   std::vector<short> result;
@@ -42,32 +38,33 @@ void init() {
     throw std::runtime_error("Failed to create or set OpenAL context.");
   }
 
-  auto &sound = sounds.emplace_back();
-  alGenSources(1, &sound.source);
-  alGenBuffers(1, &sound.buffer);
+  /*auto& source = sources.emplace_back();
+  auto &buffer = buffers.emplace_back();
+  alGenSources(1, &source);
+  alGenBuffers(1, &buffer);
   if (alGetError() != AL_NO_ERROR) {
     throw std::runtime_error("Error generating OpenAL source or buffer.");
-  }
+  }*/
 
-  AudioFile<float> audioFile;
+  /*AudioFile<float> audioFile;
   if (!audioFile.load("sounds/lobby.wav")) {
     throw std::runtime_error("Failed to load WAV file.");
   }
 
   auto data = convertTo16Bit(audioFile);
 
-  alBufferData(sound.buffer, AL_FORMAT_MONO16, data.data(),
+  alBufferData(buffer, AL_FORMAT_MONO16, data.data(),
                static_cast<ALsizei>(data.size() * sizeof(short)),
                static_cast<ALsizei>(audioFile.getSampleRate()));
-  alSourcei(sound.source, AL_BUFFER, sound.buffer);
+  alSourcei(source, AL_BUFFER, buffer);
 
-  alSourcef(sound.source, AL_ROLLOFF_FACTOR, 1.0f);
-  alSourcef(sound.source, AL_REFERENCE_DISTANCE, 1.0f);
-  alSourcef(sound.source, AL_MAX_DISTANCE, 10.0f);
-  alSource3f(sound.source, AL_POSITION, 0.f, 0.f, 0.f);
-  alSource3f(sound.source, AL_VELOCITY, 0.0f, 0.f, 0.f);
+  alSourcef(source, AL_ROLLOFF_FACTOR, 1.0f);
+  alSourcef(source, AL_REFERENCE_DISTANCE, 1.0f);
+  alSourcef(source, AL_MAX_DISTANCE, 10.0f);
+  alSource3f(source, AL_POSITION, 0.f, 0.f, 0.f);
+  alSource3f(source, AL_VELOCITY, 0.0f, 0.f, 0.f);
 
-  alSourcePlay(sound.source);
+  alSourcePlay(source);*/
 
   // alListenerf(AL_GAIN, 0.f); // mute master volume
 }
@@ -95,22 +92,25 @@ void update(EngineContext &context) {
 }
 void play(const std::filesystem::path &file) {
   AudioFile<float> audioFile;
-  if (!audioFile.load(file)) {
+  if (!audioFile.load(file.string())) {
     throw std::runtime_error("Failed to load WAV file.");
   }
 
   auto data = convertTo16Bit(audioFile);
 
-  auto &sound = sounds.emplace_back();
-  alGenBuffers(1, &sound.buffer);
-  alBufferData(sound.buffer, AL_FORMAT_MONO16, data.data(),
+  auto& source = sources.emplace_back();
+  auto &buffer = buffers.emplace_back();
+  alGenBuffers(1, &buffer);
+  alBufferData(buffer, AL_FORMAT_MONO16, data.data(),
                static_cast<ALsizei>(data.size() * sizeof(short)),
                static_cast<ALsizei>(audioFile.getSampleRate()));
-  alGenSources(1, &sound.source);
-  alSourcei(sound.source, AL_BUFFER, sound.buffer);
-  alSourcePlay(sound.source);
+  alGenSources(1, &source);
+  alSourcei(source, AL_BUFFER, buffer);
+  alSourcePlay(source);
 }
 void cleanup() {
+  alDeleteSources(static_cast<ALsizei>(sources.size()), sources.data());
+  alDeleteBuffers(static_cast<ALsizei>(buffers.size()), buffers.data());
   alcMakeContextCurrent(nullptr);
   if (context)
     alcDestroyContext(context);

@@ -32,7 +32,7 @@ namespace vkh {
         EngineContext& context, std::unordered_map<uint32_t, VkDescriptorSetLayoutBinding> bindings)
         : context{ context }, bindings{ bindings } {
         std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings{};
-        for (auto kv : bindings) {
+        for (auto& kv : bindings) {
             setLayoutBindings.push_back(kv.second);
         }
 
@@ -189,7 +189,7 @@ namespace vkh {
         for (auto& write : writes) {
             write.dstSet = set;
         }
-        vkUpdateDescriptorSets(pool.context.vulkan.device, writes.size(), writes.data(), 0, nullptr);
+        vkUpdateDescriptorSets(pool.context.vulkan.device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
 
 }  // namespace vkh

@@ -24,8 +24,7 @@ public:
   struct SkyParams {
     alignas(16) glm::vec3 sunColor{1.0};
     float sunIntensity{1.0};
-    // -------------------------------------------------
-    SkyPreetham::Props props;
+    SkyPreetham::Props props{};
   };
 
   WaterSys(EngineContext &context);
@@ -145,17 +144,17 @@ private:
   } vertexUBO{};
 
   struct WaterSurfaceUBO {
-    alignas(16) glm::vec3 camPos;
-    float height{50.0f};
-    alignas(16) glm::vec3 absorpCoef{glm::vec3{0.420, 0.063, 0.019}};
-    alignas(16) glm::vec3 scatterCoef{ComputeScatteringCoefPA01(0.037)};
+    alignas(16) glm::vec3 camPos{};
+    float height{50.f};
+    alignas(16) glm::vec3 absorpCoef{glm::vec3{.420f, .063f, .019f}};
+    alignas(16) glm::vec3 scatterCoef{ComputeScatteringCoefPA01(.037f)};
     alignas(16) glm::vec3 backscatterCoef{
         ComputeBackscatteringCoefPA01(scatterCoef)};
     // -------------------------------------------------
-    alignas(16) glm::vec3 terrainColor{0.964, 1.0, 0.824};
-    float skyIntensity{1.0};
-    float specularIntensity{1.0};
-    float specularHighlights{32.0};
+    alignas(16) glm::vec3 terrainColor{.964f, 1.f, .824f};
+    float skyIntensity{1.f};
+    float specularIntensity{1.f};
+    float specularHighlights{32.f};
     SkyParams sky;
   } waterSurfaceUBO;
 

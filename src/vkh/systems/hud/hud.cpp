@@ -98,7 +98,7 @@ void HudSys::render() {
   vkCmdBindIndexBuffer(context.frameInfo.commandBuffer, *indexBuffer, 0,
                        VK_INDEX_TYPE_UINT32);
   vkCmdDrawIndexed(context.frameInfo.commandBuffer,
-                   drawInfo.solidColorIndices.size(), 1, 0, 0, 0);
+                   static_cast<uint32_t>(drawInfo.solidColorIndices.size()), 1, 0, 0, 0);
 
   textSys.render(drawInfo.textIndices.size());
   linesSys.render(drawInfo.lineVertices.size());

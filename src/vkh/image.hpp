@@ -12,8 +12,8 @@ struct ImageCreateInfo {
   VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
   VkImageUsageFlags usage =
       VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-  int w = 1;
-  int h = 1;
+  unsigned int w = 1;
+  unsigned int h = 1;
   void *data = nullptr;
   std::optional<uint32_t> color;
   VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -52,7 +52,7 @@ public:
       uint32_t bufferOffset = 0,
       VkAccessFlags dstAccessMask = VK_ACCESS_SHADER_READ_BIT);
 
-  int w, h;
+  unsigned int w, h;
 
   void TransitionLayout_DST_OPTIMALtoSHADER_READ(
       VkCommandBuffer cmdBuffer,
