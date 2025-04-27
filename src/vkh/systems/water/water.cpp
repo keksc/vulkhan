@@ -58,7 +58,7 @@ void WaterSys::createPipeline() {
 
   pipelineInfo.layoutInfo.setLayoutCount = 1;
   pipelineInfo.layoutInfo.pSetLayouts = &dsl;
-  pipelineInfo.renderPass = renderer::getSwapChainRenderPass(context);
+  pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.attributeDescriptions = Vertex::s_AttribDescriptions;
   pipelineInfo.bindingDescriptions = Vertex::s_BindingDescriptions;
   pipeline = std::make_unique<GraphicsPipeline>(

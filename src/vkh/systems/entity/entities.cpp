@@ -13,7 +13,7 @@
 #include "../../descriptors.hpp"
 #include "../../mesh.hpp"
 #include "../../pipeline.hpp"
-#include "../../renderer.hpp"
+#include "../../swapChain.hpp"
 
 namespace vkh {
 
@@ -55,7 +55,8 @@ void EntitySys::createSampler() {
 EntitySys::~EntitySys() {
   vkDestroySampler(context.vulkan.device, sampler, nullptr);
 }
-EntitySys::EntitySys(EngineContext &context) : System(context) {
+EntitySys::EntitySys(EngineContext &context, std::vector<Entity> &entities)
+    : System(context), entities{entities} {
   createSampler();
   createSetLayout();
 
@@ -78,7 +79,7 @@ EntitySys::EntitySys(EngineContext &context) : System(context) {
 
   PipelineCreateInfo pipelineConfig{};
   pipelineConfig.layoutInfo = pipelineLayoutInfo;
-  pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
+  pipelineConfig.renderPass = context.vulkan.swapChain->renderPass;
   pipelineConfig.attributeDescriptions = Vertex::getAttributeDescriptions();
   pipelineConfig.bindingDescriptions = Vertex::getBindingDescriptions();
   pipeline = std::make_unique<GraphicsPipeline>(
@@ -86,7 +87,7 @@ EntitySys::EntitySys(EngineContext &context) : System(context) {
       pipelineConfig);
 }
 
-void EntitySys::render(std::vector<Entity> &entities) {
+void EntitySys::render() {
   pipeline->bind(context.frameInfo.commandBuffer);
 
   /*vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
@@ -110,11 +111,11 @@ void EntitySys::render(std::vector<Entity> &entities) {
     model->draw(context.frameInfo.commandBuffer);
   }
 }
-void EntitySys::addEntity(std::vector<Entity> &entities, Transform transform,
+void EntitySys::addEntity(Transform transform,
                           const std::filesystem::path &path,
                           RigidBody rigidBody) {
-  entities.emplace_back(
-      transform, rigidBody,
-      std::make_unique<Mesh<EntitySys::Vertex>>(context, path, sampler, *setLayout));
+  entities.emplace_back(transform, rigidBody,
+                        std::make_unique<Mesh<EntitySys::Vertex>>(
+                            context, path, sampler, *setLayout));
 }
 } // namespace vkh

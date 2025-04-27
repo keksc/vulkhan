@@ -68,9 +68,6 @@ uint32_t currentImageIndex;
 int currentFrameIndex{0};
 bool isFrameStarted{false};
 
-VkRenderPass getSwapChainRenderPass(EngineContext &context) {
-  return context.vulkan.swapChain->renderPass;
-}
 bool isFrameInProgress() { return isFrameStarted; }
 
 VkCommandBuffer getCurrentCommandBuffer() {

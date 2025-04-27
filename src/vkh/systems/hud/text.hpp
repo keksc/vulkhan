@@ -26,6 +26,25 @@ public:
   struct Vertex {
     glm::vec2 position{};
     glm::vec2 uv{};
+    static std::vector<VkVertexInputBindingDescription>
+    getBindingDescriptions() {
+      std::vector<VkVertexInputBindingDescription> bindingDescriptions(1);
+      bindingDescriptions[0].binding = 0;
+      bindingDescriptions[0].stride = sizeof(Vertex);
+      bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+      return bindingDescriptions;
+    }
+    static std::vector<VkVertexInputAttributeDescription>
+    getAttributeDescriptions() {
+      std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
+
+      attributeDescriptions.push_back(
+          {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position)});
+      attributeDescriptions.push_back(
+          {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)});
+
+      return attributeDescriptions;
+    }
   };
   void render(size_t indicesSize);
 
@@ -39,11 +58,6 @@ private:
   void createGlyphs();
   void createSampler();
 
-  const std::vector<VkVertexInputAttributeDescription> attributeDescriptions = {
-      {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position)},
-      {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)}};
-  const std::vector<VkVertexInputBindingDescription> bindingDescriptions = {
-      {0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX}};
   const int maxCharCount = 80;
   const int maxVertexCount = 4 * maxCharCount; // 4 vertices = 1 quad = 1 glyph
   const VkDeviceSize maxVertexSize = sizeof(Vertex) * maxVertexCount;

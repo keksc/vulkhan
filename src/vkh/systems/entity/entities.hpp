@@ -7,8 +7,6 @@
 namespace vkh {
 class EntitySys : public System {
 public:
-  EntitySys(EngineContext &context);
-  ~EntitySys();
   struct Vertex {
     glm::vec3 pos{};
     glm::vec3 normal{};
@@ -44,21 +42,22 @@ public:
     glm::mat4 mat4();
     glm::mat3 normalMatrix();
   };
-
   struct RigidBody {
     glm::vec3 velocity{0.f};
     float mass{1.f};
     const glm::vec3 computeWeight() const { return {0, mass * 9.81f, 0}; }
   };
-
   struct Entity {
     Transform transform;
     RigidBody rigidBody;
     std::unique_ptr<Mesh<Vertex>> mesh;
   };
-  void render(std::vector<Entity> &entities);
-  void addEntity(std::vector<Entity> &entities, Transform transform,
+  EntitySys(EngineContext &context, std::vector<Entity> &entities);
+  ~EntitySys();
+  void render();
+  void addEntity(Transform transform,
                  const std::filesystem::path &path, RigidBody rigidBody);
+  std::vector<Entity> &entities;
 
 private:
   void createSampler();

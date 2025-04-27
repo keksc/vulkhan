@@ -9,7 +9,6 @@ namespace renderer {
 void init(EngineContext &context);
 void cleanup(EngineContext &context);
 
-VkRenderPass getSwapChainRenderPass(EngineContext &context);
 bool isFrameInProgress();
 
 VkCommandBuffer getCurrentCommandBuffer();

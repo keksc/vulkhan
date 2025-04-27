@@ -18,7 +18,7 @@
 
 #include "../descriptors.hpp"
 #include "../pipeline.hpp"
-#include "../renderer.hpp"
+#include "../swapChain.hpp"
 
 namespace vkh {
 
@@ -45,7 +45,7 @@ void ParticleSys::createPipeline() {
 
   PipelineCreateInfo pipelineConfig{};
   GraphicsPipeline::enableAlphaBlending(pipelineConfig);
-  pipelineConfig.renderPass = renderer::getSwapChainRenderPass(context);
+  pipelineConfig.renderPass = context.vulkan.swapChain->renderPass;
   pipelineConfig.layoutInfo = pipelineLayoutInfo;
   pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
   pipelineConfig.bindingDescriptions = Vertex::getBindingDescriptions();

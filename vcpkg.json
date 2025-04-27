@@ -3,8 +3,8 @@
     "fmt",
     "glfw3",
     "glm",
-    "tinyobjloader",
     "stb",
-    "openal-soft"
+    "openal-soft",
+    "curl"
   ]
 }

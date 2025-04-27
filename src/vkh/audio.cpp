@@ -15,12 +15,13 @@ namespace vkh {
 namespace audio {
 ALCdevice *device = nullptr;
 ALCcontext *context = nullptr;
-ALuint source = 0;
-ALuint buffer = 0;
-std::vector<short> data;
-ALsizei dataSize = 0;
-ALenum format = 0;
-ALsizei sampleRate = 0;
+
+struct Sound {
+  ALuint source;
+  ALuint buffer;
+  // add the time at which the resources should be destroyed
+};
+std::vector<Sound> sounds;
 
 std::vector<short> convertTo16Bit(const AudioFile<float> &audioFile) {
   std::vector<short> result;
@@ -41,8 +42,9 @@ void init() {
     throw std::runtime_error("Failed to create or set OpenAL context.");
   }
 
-  alGenSources(1, &source);
-  alGenBuffers(1, &buffer);
+  auto &sound = sounds.emplace_back();
+  alGenSources(1, &sound.source);
+  alGenBuffers(1, &sound.buffer);
   if (alGetError() != AL_NO_ERROR) {
     throw std::runtime_error("Error generating OpenAL source or buffer.");
   }
@@ -52,43 +54,63 @@ void init() {
     throw std::runtime_error("Failed to load WAV file.");
   }
 
-  sampleRate = static_cast<ALsizei>(audioFile.getSampleRate());
-  format = AL_FORMAT_MONO16;
-  data = convertTo16Bit(audioFile);
-  dataSize = static_cast<ALsizei>(data.size() * sizeof(short));
+  auto data = convertTo16Bit(audioFile);
 
-  alBufferData(buffer, format, data.data(), dataSize, sampleRate);
-  alSourcei(source, AL_BUFFER, buffer);
+  alBufferData(sound.buffer, AL_FORMAT_MONO16, data.data(),
+               static_cast<ALsizei>(data.size() * sizeof(short)),
+               static_cast<ALsizei>(audioFile.getSampleRate()));
+  alSourcei(sound.source, AL_BUFFER, sound.buffer);
 
-  alSourcef(source, AL_ROLLOFF_FACTOR, 1.0f);
-  alSourcef(source, AL_REFERENCE_DISTANCE, 1.0f);
-  alSourcef(source, AL_MAX_DISTANCE, 10.0f);
-  alSource3f(source, AL_POSITION, 5.f, .5f, 0.f);
-  alSource3f(source, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
+  alSourcef(sound.source, AL_ROLLOFF_FACTOR, 1.0f);
+  alSourcef(sound.source, AL_REFERENCE_DISTANCE, 1.0f);
+  alSourcef(sound.source, AL_MAX_DISTANCE, 10.0f);
+  alSource3f(sound.source, AL_POSITION, 0.f, 0.f, 0.f);
+  alSource3f(sound.source, AL_VELOCITY, 0.0f, 0.f, 0.f);
 
-  alSourcePlay(source);
+  alSourcePlay(sound.source);
 
-  alListenerf(AL_GAIN, 0.f); // mute master volume
+  // alListenerf(AL_GAIN, 0.f); // mute master volume
 }
-
 void update(EngineContext &context) {
-  glm::vec3 forward = glm::rotate(
-      context.camera.orientation, glm::vec3(0.0f, 0.0f, 1.0f));
+  glm::vec3 forward =
+      glm::rotate(context.camera.orientation, glm::vec3(0.0f, 0.0f, 1.0f));
 
-  glm::vec3 up = glm::rotate(context.camera.orientation,
-                             glm::vec3(0.0f, 1.0f, 0.0f));
+  glm::vec3 up =
+      glm::rotate(context.camera.orientation, glm::vec3(0.0f, 1.0f, 0.0f));
 
-  alListener3f(AL_POSITION, context.camera.position.x, context.camera.position.y,
-               context.camera.position.z);
+  alListener3f(AL_POSITION, context.camera.position.x,
+               context.camera.position.y, context.camera.position.z);
   float orientationArray[6] = {forward.x, forward.y, forward.z,
                                up.x,      up.y,      up.z};
   alListenerfv(AL_ORIENTATION, orientationArray);
-}
 
+  // cleanup if time is elapsed
+  //  for (auto &sound : sounds) {
+  //    alSourceStop(source);
+  //    alDeleteSources(1, &source);
+  //  }
+  //  for (auto &buffer : buffers) {
+  //    alDeleteBuffers(1, &buffer);
+  //  }
+}
+void play(const std::filesystem::path &file) {
+  AudioFile<float> audioFile;
+  if (!audioFile.load(file)) {
+    throw std::runtime_error("Failed to load WAV file.");
+  }
+
+  auto data = convertTo16Bit(audioFile);
+
+  auto &sound = sounds.emplace_back();
+  alGenBuffers(1, &sound.buffer);
+  alBufferData(sound.buffer, AL_FORMAT_MONO16, data.data(),
+               static_cast<ALsizei>(data.size() * sizeof(short)),
+               static_cast<ALsizei>(audioFile.getSampleRate()));
+  alGenSources(1, &sound.source);
+  alSourcei(sound.source, AL_BUFFER, sound.buffer);
+  alSourcePlay(sound.source);
+}
 void cleanup() {
-  alSourceStop(source);
-  alDeleteSources(1, &source);
-  alDeleteBuffers(1, &buffer);
   alcMakeContextCurrent(nullptr);
   if (context)
     alcDestroyContext(context);

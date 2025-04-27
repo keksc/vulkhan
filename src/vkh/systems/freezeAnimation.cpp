@@ -11,7 +11,7 @@
 
 #include "../descriptors.hpp"
 #include "../pipeline.hpp"
-#include "../renderer.hpp"
+#include "../swapChain.hpp"
 
 namespace vkh {
 struct PushConstantData {
@@ -38,7 +38,7 @@ void FreezeAnimationSys::createPipeline() {
   PipelineCreateInfo pipelineInfo{};
   pipelineInfo.layoutInfo = pipelineLayoutInfo;
   GraphicsPipeline::enableAlphaBlending(pipelineInfo);
-  pipelineInfo.renderPass = renderer::getSwapChainRenderPass(context);
+  pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.layoutInfo = pipelineLayoutInfo;
   pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/freezeAnimation.vert.spv",

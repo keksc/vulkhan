@@ -119,12 +119,10 @@ void moveInPlaneXZ(EngineContext &context) {
 
   context.camera.orientation = q_yaw * q_pitch;
 
-  glm::vec3 forward = context.camera.orientation *
-                      glm::vec3(0.0f, 0.0f, -1.0f);
-  glm::vec3 right = context.camera.orientation *
-                    glm::vec3(-1.0f, 0.0f, 0.0f);
-  glm::vec3 up = context.camera.orientation *
-                 glm::vec3(0.0f, 1.0f, 0.0f);
+  glm::vec3 forward = context.camera.orientation * glm::vec3(0.0f, 0.0f, -1.0f);
+  glm::vec3 right = context.camera.orientation * glm::vec3(-1.0f, 0.0f, 0.0f);
+  glm::vec3 up = // context.camera.orientation *
+      glm::vec3(0.0f, 1.0f, 0.0f);
 
   glm::vec3 moveDir{0.0f};
   if (glfwGetKey(context.window, GLFW_KEY_W))
