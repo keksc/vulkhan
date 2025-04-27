@@ -82,21 +82,21 @@ void TextSys::createGlyphs() {
   unsigned char *fontData =
       reinterpret_cast<unsigned char *>(fontDataChar.data());
   const glm::vec2 bitmapExtent = {512.f, 512.f};
-  const int atlasSize = bitmapExtent.x * bitmapExtent.y;
+  const int atlasSize = static_cast<int>(bitmapExtent.x * bitmapExtent.y);
   const float fontSize = 32.f;
 
   unsigned char *atlasData = new unsigned char[atlasSize];
   std::memset(atlasData, 0, atlasSize);
 
   stbtt_pack_context packContext;
-  if (!stbtt_PackBegin(&packContext, atlasData, bitmapExtent.x, bitmapExtent.y,
+  if (!stbtt_PackBegin(&packContext, atlasData, static_cast<int>(bitmapExtent.x), static_cast<int>(bitmapExtent.y),
                        0, 1, nullptr)) {
     throw std::runtime_error("Failed to initialize font packing");
   }
   std::vector<stbtt_packedchar> charInfo(127 - 32);
   stbtt_PackSetOversampling(&packContext, 1, 1);
   if (!stbtt_PackFontRange(&packContext, fontData, 0, fontSize, 32,
-                           charInfo.size(), charInfo.data())) {
+                           static_cast<int>(charInfo.size()), charInfo.data())) {
     stbtt_PackEnd(&packContext);
     delete[] atlasData;
     throw std::runtime_error("Failed to pack font");
@@ -105,8 +105,8 @@ void TextSys::createGlyphs() {
 
   ImageCreateInfo imageInfo{};
   imageInfo.format = VK_FORMAT_R8_UNORM;
-  imageInfo.w = bitmapExtent.x;
-  imageInfo.h = bitmapExtent.y;
+  imageInfo.w = static_cast<unsigned int>(bitmapExtent.x);
+  imageInfo.h = static_cast<unsigned int>(bitmapExtent.y);
   imageInfo.data = atlasData;
   fontAtlas = std::make_unique<Image>(context, imageInfo);
 
@@ -180,6 +180,6 @@ void TextSys::render(size_t indicesSize) {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
                           descriptorSets, 0, nullptr);
 
-  vkCmdDrawIndexed(context.frameInfo.commandBuffer, indicesSize, 1, 0, 0, 0);
+  vkCmdDrawIndexed(context.frameInfo.commandBuffer, static_cast<uint32_t>(indicesSize), 1, 0, 0, 0);
 }
 } // namespace vkh

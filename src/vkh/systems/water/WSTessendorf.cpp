@@ -159,8 +159,8 @@ std::vector<WSTessendorf::WaveVector> WSTessendorf::ComputeWaveVectors() const {
 
   for (int32_t m = 0; m < kSize; ++m) {
     for (int32_t n = 0; n < kSize; ++n) {
-      waveVecs.emplace_back(glm::vec2(M_PI * (2.0f * n - kSize) / kLength,
-                                      M_PI * (2.0f * m - kSize) / kLength));
+      waveVecs.emplace_back(glm::vec2(glm::pi<float>() * (2.0f * n - kSize) / kLength,
+                                      glm::pi<float>() * (2.0f * m - kSize) / kLength));
     }
   }
   return waveVecs;
@@ -170,8 +170,8 @@ std::vector<WSTessendorf::Complex>
 WSTessendorf::ComputeGaussRandomArray() const {
   const uint32_t kSize = tileSize;
   std::vector<Complex> randomArr(kSize * kSize);
-  for (int32_t m = 0; m < kSize; ++m)
-    for (int32_t n = 0; n < kSize; ++n) {
+  for (int m = 0; m < kSize; ++m)
+    for (int n = 0; n < kSize; ++n) {
       randomArr[m * kSize + n] =
           Complex(glm::gaussRand(0.0f, 1.0f), glm::gaussRand(0.0f, 1.0f));
     }
@@ -371,7 +371,7 @@ void WSTessendorf::SetWindDirection(const glm::vec2 &w) {
 void WSTessendorf::SetWindSpeed(float v) { m_WindSpeed = glm::max(0.0001f, v); }
 void WSTessendorf::SetAnimationPeriod(float T) {
   m_AnimationPeriod = T;
-  m_BaseFreq = 2.0f * M_PI / m_AnimationPeriod;
+  m_BaseFreq = 2.0f * glm::pi<float>() / m_AnimationPeriod;
 }
 void WSTessendorf::SetLambda(float lambda) { m_Lambda = lambda; }
 void WSTessendorf::SetDamping(float damping) { m_Damping = damping; }

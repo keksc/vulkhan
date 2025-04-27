@@ -107,7 +107,7 @@ protected:
     float y0 = position.y;
     float y1 = y0 + size.y;
 
-    uint32_t baseIndex = drawInfo.solidColorVertices.size();
+    uint32_t baseIndex = static_cast<uint32_t>(drawInfo.solidColorVertices.size());
     drawInfo.solidColorVertices.push_back({{x0, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y1}, color});
@@ -187,7 +187,7 @@ protected:
       }
       if (!TextSys::glyphRange.glyphs.count(c))
         continue;
-      uint32_t baseIndex = drawInfo.textVertices.size();
+      uint32_t baseIndex = static_cast<uint32_t>(drawInfo.textVertices.size());
       auto &ch = TextSys::glyphRange.glyphs[c];
 
       // Calculate vertex positions for this character
@@ -306,7 +306,7 @@ protected:
     float y0 = position.y + .5f * size.y - normalizedBoxHalfSize;
     float y1 = y0 + 2.f * normalizedBoxHalfSize;
 
-    uint32_t baseIndex = drawInfo.solidColorVertices.size();
+    uint32_t baseIndex = static_cast<uint32_t>(drawInfo.solidColorVertices.size());
     drawInfo.solidColorVertices.push_back({{x0, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y1}, color});
@@ -347,7 +347,7 @@ private:
     if (!selected)
       return;
 
-    float normalizedXpos = xpos / view.context.window.size.x * 2.f - 1.f;
+    float normalizedXpos = static_cast<float>(xpos) / view.context.window.size.x * 2.f - 1.f;
     float p = (normalizedXpos - position.x) / size.x;
     p = glm::clamp(p, 0.f, 1.f);
     centerX = glm::mix(position.x, position.x + size.x, p);

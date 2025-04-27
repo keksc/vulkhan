@@ -24,7 +24,7 @@ link_libraries(
   fmt::fmt
   OpenAL::OpenAL
   fastgltf::fastgltf
-  GameAnalytics
+  #GameAnalytics
   CURL::libcurl)
 file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

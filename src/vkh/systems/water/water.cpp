@@ -1,7 +1,6 @@
 #include "water.hpp"
 
 #include <memory>
-#include <unistd.h>
 #include <vulkan/vulkan_core.h>
 
 #include "../../pipeline.hpp"
@@ -126,7 +125,7 @@ void WaterSys::updateFrameMaps(VkCommandBuffer cmdBuffer, FrameMapData &frame) {
 
   frame.displacementMap->copyFromBuffer(
       cmdBuffer, *stagingBuffer, useMipMapping,
-      VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, stagingBufferOffset);
+      VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, static_cast<uint32_t>(stagingBufferOffset));
 
   const VkDeviceSize mapSize = Image::formatSize(mapFormat) *
                                frame.displacementMap->w *
@@ -135,7 +134,7 @@ void WaterSys::updateFrameMaps(VkCommandBuffer cmdBuffer, FrameMapData &frame) {
 
   frame.normalMap->copyFromBuffer(cmdBuffer, *stagingBuffer, useMipMapping,
                                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                                  stagingBufferOffset);
+                                  static_cast<uint32_t>(stagingBufferOffset));
 }
 void WaterSys::copyModelTessDataToStagingBuffer() {
   assert(stagingBuffer != nullptr);
@@ -179,7 +178,7 @@ void WaterSys::prepareModelTess(VkCommandBuffer cmdBuffer) {
 
   // Do one pass to initialize the maps
 
-  vertexUBO.WSHeightAmp = modelTess.computeWaves(glfwGetTime() * animSpeed);
+  vertexUBO.WSHeightAmp = modelTess.computeWaves(static_cast<float>(glfwGetTime()) * animSpeed);
   copyModelTessDataToStagingBuffer();
 
   updateFrameMaps(cmdBuffer, frameMap);
@@ -308,7 +307,7 @@ void WaterSys::update(const SkyParams &skyParams) {
     // auto cmd = beginSingleTimeCommands(context);
     // vkCmdDispatch(cmd, 16, 16, 1);
     // endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
-    vertexUBO.WSHeightAmp = modelTess.computeWaves(glfwGetTime() * animSpeed);
+    vertexUBO.WSHeightAmp = modelTess.computeWaves(static_cast<float>(glfwGetTime()) * animSpeed);
     copyModelTessDataToStagingBuffer();
   }
 }
