@@ -3,13 +3,13 @@
 #include <vulkan/vulkan_core.h>
 
 #include <GLFW/glfw3.h>
+#include <fmt/format.h>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
-#define GLM_ENABLE_EXPERIMENTAL
-#include <AL/al.h>
-#include <fmt/format.h>
+#include <glm/gtx/norm.hpp>
 #include <glm/gtx/quaternion.hpp>
 
 #include "../dungeonGenerator.hpp"
@@ -45,7 +45,7 @@ void run() {
   renderer::init(context);
   { // {} to handle call destructors of buffers before vulkan is cleaned up
     context.camera.position = {0.f, 2.f, -2.5f};
-    context.camera.orientation = {0.f, 0.f, 1.f, 0.f};
+    context.camera.orientation = {0.f, 0.f, -1.f, 0.f};
 
     WaterSys::SkyParams skyParams;
     SkyPreetham sky({0.f, 3.f, .866f});
@@ -98,7 +98,7 @@ void run() {
     // hudPause.addElement<hud::Canvas>(glm::vec2{.3f, .3f}, glm::vec2{.2f,
     // .2f},
     //                                  glm::vec3{1.f, 1.f, 1.f});
-    hudSys.setView(&hudPause);
+    hudSys.setView(&hudWorld);
 
     // btn->addChild(std::make_shared<hud::Rect>(
     //     glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, 0.f, 0.f}));
@@ -137,9 +137,7 @@ void run() {
       rect->size = fpstxt->size;
       orientationtxt->position.x = 1.f - orientationtxt->size.x;
       orientationtxt->content = fmt::format(
-          "Orientation:\n{}\n{}\n{}\n{}", context.camera.orientation.w,
-          context.camera.orientation.x, context.camera.orientation.y,
-          context.camera.orientation.z);
+          "Orientation: {}", glm::to_string(context.camera.orientation));
       logtxt->content = fmt::format("{}", slider->value);
       currentTime = newTime;
 

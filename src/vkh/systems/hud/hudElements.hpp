@@ -106,12 +106,13 @@ protected:
     float x1 = x0 + size.x;
     float y0 = position.y;
     float y1 = y0 + size.y;
+
+    uint32_t baseIndex = drawInfo.solidColorVertices.size();
     drawInfo.solidColorVertices.push_back({{x0, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y1}, color});
     drawInfo.solidColorVertices.push_back({{x0, y1}, color});
 
-    uint32_t baseIndex = drawInfo.solidColorVertices.size();
     drawInfo.solidColorIndices.push_back(baseIndex + 0);
     drawInfo.solidColorIndices.push_back(baseIndex + 1);
     drawInfo.solidColorIndices.push_back(baseIndex + 2);
@@ -305,12 +306,12 @@ protected:
     float y0 = position.y + .5f * size.y - normalizedBoxHalfSize;
     float y1 = y0 + 2.f * normalizedBoxHalfSize;
 
+    uint32_t baseIndex = drawInfo.solidColorVertices.size();
     drawInfo.solidColorVertices.push_back({{x0, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y1}, color});
     drawInfo.solidColorVertices.push_back({{x0, y1}, color});
 
-    uint32_t baseIndex = drawInfo.solidColorVertices.size();
     drawInfo.solidColorIndices.push_back(baseIndex + 0);
     drawInfo.solidColorIndices.push_back(baseIndex + 1);
     drawInfo.solidColorIndices.push_back(baseIndex + 2);
