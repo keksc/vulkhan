@@ -1,9 +1,11 @@
 #pragma once
 
-#include "../../image.hpp"
 #include "../../descriptors.hpp"
+#include "../../image.hpp"
 #include "../system.hpp"
 #include "hudElements.hpp"
+#include "solidColor.hpp"
+#include "text.hpp"
 
 namespace vkh {
 class HudSys : public System {
@@ -16,7 +18,7 @@ public:
 private:
   void createBuffers();
   void createPipeline();
-  void addElementToDraw(std::shared_ptr<hud::Element> element);
+  void addToDraw(std::shared_ptr<hud::Element> element);
   void update();
 
   std::unique_ptr<GraphicsPipeline> pipeline;
@@ -24,6 +26,7 @@ private:
   VkDescriptorSet descriptorSet;
 
   TextSys textSys;
+  SolidColorSys linesSys;
   std::unique_ptr<Buffer> vertexBuffer;
   std::unique_ptr<Buffer> indexBuffer;
 
@@ -31,7 +34,8 @@ private:
 
   hud::DrawInfo drawInfo;
   const int maxHudRects = 1000;
-  const int maxVertexCount = 4 * maxHudRects; // 4 vertices = 1 quad = 1 glyph
+  const int maxVertexCount = 4 * maxHudRects; // 4 vertices = 1 quad
+  const int maxIndexCount = 6 * maxHudRects;
   VkDeviceSize maxVertexSize = sizeof(hud::SolidColorVertex) * maxVertexCount;
 
   std::vector<VkVertexInputAttributeDescription> attributeDescriptions = {

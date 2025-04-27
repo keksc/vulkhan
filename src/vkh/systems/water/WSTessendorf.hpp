@@ -248,7 +248,7 @@ private:
    *  - of the frequencies of dispersion relation
    * @param k Magnitude of wave vector
    */
-  inline constexpr float QDispersion(float k) const {
+  inline float QDispersion(float k) const {
     return glm::floor(DispersionDeepWaves(k) / m_BaseFreq) * m_BaseFreq;
   }
 
@@ -257,7 +257,7 @@ private:
    *  ignored
    * @param k Magnitude of wave vector
    */
-  inline constexpr float DispersionDeepWaves(float k) const {
+  inline float DispersionDeepWaves(float k) const {
     return glm::sqrt(s_kG * k);
   }
 
@@ -267,7 +267,7 @@ private:
    * @param k Magnitude of wave vector
    * @param D Depth below the mean water level
    */
-  inline constexpr float DispersionTransWaves(float k, float D) const {
+  inline float DispersionTransWaves(float k, float D) const {
     return glm::sqrt(s_kG * k * glm::tanh(k * D));
   }
 
@@ -277,7 +277,7 @@ private:
    * @param k Magnitude of wave vector
    * @param L wavelength
    */
-  inline constexpr float DispersionSmallWaves(float k, float L) const {
+  inline float DispersionSmallWaves(float k, float L) const {
     return glm::sqrt(s_kG * k * (1 + k * k * L * L));
   }
 
