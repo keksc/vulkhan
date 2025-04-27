@@ -12,6 +12,7 @@
 #include <fmt/format.h>
 #include <glm/gtx/quaternion.hpp>
 
+#include "../dungeonGenerator.hpp"
 #include "AxisAlignedBoundingBox.hpp"
 #include "audio.hpp"
 #include "buffer.hpp"
@@ -23,7 +24,6 @@
 #include "input.hpp"
 #include "renderer.hpp"
 #include "swapChain.hpp"
-#include "systems/axes.hpp"
 #include "systems/entity/entities.hpp"
 #include "systems/freezeAnimation.hpp"
 #include "systems/hud/hud.hpp"
@@ -41,10 +41,9 @@ void run() {
   EngineContext context{};
   initWindow(context);
   initVulkan(context);
-  // audio::init();
+  audio::init();
   renderer::init(context);
   { // {} to handle call destructors of buffers before vulkan is cleaned up
-    // std::thread(generateDungeon, std::ref(context)).detach();
     context.camera.position = {0.f, 2.f, -2.5f};
     context.camera.orientation = {0.f, 0.f, 1.f, 0.f};
 
@@ -52,17 +51,16 @@ void run() {
     SkyPreetham sky({0.f, 3.f, .866f});
     skyParams.props = sky.GetProperties();
 
-    EntitySys entitySys(context);
     std::vector<EntitySys::Entity> entities;
-    entitySys.addEntity(entities,
-                        {.position = {.5f, .5f, .5f}, .scale = {.5f, .5f, .5f}},
+    EntitySys entitySys(context, entities);
+    entitySys.addEntity({.position = {.5f, .5f, .5f}, .scale = {.5f, .5f, .5f}},
                         "models/sword.glb", {});
 
-    entitySys.addEntity(entities,
-                        {.position = {5.f, .5f, .5f}, .scale = {.5f, .5f, .5f}},
+    entitySys.addEntity({.position = {5.f, .5f, .5f}, .scale = {.5f, .5f, .5f}},
                         "models/westwingassets.glb", {});
 
-    AxesSys axesSys(context);
+    generateDungeon(entitySys);
+
     ParticleSys particleSys(context);
     FreezeAnimationSys freezeAnimationSys(context);
     // WaterSys waterSys(context);
@@ -79,7 +77,6 @@ void run() {
         glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f}, glm::vec3{1.f, .5f, 1.f},
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            fmt::println("go2pause");
             hudSys.setView(&hudPause);
           }
         });
@@ -88,13 +85,19 @@ void run() {
         glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, .5f, 1.f},
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            fmt::println("go2world");
+            audio::play("sounds/ui.wav");
             hudSys.setView(&hudWorld);
           }
         });
-    auto slider = hudPause.addElement<hud::Slider>(glm::vec2{-1.f, -1.f}, glm::vec2{.5f, .2f},
-                                     glm::vec2{0.f, 1.f}, glm::vec3{.5f, .5f, .8f});
-    slider->value = .9f;
+    auto slider = hudPause.addElement<hud::Slider>(
+        glm::vec2{-1.f, -1.f}, glm::vec2{.5f, .1f}, glm::vec3{.5f, .5f, .8f},
+        glm::vec2{0.f, 1.f}, .9f);
+    auto sliderBg = hudPause.addElement<hud::Rect>(
+        slider->position, slider->size, slider->color * .5f);
+    auto logtxt = hudPause.addElement<hud::Text>(glm::vec2{-1.f, .3f});
+    // hudPause.addElement<hud::Canvas>(glm::vec2{.3f, .3f}, glm::vec2{.2f,
+    // .2f},
+    //                                  glm::vec3{1.f, 1.f, 1.f});
     hudSys.setView(&hudPause);
 
     // btn->addChild(std::make_shared<hud::Rect>(
@@ -126,19 +129,23 @@ void run() {
           std::chrono::duration<float, std::chrono::seconds::period>(
               newTime - currentTime)
               .count();
+      sliderBg->position = slider->position;
+      sliderBg->size = slider->size;
       fpstxt->content =
           fmt::format("FPS: {}", static_cast<int>(1.f / frameTime));
+
       rect->size = fpstxt->size;
       orientationtxt->position.x = 1.f - orientationtxt->size.x;
       orientationtxt->content = fmt::format(
           "Orientation:\n{}\n{}\n{}\n{}", context.camera.orientation.w,
           context.camera.orientation.x, context.camera.orientation.y,
           context.camera.orientation.z);
+      logtxt->content = fmt::format("{}", slider->value);
       currentTime = newTime;
 
       input::moveInPlaneXZ(context);
 
-      // audio::update(context);
+      audio::update(context);
 
       float aspect = context.window.aspectRatio;
 
@@ -178,8 +185,7 @@ void run() {
         // order here matters
         hudSys.render();
         if (hudSys.getView() == &hudWorld) {
-          entitySys.render(entities);
-          axesSys.render();
+          entitySys.render();
           // waterSys.render();
 
           particleSys.render();
@@ -198,6 +204,6 @@ void run() {
   renderer::cleanup(context);
   cleanupVulkan(context);
   cleanupWindow(context);
-  // audio::cleanup();
+  audio::cleanup();
 }
 } // namespace vkh

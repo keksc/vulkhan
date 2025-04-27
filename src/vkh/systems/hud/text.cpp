@@ -16,6 +16,7 @@
 #include "../../buffer.hpp"
 #include "../../descriptors.hpp"
 #include "../../pipeline.hpp"
+#include "../../swapChain.hpp"
 
 namespace vkh {
 TextSys::GlyphRange TextSys::glyphRange;
@@ -64,9 +65,9 @@ void TextSys::createPipeline() {
 
   PipelineCreateInfo pipelineInfo{};
   pipelineInfo.layoutInfo = pipelineLayoutInfo;
-  pipelineInfo.renderPass = renderer::getSwapChainRenderPass(context);
-  pipelineInfo.attributeDescriptions = attributeDescriptions;
-  pipelineInfo.bindingDescriptions = bindingDescriptions;
+  pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
+  pipelineInfo.attributeDescriptions = Vertex::getAttributeDescriptions();
+  pipelineInfo.bindingDescriptions = Vertex::getBindingDescriptions();
   pipelineInfo.depthStencilInfo = {
       .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
       .depthTestEnable = false,

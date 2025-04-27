@@ -1,14 +1,19 @@
 #pragma once
 
 #include <GLFW/glfw3.h>
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/string_cast.hpp>
+#include <vulkan/vulkan_core.h>
 
 #include <functional>
 #include <memory>
 #include <type_traits>
 #include <utility>
 
+#include "solidColor.hpp"
 #include "text.hpp"
 
 namespace vkh {
@@ -23,7 +28,8 @@ public:
 
   template <typename T, typename... Args>
   std::shared_ptr<T> addElement(Args &&...args) {
-    auto element = std::make_shared<T>(*this, std::forward<Args>(args)...);
+    auto element =
+        std::make_shared<T>(*this, nullptr, std::forward<Args>(args)...);
     elements.push_back(element);
     return element;
   }
@@ -56,17 +62,22 @@ struct DrawInfo {
   std::vector<uint32_t> solidColorIndices;
   std::vector<TextSys::Vertex> textVertices;
   std::vector<uint32_t> textIndices;
+  std::vector<SolidColorSys::Vertex> lineVertices;
 };
 class Element {
 public:
-  Element(View &view, glm::vec2 position, glm::vec2 size)
-      : position{position}, size{size}, view{view} {}
+  Element(View &view, Element *parent, glm::vec2 position, glm::vec2 size)
+      : position{position}, size{size}, view{view} {
+    if (parent) {
+      this->position = parent->position + position * parent->size;
+      this->size = parent->size * size;
+    }
+  }
   ~Element() { children.clear(); }
 
   template <typename T, typename... Args>
   std::shared_ptr<T> addChild(Args &&...args) {
-    auto element = std::make_shared<T>(view, std::forward<Args>(args)...);
-    element->fitIntoParent(position, size);
+    auto element = std::make_shared<T>(view, this, std::forward<Args>(args)...);
     children.push_back(element);
     return element;
   }
@@ -77,27 +88,18 @@ public:
   glm::vec2 position{};
   glm::vec2 size{};
 
-  virtual void fitIntoParent(glm::vec2 &parentPosition,
-                             glm::vec2 &parentSize) = 0;
-
 protected:
   View &view;
 };
 class Rect : public Element {
 public:
-  Rect(View &view, glm::vec2 position, glm::vec2 size, glm::vec3 color)
-      : Element(view, position, size), color{color} {};
+  Rect(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
+       glm::vec3 color)
+      : Element(view, parent, position, size), color{color} {};
   glm::vec3 color{};
-
-  void fitIntoParent(glm::vec2 &parentPosition,
-                     glm::vec2 &parentSize) override {
-    position = parentPosition + position * parentSize;
-    size = parentSize * size;
-  };
 
 protected:
   void addToDrawInfo(DrawInfo &drawInfo) override {
-    uint32_t baseIndex = drawInfo.solidColorVertices.size();
     // TODO: this might be optimizable when nothing changes, maybe add a
     // "changed" flag
     float x0 = position.x;
@@ -109,6 +111,7 @@ protected:
     drawInfo.solidColorVertices.push_back({{x1, y1}, color});
     drawInfo.solidColorVertices.push_back({{x0, y1}, color});
 
+    uint32_t baseIndex = drawInfo.solidColorVertices.size();
     drawInfo.solidColorIndices.push_back(baseIndex + 0);
     drawInfo.solidColorIndices.push_back(baseIndex + 1);
     drawInfo.solidColorIndices.push_back(baseIndex + 2);
@@ -141,9 +144,9 @@ class Button
     : public Rect,
       public EventListener<&EngineContext::InputCallbackSystem::mouseButton> {
 public:
-  Button(View &view, glm::vec2 position, glm::vec2 size, glm::vec3 color,
-         std::function<void(int, int, int)> onClick)
-      : Rect(view, position, size, color), onClick{onClick},
+  Button(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
+         glm::vec3 color, std::function<void(int, int, int)> onClick)
+      : Rect(view, parent, position, size, color), onClick{onClick},
         EventListener(view, [this](int button, int action, int mods) {
           mouseButtonCallback(button, action, mods);
         }) {}
@@ -153,8 +156,8 @@ private:
   void mouseButtonCallback(int button, int action, int mods) {
     glm::vec2 normalizedCursorPos =
         static_cast<glm::vec2>(view.context.input.cursorPos) /
-            static_cast<glm::vec2>(view.context.window.size) * glm::vec2(2.0) -
-        glm::vec2(1.0);
+            static_cast<glm::vec2>(view.context.window.size) * glm::vec2(2.f) -
+        glm::vec2(1.f);
     const glm::vec2 min = glm::min(position, position + size);
     const glm::vec2 max = glm::max(position, position + size);
     if (glm::all(glm::greaterThanEqual(normalizedCursorPos, min)) &&
@@ -164,17 +167,10 @@ private:
 };
 class Text : public Element {
 public:
-  Text(View &view, glm::vec2 position) : Element(view, position, {0.f, 0.f}) {}
-  Text(View &view, glm::vec2 position, const std::string &content)
-      : Element(view, position, {0.f, 0.f}), content{content} {}
+  Text(View &view, Element *parent, glm::vec2 position,
+       const std::string &content = "")
+      : Element(view, parent, position, {}) {}
   std::string content;
-
-  void fitIntoParent(glm::vec2 &parentPosition,
-                     glm::vec2 &parentSize) override {
-    position = parentPosition + position * parentSize;
-    // the text size is divided by the aspect ratio in the vertex shader, so
-    // here we should take this into account and add returns to break the text
-  };
 
 protected:
   void addToDrawInfo(DrawInfo &drawInfo) override {
@@ -230,8 +226,8 @@ class TextInput
       public EventListener<&EngineContext::InputCallbackSystem::character>,
       public EventListener<&EngineContext::InputCallbackSystem::mouseButton> {
 public:
-  TextInput(View &view, glm::vec2 position)
-      : Text(view, position),
+  TextInput(View &view, Element *parent, glm::vec2 position)
+      : Text(view, parent, position),
         EventListener<&EngineContext::InputCallbackSystem::character>(
             view,
             [this](unsigned int codepoint) { characterCallback(codepoint); }),
@@ -239,8 +235,9 @@ public:
             view, [this](int button, int action, int mods) {
               mouseButtonCallback(button, action, mods);
             }) {}
-  TextInput(View &view, glm::vec2 position, const std::string &content)
-      : Text(view, position, content),
+  TextInput(View &view, Element *parent, glm::vec2 position,
+            const std::string &content)
+      : Text(view, parent, position, content),
         EventListener<&EngineContext::InputCallbackSystem::character>(
             view,
             [this](unsigned int codepoint) { characterCallback(codepoint); }),
@@ -280,9 +277,9 @@ class Slider
       public EventListener<
           &EngineContext::InputCallbackSystem::cursorPosition> {
 public:
-  Slider(View &view, glm::vec2 position, glm::vec2 size, glm::vec2 bounds,
-         glm::vec3 color)
-      : Element(view, position, size),
+  Slider(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
+         glm::vec3 color, glm::vec2 bounds, float value = {})
+      : Element(view, parent, position, size),
         EventListener<&EngineContext::InputCallbackSystem::mouseButton>(
             view,
             [this](int button, int action, int mods) {
@@ -291,34 +288,29 @@ public:
         EventListener<&EngineContext::InputCallbackSystem::cursorPosition>(
             view, [this](double xpos,
                          double ypos) { cursorPositionCallback(xpos, ypos); }),
-        color{color}, bounds{bounds} {}
+        color{color}, bounds{bounds}, value{value} {
+    float p = value / (bounds.y - bounds.x);
+    centerX = glm::mix(position.x, position.x + size.x, p);
+  }
   glm::vec3 color;
   glm::vec2 bounds;
   float value{};
 
-  void fitIntoParent(glm::vec2 &parentPosition,
-                     glm::vec2 &parentSize) override {
-    position = parentPosition + position * parentSize;
-    size = parentSize * size;
-  };
-
 protected:
   void addToDrawInfo(DrawInfo &drawInfo) override {
-    uint32_t baseIndex = drawInfo.solidColorVertices.size();
 
-    float p = value / (bounds.y - bounds.x);
-    glm::vec2 center = glm::mix(position, position + size, p);
-
-    float x0 = center.x - size.x * .1f;
-    float x1 = x0 + size.x * .2f;
-    float y0 = center.y - size.y * .1f;
-    float y1 = y0 + size.y * .2f;
+    float normalizedBoxHalfSize = 10.f / view.context.window.size.x;
+    float x0 = centerX - normalizedBoxHalfSize;
+    float x1 = x0 + 2.f * normalizedBoxHalfSize;
+    float y0 = position.y + .5f * size.y - normalizedBoxHalfSize;
+    float y1 = y0 + 2.f * normalizedBoxHalfSize;
 
     drawInfo.solidColorVertices.push_back({{x0, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y1}, color});
     drawInfo.solidColorVertices.push_back({{x0, y1}, color});
 
+    uint32_t baseIndex = drawInfo.solidColorVertices.size();
     drawInfo.solidColorIndices.push_back(baseIndex + 0);
     drawInfo.solidColorIndices.push_back(baseIndex + 1);
     drawInfo.solidColorIndices.push_back(baseIndex + 2);
@@ -351,14 +343,95 @@ private:
     selected = true;
   }
   void cursorPositionCallback(double xpos, double ypos) {
-    static int n = 0;
     if (!selected)
       return;
-    fmt::println("{}", n);
-    n++;
+
+    float normalizedXpos = xpos / view.context.window.size.x * 2.f - 1.f;
+    float p = (normalizedXpos - position.x) / size.x;
+    p = glm::clamp(p, 0.f, 1.f);
+    centerX = glm::mix(position.x, position.x + size.x, p);
+    value = glm::mix(bounds.x, bounds.y, p);
   }
   glm::vec2 boxPosition{};
   glm::vec2 boxSize{};
+  float centerX{};
+  bool selected{};
+};
+class Canvas
+    : public Element,
+      public EventListener<&EngineContext::InputCallbackSystem::mouseButton>,
+      public EventListener<
+          &EngineContext::InputCallbackSystem::cursorPosition> {
+public:
+  Canvas(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
+         glm::vec3 color)
+      : Element(view, parent, position, size),
+        EventListener<&EngineContext::InputCallbackSystem::mouseButton>(
+            view,
+            [this](int button, int action, int mods) {
+              mouseButtonCallback(button, action, mods);
+            }),
+        EventListener<&EngineContext::InputCallbackSystem::cursorPosition>(
+            view, [this](double xpos,
+                         double ypos) { cursorPositionCallback(xpos, ypos); }),
+        color{color} {}
+  glm::vec3 color;
+
+protected:
+  void addToDrawInfo(DrawInfo &drawInfo) override {
+    float normalizedBoxHalfSize = 10.f / view.context.window.size.x;
+    float x0 = position.x;
+    float x1 = x0 + size.x;
+    float y0 = position.y;
+    float y1 = y0 + size.y;
+
+    drawInfo.lineVertices.push_back({{x0, y0}, color});
+    drawInfo.lineVertices.push_back({{x1, y1}, color});
+    //
+    // drawInfo.solidColorIndices.push_back(baseIndex + 0);
+    // drawInfo.solidColorIndices.push_back(baseIndex + 1);
+    // drawInfo.solidColorIndices.push_back(baseIndex + 2);
+    // drawInfo.solidColorIndices.push_back(baseIndex + 0);
+    // drawInfo.solidColorIndices.push_back(baseIndex + 2);
+    // drawInfo.solidColorIndices.push_back(baseIndex + 3);
+
+    boxPosition = {x0, y0};
+    boxSize = glm::vec2{x1, y1} - boxPosition;
+  };
+
+private:
+  void mouseButtonCallback(int button, int action, int mods) {
+    glm::vec2 normalizedCursorPos =
+        static_cast<glm::vec2>(view.context.input.cursorPos) /
+            static_cast<glm::vec2>(view.context.window.size) * glm::vec2(2.0) -
+        glm::vec2(1.0);
+    const glm::vec2 min = glm::min(boxPosition, boxPosition + boxSize);
+    const glm::vec2 max = glm::max(boxPosition, boxPosition + boxSize);
+
+    // selected = false;
+    //
+    // if (!(glm::all(glm::greaterThanEqual(normalizedCursorPos, min)) &&
+    //       glm::all(glm::lessThanEqual(normalizedCursorPos, max))))
+    //   return;
+    // if (button != GLFW_MOUSE_BUTTON_LEFT)
+    //   return;
+    // if (action != GLFW_PRESS)
+    //   return;
+    // selected = true;
+  }
+  void cursorPositionCallback(double xpos, double ypos) {
+    // if (!selected)
+    //   return;
+    //
+    // float normalizedXpos = xpos / view.context.window.size.x * 2.f - 1.f;
+    // float p = (normalizedXpos - position.x) / size.x;
+    // p = glm::clamp(p, 0.f, 1.f);
+    // centerX = glm::mix(position.x, position.x + size.x, p);
+    // value = glm::mix(bounds.x, bounds.y, p);
+  }
+  glm::vec2 boxPosition{};
+  glm::vec2 boxSize{};
+  float centerX{};
   bool selected{};
 };
 } // namespace hud
