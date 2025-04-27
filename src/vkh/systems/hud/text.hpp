@@ -20,7 +20,7 @@ public:
   };
   struct GlyphRange {
     std::unordered_map<char, Glyph> glyphs;
-    float maxSizeY;
+    float maxSizeY{};
   };
   static GlyphRange glyphRange;
   struct Vertex {

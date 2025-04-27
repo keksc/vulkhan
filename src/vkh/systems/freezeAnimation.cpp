@@ -54,7 +54,7 @@ void FreezeAnimationSys::render() {
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   PushConstantData push{};
-  push.time = glfwGetTime();
+  push.time = static_cast<float>(glfwGetTime());
 
   vkCmdPushConstants(context.frameInfo.commandBuffer, *pipeline,
                      VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstantData),

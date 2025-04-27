@@ -48,6 +48,6 @@ void SolidColorSys::render(size_t verticesSize) {
   vkCmdBindVertexBuffers(context.frameInfo.commandBuffer, 0, 1, buffers,
                          offsets);
 
-  vkCmdDraw(context.frameInfo.commandBuffer, verticesSize, 1, 0, 0);
+  vkCmdDraw(context.frameInfo.commandBuffer, static_cast<uint32_t>(verticesSize), 1, 0, 0);
 }
 } // namespace vkh
