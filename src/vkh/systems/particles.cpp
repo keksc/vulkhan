@@ -25,13 +25,11 @@ namespace vkh {
 void ParticleSys::createBuffer() {
   VkDeviceSize verticesSize = sizeof(Vertex) * maxParticles;
 
-  BufferCreateInfo bufInfo{};
-  bufInfo.instanceSize = sizeof(Vertex);
-  bufInfo.instanceCount = maxParticles;
-  bufInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  vertexBuffer = std::make_unique<Buffer>(context, bufInfo);
+  vertexBuffer = std::make_unique<Buffer<Vertex>>(
+      context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      maxParticles);
 }
 void ParticleSys::createPipeline() {
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
@@ -74,6 +72,7 @@ void ParticleSys::update() {
       it = particles.erase(it);
     } else {
       it->velocity.y -= 9.81f * context.frameInfo.dt;
+      it->velocity *= 0.98f;
       it->pos += it->velocity * context.frameInfo.dt;
       ++it;
     }
@@ -86,27 +85,29 @@ void ParticleSys::update() {
   //      glm::normalize(glm::vec3{rand(rng), 1.f, rand(rng)} * 2.f - 1.f)
   //      * 10.f, static_cast<float>(glfwGetTime()) + rand(rng) * 5.f + 2.f});
 
-  for (int i = 0; i < 10; i++) {
+  for (int i = 0; i < 20; i++) {
     Particle newParticle{};
-    newParticle.pos = {3.f, 0.f, 0.f};
-    newParticle.col = glm::vec3{1.0 - rand(rng) * 0.5, 0.1, 0.1};
+    newParticle.pos = {3.f + rand(rng) * 0.5f, 100.f, rand(rng) * 0.5f};
+    newParticle.col = glm::vec3{.56f, .09f, .03f} + (rand(rng) - .5f) * .3f;
     newParticle.velocity =
-        glm::normalize(glm::vec3{1.f, rand(rng), rand(rng)} * 2.f - 1.f) * 10.f;
-    newParticle.timeOfDeath = glfwGetTime() + 1.f;
+        glm::normalize(glm::vec3{rand(rng) - 0.5f, 1.f, rand(rng) - 0.5f}) *
+        (5.f + rand(rng) * 5.f);
+    newParticle.timeOfDeath = glfwGetTime() + 2.f;
+
     newParticle.onDeath = [&](Particle &parent) {
-      Particle newParticle{};
-      newParticle.col.b = 1.f;
-      newParticle.pos = parent.pos;
-      newParticle.velocity = -parent.velocity;
-      newParticle.timeOfDeath = glfwGetTime() + .2f;
-      newborns.push_back(newParticle);
-      newParticle.col = {1.f, 1.f, 0.f};
-      newParticle.velocity = -(rand(rng) + .5f) * parent.velocity;
-      newParticle.timeOfDeath = glfwGetTime() + .3f;
-      newborns.push_back(newParticle);
+      for (int j = 0; j < 6; j++) {
+        Particle spark{};
+        spark.pos = parent.pos;
+        spark.velocity = glm::normalize(glm::vec3{rand(rng) - 0.5f, rand(rng),
+                                                  rand(rng) - 0.5f}) *
+                         (2.f + rand(rng) * 2.f);
+        spark.col = glm::vec3{.54f, .33f, .5f} + (rand(rng) - .5f) * .3f;
+        spark.timeOfDeath = glfwGetTime() + 0.3f + rand(rng) * 0.2f;
+        newborns.push_back(spark);
+      }
     };
 
-    particles.push_back(newParticle);
+    particles.push_back(std::move(newParticle));
   }
 
   if (!newborns.empty()) {

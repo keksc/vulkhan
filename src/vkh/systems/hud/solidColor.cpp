@@ -14,13 +14,11 @@
 
 namespace vkh {
 void SolidColorSys::createBuffers() {
-  BufferCreateInfo bufInfo{};
-  bufInfo.instanceSize = sizeof(Vertex);
-  bufInfo.instanceCount = maxVertexCount;
-  bufInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  vertexBuffer = std::make_unique<Buffer>(context, bufInfo);
+  vertexBuffer = std::make_unique<Buffer<Vertex>>(
+      context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      maxVertexCount);
   vertexBuffer->map();
 }
 void SolidColorSys::createPipeline() {
@@ -48,6 +46,7 @@ void SolidColorSys::render(size_t verticesSize) {
   vkCmdBindVertexBuffers(context.frameInfo.commandBuffer, 0, 1, buffers,
                          offsets);
 
-  vkCmdDraw(context.frameInfo.commandBuffer, static_cast<uint32_t>(verticesSize), 1, 0, 0);
+  vkCmdDraw(context.frameInfo.commandBuffer,
+            static_cast<uint32_t>(verticesSize), 1, 0, 0);
 }
 } // namespace vkh

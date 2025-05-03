@@ -25,7 +25,7 @@ public:
       attributeDescriptions.push_back(
           {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position)});
       attributeDescriptions.push_back(
-          {1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, color)});
+          {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)});
 
       return attributeDescriptions;
     }
@@ -33,13 +33,13 @@ public:
 
   void render(size_t verticesSize);
 
-  std::unique_ptr<Buffer> vertexBuffer;
+  std::unique_ptr<Buffer<Vertex>> vertexBuffer;
 
 private:
   void createBuffers();
   void createPipeline();
 
-  const int maxLineCount = 80;
+  const int maxLineCount = 160;
   const int maxVertexCount = 2 * maxLineCount; // 4 vertices = 1 quad = 1 glyph
   const VkDeviceSize maxVertexSize = sizeof(Vertex) * maxVertexCount;
 

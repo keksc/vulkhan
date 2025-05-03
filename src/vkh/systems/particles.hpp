@@ -57,6 +57,6 @@ private:
   const int maxParticles = 10000;
 
   std::unique_ptr<GraphicsPipeline> pipeline;
-  std::unique_ptr<Buffer> vertexBuffer;
+  std::unique_ptr<Buffer<Vertex>> vertexBuffer;
 }; // namespace particlesSys
 } // namespace vkh

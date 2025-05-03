@@ -3,6 +3,7 @@
 #include <memory>
 #include <vulkan/vulkan_core.h>
 
+#include "../../audio.hpp"
 #include "../../pipeline.hpp"
 #include "../../swapChain.hpp"
 #include "WSTessendorf.hpp"
@@ -50,6 +51,7 @@ WaterSys::WaterSys(EngineContext &context)
   createRenderData();
   prepare();
 
+  audio::play("sounds/ocean-noise.wav");
 }
 void WaterSys::createPipeline() {
   PipelineCreateInfo pipelineInfo{};
@@ -65,18 +67,15 @@ void WaterSys::createPipeline() {
       pipelineInfo);
 }
 void WaterSys::createUniformBuffers(const uint32_t bufferCount) {
-  const VkDeviceSize kBufferSize =
+  const VkDeviceSize bufferSize =
       getUniformBufferAlignment(context, sizeof(VertexUBO)) +
       getUniformBufferAlignment(context, sizeof(WaterSurfaceUBO));
 
-  BufferCreateInfo bufInfo{};
-  bufInfo.instanceSize = kBufferSize;
-  bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
-
   uniformBuffers.resize(bufferCount);
   for (auto &buffer : uniformBuffers) {
-    buffer = std::make_unique<Buffer>(context, bufInfo);
+    buffer = std::make_unique<Buffer<std::byte>>(
+        context, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, bufferSize);
     buffer->map();
   }
 }
@@ -125,7 +124,8 @@ void WaterSys::updateFrameMaps(VkCommandBuffer cmdBuffer, FrameMapData &frame) {
 
   frame.displacementMap->copyFromBuffer(
       cmdBuffer, *stagingBuffer, useMipMapping,
-      VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, static_cast<uint32_t>(stagingBufferOffset));
+      VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+      static_cast<uint32_t>(stagingBufferOffset));
 
   const VkDeviceSize mapSize = Image::formatSize(mapFormat) *
                                frame.displacementMap->w *
@@ -173,38 +173,28 @@ void WaterSys::copyModelTessDataToStagingBuffer() {
                            Image::formatSize(mapFormat)) +
                    kDisplacementsSize + kNormalsSize));
 }
-void WaterSys::prepareModelTess(VkCommandBuffer cmdBuffer) {
-  modelTess.Prepare();
-
-  // Do one pass to initialize the maps
-
-  vertexUBO.WSHeightAmp = modelTess.computeWaves(static_cast<float>(glfwGetTime()) * animSpeed);
-  copyModelTessDataToStagingBuffer();
-
-  updateFrameMaps(cmdBuffer, frameMap);
-}
 std::vector<WaterSys::Vertex>
-WaterSys::createGridVertices(const uint32_t kTileSize, const float kScale) {
+WaterSys::createGridVertices(const uint32_t tileSize, const float scale) {
   std::vector<Vertex> vertices;
 
-  vertices.reserve(getTotalVertexCount(kTileSize));
+  vertices.reserve(getTotalVertexCount(tileSize));
 
-  const int32_t kHalfSize = kTileSize / 2;
+  const int32_t halfSize = tileSize / 2;
 
-  for (int32_t y = -kHalfSize; y <= kHalfSize; ++y) {
-    for (int32_t x = -kHalfSize; x <= kHalfSize; ++x) {
+  for (int32_t y = -halfSize; y <= halfSize; ++y) {
+    for (int32_t x = -halfSize; x <= halfSize; ++x) {
       vertices.emplace_back(
           // Position
           glm::vec3(static_cast<float>(x), // x
                     0.0f,                  // y
                     static_cast<float>(y)  // z
                     ) *
-              kScale,
+              scale,
           // Texcoords
-          glm::vec2(static_cast<float>(x + kHalfSize), // u
-                    static_cast<float>(y + kHalfSize)  // v
+          glm::vec2(static_cast<float>(x + halfSize), // u
+                    static_cast<float>(y + halfSize)  // v
                     ) /
-              static_cast<float>(kTileSize));
+              static_cast<float>(tileSize));
     }
   }
 
@@ -285,7 +275,12 @@ void WaterSys::prepare() {
   auto cmd = beginSingleTimeCommands(context);
   createFrameMaps(cmd);
 
-  prepareModelTess(cmd);
+  // Do one pass to initialize the maps
+  vertexUBO.WSHeightAmp =
+      modelTess.computeWaves(static_cast<float>(glfwGetTime()) * animSpeed);
+  copyModelTessDataToStagingBuffer();
+
+  updateFrameMaps(cmd, frameMap);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 }
 
@@ -307,7 +302,8 @@ void WaterSys::update(const SkyParams &skyParams) {
     // auto cmd = beginSingleTimeCommands(context);
     // vkCmdDispatch(cmd, 16, 16, 1);
     // endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
-    vertexUBO.WSHeightAmp = modelTess.computeWaves(static_cast<float>(glfwGetTime()) * animSpeed);
+    vertexUBO.WSHeightAmp =
+        modelTess.computeWaves(static_cast<float>(glfwGetTime()) * animSpeed);
     copyModelTessDataToStagingBuffer();
   }
 }
@@ -372,11 +368,9 @@ void WaterSys::createStagingBuffer() {
       alignSizeTo(kVerticesSize + indicesSize, Image::formatSize(mapFormat)) +
       (kMapSize * 2);
 
-  BufferCreateInfo bufInfo{};
-  bufInfo.instanceSize = totalSize;
-  bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
-  stagingBuffer = std::make_unique<Buffer>(context, bufInfo);
+  stagingBuffer = std::make_unique<Buffer<std::byte>>(
+      context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, totalSize);
   stagingBuffer->map();
 }
 } // namespace vkh

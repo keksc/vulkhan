@@ -24,19 +24,18 @@ TextSys::~TextSys() {
   vkDestroySampler(context.vulkan.device, sampler, nullptr);
 }
 void TextSys::createBuffers() {
-  BufferCreateInfo bufInfo{};
-  bufInfo.instanceSize = sizeof(Vertex);
-  bufInfo.instanceCount = maxVertexCount;
-  bufInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  vertexBuffer = std::make_unique<Buffer>(context, bufInfo);
+  vertexBuffer = std::make_unique<Buffer<Vertex>>(
+      context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      maxVertexCount);
   vertexBuffer->map();
 
-  bufInfo.instanceSize = sizeof(uint32_t);
-  bufInfo.instanceCount = maxIndexCount;
-  bufInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-  indexBuffer = std::make_unique<Buffer>(context, bufInfo);
+  indexBuffer = std::make_unique<Buffer<uint32_t>>(
+      context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      maxIndexCount);
   indexBuffer->map();
 }
 void TextSys::createDescriptors() {
@@ -89,14 +88,16 @@ void TextSys::createGlyphs() {
   std::memset(atlasData, 0, atlasSize);
 
   stbtt_pack_context packContext;
-  if (!stbtt_PackBegin(&packContext, atlasData, static_cast<int>(bitmapExtent.x), static_cast<int>(bitmapExtent.y),
-                       0, 1, nullptr)) {
+  if (!stbtt_PackBegin(&packContext, atlasData,
+                       static_cast<int>(bitmapExtent.x),
+                       static_cast<int>(bitmapExtent.y), 0, 1, nullptr)) {
     throw std::runtime_error("Failed to initialize font packing");
   }
   std::vector<stbtt_packedchar> charInfo(127 - 32);
   stbtt_PackSetOversampling(&packContext, 1, 1);
   if (!stbtt_PackFontRange(&packContext, fontData, 0, fontSize, 32,
-                           static_cast<int>(charInfo.size()), charInfo.data())) {
+                           static_cast<int>(charInfo.size()),
+                           charInfo.data())) {
     stbtt_PackEnd(&packContext);
     delete[] atlasData;
     throw std::runtime_error("Failed to pack font");
@@ -180,6 +181,7 @@ void TextSys::render(size_t indicesSize) {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
                           descriptorSets, 0, nullptr);
 
-  vkCmdDrawIndexed(context.frameInfo.commandBuffer, static_cast<uint32_t>(indicesSize), 1, 0, 0, 0);
+  vkCmdDrawIndexed(context.frameInfo.commandBuffer,
+                   static_cast<uint32_t>(indicesSize), 1, 0, 0, 0);
 }
 } // namespace vkh

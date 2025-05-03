@@ -31,6 +31,7 @@ public:
   DescriptorSetLayout &operator=(const DescriptorSetLayout &) = delete;
 
   operator VkDescriptorSetLayout() { return descriptorSetLayout; }
+  operator VkDescriptorSetLayout *() { return &descriptorSetLayout; }
 
 private:
   EngineContext &context;
@@ -66,7 +67,7 @@ public:
   DescriptorPool &operator=(const DescriptorPool &) = delete;
 
   bool allocateDescriptorSet(const VkDescriptorSetLayout descriptorSetLayout,
-                          VkDescriptorSet &descriptor) const;
+                             VkDescriptorSet &descriptor) const;
 
   void freeDescriptors(std::vector<VkDescriptorSet> &descriptors) const;
 

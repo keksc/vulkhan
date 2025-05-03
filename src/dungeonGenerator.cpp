@@ -1,15 +1,14 @@
 #include "dungeonGenerator.hpp"
-#include "vkh/systems/entity/entities.hpp"
 
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
 
+#include <memory>
 #include <random>
 #include <vector>
 
-#include <random>
-#include <vector>
+#include "vkh/systems/entity/entities.hpp"
 
 enum class CellType { Empty, Room, Hallway };
 
@@ -54,8 +53,12 @@ void generateDungeon(vkh::EntitySys &entitySys) {
   //   }
   //   fmt::print("\n");
   // }
+
+  auto westWingAssets = entitySys.createMesh("models/westwingassets.glb");
   for (int x = 0; x < 10; x++) {
-    entitySys.addEntity({.position = {x, 0.f, 0.f}, .scale = glm::vec3(.5f)},
-                        "models/westwingassets.glb", {});
+    entitySys.entities.push_back(
+        {{.position = {x, 100.f, 0.f}, .scale = glm::vec3(.5f)},
+         {},
+         westWingAssets});
   }
 }

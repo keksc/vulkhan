@@ -27,8 +27,8 @@ private:
 
   TextSys textSys;
   SolidColorSys linesSys;
-  std::unique_ptr<Buffer> vertexBuffer;
-  std::unique_ptr<Buffer> indexBuffer;
+  std::unique_ptr<Buffer<hud::SolidColorVertex>> vertexBuffer;
+  std::unique_ptr<Buffer<uint32_t>> indexBuffer;
 
   std::shared_ptr<Image> fontAtlas;
 

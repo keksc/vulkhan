@@ -324,11 +324,9 @@ void setupGlobResources(EngineContext &context) {
 
   context.vulkan.globalUBOs.resize(SwapChain::MAX_FRAMES_IN_FLIGHT);
   for (int i = 0; i < context.vulkan.globalUBOs.size(); i++) {
-    BufferCreateInfo bufInfo{};
-    bufInfo.instanceSize = sizeof(GlobalUbo);
-    bufInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-    bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
-    context.vulkan.globalUBOs[i] = std::make_unique<Buffer>(context, bufInfo);
+    context.vulkan.globalUBOs[i] = std::make_unique<Buffer<GlobalUbo>>(
+        context, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
     context.vulkan.globalUBOs[i]->map();
   }
 

@@ -3,6 +3,7 @@
 #include "../../mesh.hpp"
 #include "../system.hpp"
 #include <algorithm>
+#include <memory>
 
 namespace vkh {
 class EntitySys : public System {
@@ -50,13 +51,14 @@ public:
   struct Entity {
     Transform transform;
     RigidBody rigidBody;
-    std::unique_ptr<Mesh<Vertex>> mesh;
+    std::shared_ptr<Mesh<Vertex>> mesh;
   };
   EntitySys(EngineContext &context, std::vector<Entity> &entities);
   ~EntitySys();
   void render();
-  void addEntity(Transform transform,
-                 const std::filesystem::path &path, RigidBody rigidBody);
+  void addEntity(Transform transform, const std::filesystem::path &path,
+                 RigidBody rigidBody);
+  std::shared_ptr<Mesh<Vertex>> createMesh(const std::filesystem::path &path);
   std::vector<Entity> &entities;
 
 private:
@@ -65,6 +67,6 @@ private:
 
   std::unique_ptr<GraphicsPipeline> pipeline;
   VkSampler sampler;
-  std::unique_ptr<DescriptorSetLayout> setLayout;
+  std::shared_ptr<DescriptorSetLayout> setLayout;
 };
 } // namespace vkh

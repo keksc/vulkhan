@@ -2,11 +2,14 @@
 #include "engineContext.hpp"
 
 #include <GLFW/glfw3.h>
+#include <chrono>
 #include <fmt/format.h>
+#include <glm/ext/vector_common.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/norm.hpp>
 
 #include <limits>
+#include <mutex>
 
 namespace vkh {
 namespace input {
@@ -50,8 +53,10 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
 void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
-  context->input.cursorPos.x = static_cast<int>(xpos);
-  context->input.cursorPos.y = static_cast<int>(ypos);
+  context->input.cursorPos = glm::vec2{xpos, ypos} /
+                                 static_cast<glm::vec2>(context->window.size) *
+                                 2.f -
+                             1.f;
   if (!context->currentInputCallbackSystemKey)
     return;
   for (auto &pair :
@@ -63,14 +68,29 @@ int scroll{};
 void scrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
   scroll += static_cast<int>(yoffset);
 }
-void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
+const int doubleClickDelay = 300;
+void doubleClickCallback(GLFWwindow *window) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
-  // if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-  //   std::thread(animateSword, std::ref(*context)).detach();
-  // }
-  if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+  if (!context->currentInputCallbackSystemKey)
+    return;
+  for (auto &pair :
+       context->inputCallbackSystems[context->currentInputCallbackSystemKey]
+           .doubleClick)
+    pair.second();
+}
+void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
+  static std::chrono::system_clock::time_point lastClick{};
+
+  if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+    if (std::chrono::high_resolution_clock::now() - lastClick <=
+        std::chrono::milliseconds(doubleClickDelay))
+      doubleClickCallback(window);
+    lastClick = std::chrono::high_resolution_clock::now();
   }
+
+  auto context =
+      reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   if (!context->currentInputCallbackSystemKey)
     return;
   for (auto &pair :
@@ -98,49 +118,55 @@ void init(EngineContext &context) {
   glfwSetMouseButtonCallback(context.window, mouseButtonCallback);
 }
 void moveInPlaneXZ(EngineContext &context) {
-  static glm::vec2 lastCursorPos = context.input.cursorPos;
-  glm::vec2 currentCursorPos = context.input.cursorPos;
+  static glm::vec2 lastPos;
 
-  glm::vec2 delta = (currentCursorPos - lastCursorPos) * 0.001f;
-  lastCursorPos = currentCursorPos;
+  double x, y;
+  glfwGetCursorPos(context.window, &x, &y);
+  glm::vec2 currentPos{static_cast<float>(x), static_cast<float>(y)};
 
-  static float yaw = 0.0f;
-  static float pitch = 0.0f;
+  glm::vec2 delta = currentPos - lastPos;
+  lastPos = currentPos;
 
-  yaw += delta.x;
-  pitch -= delta.y;
+  const float sensitivity = .002f;
+  float dYaw = delta.x * sensitivity;
+  float dPitch = -delta.y * sensitivity;
 
-  pitch = glm::clamp(pitch, -glm::half_pi<float>() + 0.01f,
-                     glm::half_pi<float>() - 0.01f);
+  context.camera.yaw += dYaw;
+  context.camera.pitch += dPitch;
 
-  glm::quat q_yaw = glm::angleAxis(yaw, glm::vec3(0.0f, 1.0f, 0.0f));
+  const float maxPitch = glm::radians(89.f);
+  context.camera.pitch = glm::clamp(context.camera.pitch, -maxPitch, maxPitch);
 
-  glm::quat q_pitch = glm::angleAxis(pitch, glm::vec3(1.0f, 0.0f, 0.0f));
+  context.camera.yaw = glm::mod(context.camera.yaw, glm::two_pi<float>());
 
-  context.camera.orientation = q_yaw * q_pitch;
+  glm::quat yawQuat =
+      glm::angleAxis(context.camera.yaw, glm::vec3(0.f, 1.f, 0.f));
+  glm::vec3 localRight = yawQuat * glm::vec3(1.f, 0.f, 0.f);
+  glm::quat pitchQuat = glm::angleAxis(context.camera.pitch, localRight);
+  context.camera.orientation = pitchQuat * yawQuat;
 
-  glm::vec3 forward = context.camera.orientation * glm::vec3(0.0f, 0.0f, -1.0f);
-  glm::vec3 right = context.camera.orientation * glm::vec3(-1.0f, 0.0f, 0.0f);
-  glm::vec3 up = // context.camera.orientation *
-      glm::vec3(0.0f, 1.0f, 0.0f);
+  glm::vec3 forward = context.camera.orientation * glm::vec3(0.f, 0.f, -1.f);
+  glm::vec3 rightDir = context.camera.orientation * glm::vec3(-1.f, 0.f, 0.f);
+  glm::vec3 up = glm::vec3(0.f, 1.f, 0.f);
+  glm::vec3 moveDir{};
 
-  glm::vec3 moveDir{0.0f};
-  if (glfwGetKey(context.window, GLFW_KEY_W))
+  if (glfwGetKey(context.window, GLFW_KEY_W) == GLFW_PRESS)
     moveDir += forward;
-  if (glfwGetKey(context.window, GLFW_KEY_S))
+  if (glfwGetKey(context.window, GLFW_KEY_S) == GLFW_PRESS)
     moveDir -= forward;
-  if (glfwGetKey(context.window, GLFW_KEY_D))
-    moveDir += right;
-  if (glfwGetKey(context.window, GLFW_KEY_A))
-    moveDir -= right;
-  if (glfwGetKey(context.window, GLFW_KEY_SPACE))
+  if (glfwGetKey(context.window, GLFW_KEY_D) == GLFW_PRESS)
+    moveDir += rightDir;
+  if (glfwGetKey(context.window, GLFW_KEY_A) == GLFW_PRESS)
+    moveDir -= rightDir;
+  if (glfwGetKey(context.window, GLFW_KEY_SPACE) == GLFW_PRESS)
     moveDir += up;
-  if (glfwGetKey(context.window, GLFW_KEY_LEFT_CONTROL))
+  if (glfwGetKey(context.window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
     moveDir -= up;
 
   if (glm::length2(moveDir) > std::numeric_limits<float>::epsilon()) {
     float sprint =
-        glfwGetKey(context.window, GLFW_KEY_LEFT_SHIFT) ? 4.0f : 1.0f;
+        (glfwGetKey(context.window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) ? 4.0f
+                                                                        : 1.0f;
     context.camera.position +=
         glm::normalize(moveDir) * sprint * moveSpeed * context.frameInfo.dt;
   }
