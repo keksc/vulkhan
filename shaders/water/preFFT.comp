@@ -1,0 +1,74 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform Push {
+  float t;
+} pc;
+
+layout(std430, binding = 0) buffer FFTDataOut {
+  vec2 FFTData[];
+};
+
+struct BaseWaveHeight {
+  vec2 heightAmp;      ///< FT amplitude of wave height
+  vec2 heightAmp_conj; ///< conjugate of wave height amplitude
+  float dispersion;    ///< Descrete dispersion value
+  float pad;           //  4
+};
+
+layout(std430, binding = 1) buffer BaseWaveHeightFieldIn {
+  BaseWaveHeight baseWaveHeightField[];
+};
+
+struct WaveVector {
+  vec2 vec;
+  vec2 unit;
+};
+
+layout(std430, binding = 2) buffer WaveVectorsIn {
+  WaveVector waveVectors[];
+};
+
+const uint tileSize = 512;
+
+vec2 cmul(vec2 a, vec2 b) {
+  return vec2(a.x*b.x-a.y*b.y, a.x*b.y+b.x*a.y);
+}
+
+vec2 waveHeightFT(const uint idx, const float t) {
+  const float omega_t = baseWaveHeightField[idx].dispersion * t;
+
+  // exp(ix) = cos(x) * i*sin(x)
+  const float pcos = cos(omega_t);
+  const float psin = sin(omega_t);
+
+  return cmul(baseWaveHeightField[idx].heightAmp, vec2(pcos, psin)) +
+         cmul(baseWaveHeightField[idx].heightAmp_conj, vec2(pcos, -psin));
+}
+
+void main() {
+  uvec2 gid = gl_GlobalInvocationID.xy;
+
+  const uint idx = gid.x + gid.y * tileSize;
+
+  const uint bufferSize = tileSize * tileSize;
+
+  const vec2 height = waveHeightFT(idx, pc.t);
+  const WaveVector waveVector = waveVectors[idx];
+
+  // height
+  FFTData[idx] = height;
+  // slopeX
+  FFTData[idx + bufferSize] = cmul(vec2(0, waveVector.vec.x), height);
+  // slopeZ
+  FFTData[idx + 2 * bufferSize] = cmul(vec2(0, waveVector.vec.y), height);
+  // displacementX
+  FFTData[idx + 3 * bufferSize] = cmul(vec2(0, -waveVector.unit.x), height);
+  // displacementZ
+  FFTData[idx + 4 * bufferSize] = cmul(vec2(0, -waveVector.unit.y), height);
+  // dxDisplacementX
+  FFTData[idx + 5 * bufferSize] = cmul(vec2(0, waveVector.vec.x), height);
+  // dzDisplacementZ
+  FFTData[idx + 6 * bufferSize] = cmul(vec2(0, waveVector.vec.y), height);
+}

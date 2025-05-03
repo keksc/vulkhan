@@ -84,13 +84,13 @@ private:
 
   std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
   std::vector<VkDescriptorSet> descriptorSets;
-  std::vector<std::unique_ptr<Buffer>> uniformBuffers;
+  std::vector<std::unique_ptr<Buffer<std::byte>>> uniformBuffers;
   std::unique_ptr<GraphicsPipeline> pipeline;
   std::unique_ptr<Mesh<Vertex>> mesh;
 
   WSTessendorf modelTess;
   FrameMapData frameMap;
-  std::unique_ptr<Buffer> stagingBuffer;
+  std::unique_ptr<Buffer<std::byte>> stagingBuffer;
 
   bool playAnimation{true};
   float animSpeed{3.0};
@@ -189,7 +189,6 @@ private:
   void createFrameMaps(VkCommandBuffer cmdBuffer);
   void updateFrameMaps(VkCommandBuffer cmdBuffer, FrameMapData &frame);
   void copyModelTessDataToStagingBuffer();
-  void prepareModelTess(VkCommandBuffer cmdBuffer);
   std::vector<Vertex> createGridVertices(const uint32_t kTileSize,
                                          const float kScale);
   std::vector<uint32_t> createGridIndices(const uint32_t kTileSize);

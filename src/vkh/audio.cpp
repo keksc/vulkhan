@@ -98,7 +98,7 @@ void play(const std::filesystem::path &file) {
 
   auto data = convertTo16Bit(audioFile);
 
-  auto& source = sources.emplace_back();
+  auto &source = sources.emplace_back();
   auto &buffer = buffers.emplace_back();
   alGenBuffers(1, &buffer);
   alBufferData(buffer, AL_FORMAT_MONO16, data.data(),
@@ -106,6 +106,9 @@ void play(const std::filesystem::path &file) {
                static_cast<ALsizei>(audioFile.getSampleRate()));
   alGenSources(1, &source);
   alSourcei(source, AL_BUFFER, buffer);
+  alSourcei(source, AL_SOURCE_RELATIVE, AL_TRUE);
+  alSource3f(source, AL_POSITION, 0.0f, 0.0f, 0.0f);
+  alSourcei(source, AL_LOOPING, AL_TRUE);
   alSourcePlay(source);
 }
 void cleanup() {

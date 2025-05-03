@@ -90,12 +90,10 @@ void Image::createImageFromPixels(void *pixels, int w, int h) {
   createImage(context, w, h,
               VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
-  BufferCreateInfo bufInfo{};
-  bufInfo.instanceSize = imageSize;
-  bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  Buffer stagingBuffer(context, bufInfo);
+  Buffer<std::byte> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                  imageSize);
   stagingBuffer.map();
   stagingBuffer.write(pixels);
 
@@ -193,12 +191,10 @@ Image::Image(EngineContext &context, const ImageCreateInfo &createInfo)
     data = static_cast<void *>(&color);
     size = sizeof(uint32_t);
   }
-  BufferCreateInfo bufInfo{};
-  bufInfo.instanceSize = size;
-  bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-  bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  Buffer stagingBuffer(context, bufInfo);
+  Buffer<std::byte> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                  size);
   stagingBuffer.map();
   stagingBuffer.write(data);
 
@@ -214,7 +210,7 @@ Image::~Image() {
 }
 
 Image::TransitionParams Image::getTransitionParams(VkImageLayout oldLayout,
-                                     VkImageLayout newLayout) {
+                                                   VkImageLayout newLayout) {
   TransitionParams params{};
   if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
       newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {

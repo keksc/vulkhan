@@ -44,26 +44,18 @@ void run() {
   audio::init();
   renderer::init(context);
   { // {} to handle call destructors of buffers before vulkan is cleaned up
-    context.camera.position = {0.f, 2.f, -2.5f};
-    context.camera.orientation = {0.f, 0.f, -1.f, 0.f};
-
     WaterSys::SkyParams skyParams;
     SkyPreetham sky({0.f, 3.f, .866f});
     skyParams.props = sky.GetProperties();
 
     std::vector<EntitySys::Entity> entities;
     EntitySys entitySys(context, entities);
-    entitySys.addEntity({.position = {.5f, .5f, .5f}, .scale = {.5f, .5f, .5f}},
-                        "models/sword.glb", {});
-
-    entitySys.addEntity({.position = {5.f, .5f, .5f}, .scale = {.5f, .5f, .5f}},
-                        "models/westwingassets.glb", {});
 
     generateDungeon(entitySys);
 
     ParticleSys particleSys(context);
     FreezeAnimationSys freezeAnimationSys(context);
-    // WaterSys waterSys(context);
+    WaterSys waterSys(context);
     HudSys hudSys(context);
 
     hud::View hudWorld(context);
@@ -95,9 +87,8 @@ void run() {
     auto sliderBg = hudPause.addElement<hud::Rect>(
         slider->position, slider->size, slider->color * .5f);
     auto logtxt = hudPause.addElement<hud::Text>(glm::vec2{-1.f, .3f});
-    // hudPause.addElement<hud::Canvas>(glm::vec2{.3f, .3f}, glm::vec2{.2f,
-    // .2f},
-    //                                  glm::vec3{1.f, 1.f, 1.f});
+    hudPause.addElement<hud::Canvas>(glm::vec2{-.5f, -.5f},
+                                     glm::vec2{.4f, .4f});
     hudSys.setView(&hudWorld);
 
     // btn->addChild(std::make_shared<hud::Rect>(
@@ -120,6 +111,9 @@ void run() {
 
     input::init(context);
 
+    context.camera.position = {0.f, 1.f, -2.5f};
+    context.camera.yaw = 1.5f * glm::pi<float>();
+
     auto currentTime = std::chrono::high_resolution_clock::now();
     while (!glfwWindowShouldClose(context.window)) {
       glfwPollEvents();
@@ -137,7 +131,7 @@ void run() {
       rect->size = fpstxt->size;
       orientationtxt->position.x = 1.f - orientationtxt->size.x;
       orientationtxt->content = fmt::format(
-          "Orientation: {}", glm::to_string(context.camera.orientation));
+          "Yaw: {}\nPitch:{}", context.camera.yaw, context.camera.pitch);
       logtxt->content = fmt::format("{}", slider->value);
       currentTime = newTime;
 
@@ -164,8 +158,7 @@ void run() {
 
         // update
         GlobalUbo ubo{};
-        ubo.projection = context.camera.projectionMatrix;
-        ubo.view = context.camera.viewMatrix;
+        ubo.projView = context.camera.projectionMatrix * context.camera.viewMatrix;
         ubo.inverseView = context.camera.inverseViewMatrix;
         ubo.aspectRatio = aspect;
         particleSys.update();
@@ -173,7 +166,7 @@ void run() {
           skyParams.props.sunDir.x += .1f * context.frameInfo.dt;
           sky.update();
         }
-        // waterSys.update(skyParams);
+        waterSys.update(skyParams);
         context.vulkan.globalUBOs[frameIndex]->write(&ubo);
         context.vulkan.globalUBOs[frameIndex]->flush();
 
@@ -184,7 +177,7 @@ void run() {
         hudSys.render();
         if (hudSys.getView() == &hudWorld) {
           entitySys.render();
-          // waterSys.render();
+          waterSys.render();
 
           particleSys.render();
 

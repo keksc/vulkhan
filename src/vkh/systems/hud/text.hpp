@@ -48,8 +48,8 @@ public:
   };
   void render(size_t indicesSize);
 
-  std::unique_ptr<Buffer> vertexBuffer;
-  std::unique_ptr<Buffer> indexBuffer;
+  std::unique_ptr<Buffer<Vertex>> vertexBuffer;
+  std::unique_ptr<Buffer<uint32_t>> indexBuffer;
 
 private:
   void createBuffers();
@@ -58,7 +58,7 @@ private:
   void createGlyphs();
   void createSampler();
 
-  const int maxCharCount = 80;
+  const int maxCharCount = 160;
   const int maxVertexCount = 4 * maxCharCount; // 4 vertices = 1 quad = 1 glyph
   const VkDeviceSize maxVertexSize = sizeof(Vertex) * maxVertexCount;
   const int maxIndexCount = maxCharCount * 6;

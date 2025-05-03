@@ -13,20 +13,12 @@
 
 namespace vkh {
 void HudSys::createBuffers() {
-  BufferCreateInfo bufInfo{};
-  bufInfo.instanceSize = sizeof(hud::SolidColorVertex);
-  bufInfo.instanceCount = maxVertexCount;
-  bufInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-  bufInfo.memoryProperties =
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  vertexBuffer = std::make_unique<Buffer>(context, bufInfo);
+  vertexBuffer = std::make_unique<Buffer<hud::SolidColorVertex>>(context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, maxVertexCount);
   vertexBuffer->map();
 
-  bufInfo.instanceSize = sizeof(uint32_t);
-  bufInfo.instanceCount = maxIndexCount;
-  bufInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-  indexBuffer = std::make_unique<Buffer>(context, bufInfo);
+  indexBuffer = std::make_unique<Buffer<uint32_t>>(context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, maxIndexCount);
   indexBuffer->map();
 }
 
@@ -89,6 +81,8 @@ void HudSys::render() {
     return;
   update();
 
+  linesSys.render(drawInfo.lineVertices.size());
+
   pipeline->bind(context.frameInfo.commandBuffer);
 
   VkBuffer buffers[] = {*vertexBuffer};
@@ -101,6 +95,5 @@ void HudSys::render() {
                    static_cast<uint32_t>(drawInfo.solidColorIndices.size()), 1, 0, 0, 0);
 
   textSys.render(drawInfo.textIndices.size());
-  linesSys.render(drawInfo.lineVertices.size());
 } // namespace hudSys
 } // namespace vkh

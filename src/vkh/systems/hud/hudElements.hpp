@@ -1,6 +1,8 @@
 #pragma once
 
 #include <GLFW/glfw3.h>
+#include <algorithm>
+#include <filesystem>
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <glm/glm.hpp>
@@ -66,13 +68,15 @@ struct DrawInfo {
 };
 class Element {
 public:
-  Element(View &view, Element *parent, glm::vec2 position, glm::vec2 size)
-      : position{position}, size{size}, view{view} {
+  Element(View &view, Element *parent, glm::vec2 position, glm::vec2 offset)
+      : position{position}, size{offset}, view{view} {
     if (parent) {
       this->position = parent->position + position * parent->size;
       this->size = parent->size * size;
     }
   }
+  Element(const Element &) = delete;
+  Element &operator=(const Element &) = delete;
   ~Element() { children.clear(); }
 
   template <typename T, typename... Args>
@@ -82,7 +86,7 @@ public:
     return element;
   }
 
-  virtual void addToDrawInfo(DrawInfo &drawInfo) = 0;
+  virtual void addToDrawInfo(DrawInfo &drawInfo) {};
   std::vector<std::shared_ptr<Element>> children;
 
   glm::vec2 position{};
@@ -107,7 +111,8 @@ protected:
     float y0 = position.y;
     float y1 = y0 + size.y;
 
-    uint32_t baseIndex = static_cast<uint32_t>(drawInfo.solidColorVertices.size());
+    uint32_t baseIndex =
+        static_cast<uint32_t>(drawInfo.solidColorVertices.size());
     drawInfo.solidColorVertices.push_back({{x0, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y1}, color});
@@ -119,6 +124,22 @@ protected:
     drawInfo.solidColorIndices.push_back(baseIndex + 0);
     drawInfo.solidColorIndices.push_back(baseIndex + 2);
     drawInfo.solidColorIndices.push_back(baseIndex + 3);
+  };
+};
+class Line : public Element {
+public:
+  Line(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
+       glm::vec3 color)
+      : Element(view, parent, position, size), color{color} {};
+  glm::vec3 color{};
+
+protected:
+  void addToDrawInfo(DrawInfo &drawInfo) override {
+    // TODO: this might be optimizable when nothing changes, maybe add a
+    // "changed" flag
+    drawInfo.lineVertices.push_back({{position.x, position.y}, color});
+    drawInfo.lineVertices.push_back(
+        {{position.x + size.x, position.y + size.y}, color});
   };
 };
 template <auto CallbackListPtr> class EventListener {
@@ -155,14 +176,12 @@ public:
 private:
   std::function<void(int, int, int)> onClick;
   void mouseButtonCallback(int button, int action, int mods) {
-    glm::vec2 normalizedCursorPos =
-        static_cast<glm::vec2>(view.context.input.cursorPos) /
-            static_cast<glm::vec2>(view.context.window.size) * glm::vec2(2.f) -
-        glm::vec2(1.f);
+    const auto &cursorPos = view.context.input.cursorPos;
+
     const glm::vec2 min = glm::min(position, position + size);
     const glm::vec2 max = glm::max(position, position + size);
-    if (glm::all(glm::greaterThanEqual(normalizedCursorPos, min)) &&
-        glm::all(glm::lessThanEqual(normalizedCursorPos, max)))
+    if (glm::all(glm::greaterThanEqual(cursorPos, min)) &&
+        glm::all(glm::lessThanEqual(cursorPos, max)))
       onClick(button, action, mods);
   }
 };
@@ -257,14 +276,11 @@ private:
     content.push_back(c);
   }
   void mouseButtonCallback(int button, int action, int mods) {
-    glm::vec2 normalizedCursorPos =
-        static_cast<glm::vec2>(view.context.input.cursorPos) /
-            static_cast<glm::vec2>(view.context.window.size) * glm::vec2(2.0) -
-        glm::vec2(1.0);
+    const auto &cursorPos = view.context.input.cursorPos;
     const glm::vec2 min = glm::min(position, position + size);
     const glm::vec2 max = glm::max(position, position + size);
-    if (glm::all(glm::greaterThanEqual(normalizedCursorPos, min)) &&
-        glm::all(glm::lessThanEqual(normalizedCursorPos, max)))
+    if (glm::all(glm::greaterThanEqual(cursorPos, min)) &&
+        glm::all(glm::lessThanEqual(cursorPos, max)))
       selected = true;
     else
       selected = false;
@@ -306,7 +322,8 @@ protected:
     float y0 = position.y + .5f * size.y - normalizedBoxHalfSize;
     float y1 = y0 + 2.f * normalizedBoxHalfSize;
 
-    uint32_t baseIndex = static_cast<uint32_t>(drawInfo.solidColorVertices.size());
+    uint32_t baseIndex =
+        static_cast<uint32_t>(drawInfo.solidColorVertices.size());
     drawInfo.solidColorVertices.push_back({{x0, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y0}, color});
     drawInfo.solidColorVertices.push_back({{x1, y1}, color});
@@ -325,17 +342,14 @@ protected:
 
 private:
   void mouseButtonCallback(int button, int action, int mods) {
-    glm::vec2 normalizedCursorPos =
-        static_cast<glm::vec2>(view.context.input.cursorPos) /
-            static_cast<glm::vec2>(view.context.window.size) * glm::vec2(2.0) -
-        glm::vec2(1.0);
+    const auto &cursorPos = view.context.input.cursorPos;
     const glm::vec2 min = glm::min(boxPosition, boxPosition + boxSize);
     const glm::vec2 max = glm::max(boxPosition, boxPosition + boxSize);
 
     selected = false;
 
-    if (!(glm::all(glm::greaterThanEqual(normalizedCursorPos, min)) &&
-          glm::all(glm::lessThanEqual(normalizedCursorPos, max))))
+    if (!(glm::all(glm::greaterThanEqual(cursorPos, min)) &&
+          glm::all(glm::lessThanEqual(cursorPos, max))))
       return;
     if (button != GLFW_MOUSE_BUTTON_LEFT)
       return;
@@ -347,8 +361,9 @@ private:
     if (!selected)
       return;
 
-    float normalizedXpos = static_cast<float>(xpos) / view.context.window.size.x * 2.f - 1.f;
-    float p = (normalizedXpos - position.x) / size.x;
+    float normalizedXPos =
+        static_cast<float>(xpos) / view.context.window.size.x * 2.f - 1.f;
+    float p = (normalizedXPos - position.x) / size.x;
     p = glm::clamp(p, 0.f, 1.f);
     centerX = glm::mix(position.x, position.x + size.x, p);
     value = glm::mix(bounds.x, bounds.y, p);
@@ -361,11 +376,10 @@ private:
 class Canvas
     : public Element,
       public EventListener<&EngineContext::InputCallbackSystem::mouseButton>,
-      public EventListener<
-          &EngineContext::InputCallbackSystem::cursorPosition> {
+      public EventListener<&EngineContext::InputCallbackSystem::cursorPosition>,
+      public EventListener<&EngineContext::InputCallbackSystem::doubleClick> {
 public:
-  Canvas(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
-         glm::vec3 color)
+  Canvas(View &view, Element *parent, glm::vec2 position, glm::vec2 size)
       : Element(view, parent, position, size),
         EventListener<&EngineContext::InputCallbackSystem::mouseButton>(
             view,
@@ -375,65 +389,54 @@ public:
         EventListener<&EngineContext::InputCallbackSystem::cursorPosition>(
             view, [this](double xpos,
                          double ypos) { cursorPositionCallback(xpos, ypos); }),
-        color{color} {}
-  glm::vec3 color;
-
-protected:
-  void addToDrawInfo(DrawInfo &drawInfo) override {
-    float normalizedBoxHalfSize = 10.f / view.context.window.size.x;
-    float x0 = position.x;
-    float x1 = x0 + size.x;
-    float y0 = position.y;
-    float y1 = y0 + size.y;
-
-    drawInfo.lineVertices.push_back({{x0, y0}, color});
-    drawInfo.lineVertices.push_back({{x1, y1}, color});
-    //
-    // drawInfo.solidColorIndices.push_back(baseIndex + 0);
-    // drawInfo.solidColorIndices.push_back(baseIndex + 1);
-    // drawInfo.solidColorIndices.push_back(baseIndex + 2);
-    // drawInfo.solidColorIndices.push_back(baseIndex + 0);
-    // drawInfo.solidColorIndices.push_back(baseIndex + 2);
-    // drawInfo.solidColorIndices.push_back(baseIndex + 3);
-
-    boxPosition = {x0, y0};
-    boxSize = glm::vec2{x1, y1} - boxPosition;
-  };
+        EventListener<&EngineContext::InputCallbackSystem::doubleClick>(
+            view, [this]() { doubleClickCallback(); }) {
+    bg = addChild<Rect>(glm::vec2{}, glm::vec2{1.f}, glm::vec3{.5f, .5f, .5f});
+  }
 
 private:
   void mouseButtonCallback(int button, int action, int mods) {
-    glm::vec2 normalizedCursorPos =
-        static_cast<glm::vec2>(view.context.input.cursorPos) /
-            static_cast<glm::vec2>(view.context.window.size) * glm::vec2(2.0) -
-        glm::vec2(1.0);
-    const glm::vec2 min = glm::min(boxPosition, boxPosition + boxSize);
-    const glm::vec2 max = glm::max(boxPosition, boxPosition + boxSize);
+    const auto &cursorPos = view.context.input.cursorPos;
+    const glm::vec2 min = glm::min(position, position + size);
+    const glm::vec2 max = glm::max(position, position + size);
 
-    // selected = false;
-    //
-    // if (!(glm::all(glm::greaterThanEqual(normalizedCursorPos, min)) &&
-    //       glm::all(glm::lessThanEqual(normalizedCursorPos, max))))
-    //   return;
-    // if (button != GLFW_MOUSE_BUTTON_LEFT)
-    //   return;
-    // if (action != GLFW_PRESS)
-    //   return;
-    // selected = true;
+    selected = false;
+
+    if (!(glm::all(glm::greaterThanEqual(cursorPos, min)) &&
+          glm::all(glm::lessThanEqual(cursorPos, max))))
+      return;
+    if (button != GLFW_MOUSE_BUTTON_LEFT)
+      return;
+    if (action != GLFW_PRESS)
+      return;
+    selected = true;
+
+    // fix it creating size=0 lines on double clicks
+    elementBeingAdded = addChild<Line>((cursorPos - position) / size,
+                                       glm::vec2{}, glm::vec3{1.f, 0.f, 0.f});
   }
   void cursorPositionCallback(double xpos, double ypos) {
-    // if (!selected)
-    //   return;
-    //
-    // float normalizedXpos = xpos / view.context.window.size.x * 2.f - 1.f;
-    // float p = (normalizedXpos - position.x) / size.x;
-    // p = glm::clamp(p, 0.f, 1.f);
-    // centerX = glm::mix(position.x, position.x + size.x, p);
-    // value = glm::mix(bounds.x, bounds.y, p);
+    if (!selected)
+      return;
+
+    const auto &cursorPos = view.context.input.cursorPos;
+
+    elementBeingAdded->size = cursorPos - elementBeingAdded->position;
   }
-  glm::vec2 boxPosition{};
-  glm::vec2 boxSize{};
-  float centerX{};
+  void doubleClickCallback() {
+    const auto &cursorPos = view.context.input.cursorPos;
+
+    // view.addElement<Text>(cursorPos, "aaaaaaa");
+    // view.addElement<Text>((cursorPos - position) / size, "aaaaaaa");
+    // addChild<Rect>((cursorPos - position) / size, glm::vec2{.2f},
+    //                glm::vec3{1.f, .5f, .5f});
+
+    std::iter_swap(std::find(children.begin(), children.end(), bg),
+                   std::prev(children.end()));
+  }
   bool selected{};
+  std::shared_ptr<Element> elementBeingAdded;
+  std::shared_ptr<Rect> bg;
 };
 } // namespace hud
 } // namespace vkh

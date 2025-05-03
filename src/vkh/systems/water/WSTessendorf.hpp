@@ -12,6 +12,8 @@
 #include "../../buffer.hpp"
 #include "../system.hpp"
 
+#include <vkFFT.h>
+
 namespace vkh {
 /**
  * @brief Generates data used for rendering the water surface
@@ -51,15 +53,6 @@ public:
   ~WSTessendorf();
 
   /**
-   * @brief (Re)Creates necessary structures according to the previously set
-   *  properties:
-   *  a) Computes wave vectors
-   *  b) Computes base wave height field amplitudes
-   *  c) Sets up FFTW memory and plans
-   */
-  void Prepare();
-
-  /**
    * @brief Computes the wave height, horizontal displacement,
    *  and normal for each vertex. "Prepare()" must be called once before.
    * @param time Elapsed time in seconds
@@ -78,8 +71,6 @@ public:
   auto getPhillipsConst() const { return m_A; }
   auto getDamping() const { return m_Damping; }
   auto getDisplacementLambda() const { return m_Lambda; }
-  float getMinHeight() const { return m_MinHeight; }
-  float getMaxHeight() const { return m_MaxHeight; }
 
   // Data
 
@@ -113,8 +104,6 @@ private:
   void ifft1d(std::complex<float> *data);
   void ifft2d(std::complex<float> *data);
 
-  using Complex = std::complex<float>;
-
   struct WaveVector {
     glm::vec2 vec;
     glm::vec2 unit;
@@ -127,15 +116,19 @@ private:
   };
 
   struct BaseWaveHeight {
-    Complex heightAmp;      ///< FT amplitude of wave height
-    Complex heightAmp_conj; ///< conjugate of wave height amplitude
-    float dispersion;       ///< Descrete dispersion value
+    std::complex<float> heightAmp;      ///< FT amplitude of wave height
+    std::complex<float> heightAmp_conj; ///< conjugate of wave height amplitude
+    float dispersion;                   ///< Descrete dispersion value
+    float _pad;                         // 4
   };
+  static_assert(sizeof(BaseWaveHeight) == 24,
+                "BaseWaveHeight must match std430!");
 
-  std::vector<WaveVector> ComputeWaveVectors() const;
-  std::vector<Complex> ComputeGaussRandomArray() const;
-  std::vector<BaseWaveHeight> ComputeBaseWaveHeightField(
-      const std::vector<Complex> &gaussRandomArray) const;
+  void computeWaveVectors(std::vector<WaveVector> &waveVecs);
+  std::vector<std::complex<float>> ComputeGaussRandomArray() const;
+  std::vector<BaseWaveHeight> computeBaseWaveHeightField(
+      const std::vector<WaveVector> waveVectors,
+      const std::vector<std::complex<float>> &gaussRandomArray) const;
 
   /**
    * @brief Normalizes heights to interval <-1, 1>
@@ -143,13 +136,11 @@ private:
    */
   float NormalizeHeights(float minHeight, float maxHeight);
 
-  void SetupFFT();
-  void DestroyFFT();
-
   // ---------------------------------------------------------------------
   // Properties
 
   const uint32_t tileSize = 512;
+  const uint32_t tileSizeSquared = tileSize * tileSize;
   const float m_TileLength = 1000.0f;
 
   glm::vec2 m_WindDir; ///< Unit vector
@@ -175,29 +166,6 @@ private:
   // =========================================================================
   // Computation
 
-  std::vector<WaveVector> m_WaveVectors; ///< Precomputed Wave vectors
-
-  // Base wave height field generated from the spectrum for each wave vector
-  std::vector<BaseWaveHeight> m_BaseWaveHeights;
-
-  // ---------------------------------------------------------------------
-  // FT computation using FFTW
-
-  Complex *m_Height{nullptr};
-  Complex *m_SlopeX{nullptr};
-  Complex *m_SlopeZ{nullptr};
-  Complex *m_DisplacementX{nullptr};
-  Complex *m_DisplacementZ{nullptr};
-  Complex *m_dxDisplacementX{nullptr};
-  Complex *m_dzDisplacementZ{nullptr};
-#ifdef COMPUTE_JACOBIAN
-  Complex *m_dxDisplacementZ{nullptr};
-  Complex *m_dzDisplacementX{nullptr};
-#endif
-
-  float m_MinHeight{-1.0f};
-  float m_MaxHeight{1.0f};
-
 private:
   static constexpr float s_kG{9.81}; ///< Gravitational constant
   static constexpr float s_kOneOver2sqrt{0.7071067812};
@@ -206,8 +174,9 @@ private:
    * @brief Realization of water wave height field in fourier domain
    * @return Fourier amplitudes of a wave height field
    */
-  Complex BaseWaveHeightFT(const Complex gaussRandom,
-                           const glm::vec2 unitWaveVec, float k) const {
+  std::complex<float> BaseWaveHeightFT(const std::complex<float> gaussRandom,
+                                       const glm::vec2 unitWaveVec,
+                                       float k) const {
     return s_kOneOver2sqrt * gaussRandom *
            glm::sqrt(PhillipsSpectrum(unitWaveVec, k));
   }
@@ -230,15 +199,16 @@ private:
            glm::exp(-k2 * m_Damping * m_Damping);
   }
 
-  static Complex WaveHeightFT(const BaseWaveHeight &waveHeight, const float t) {
+  static std::complex<float> WaveHeightFT(const BaseWaveHeight &waveHeight,
+                                          const float t) {
     const float omega_t = waveHeight.dispersion * t;
 
     // exp(ix) = cos(x) * i*sin(x)
     const float pcos = glm::cos(omega_t);
     const float psin = glm::sin(omega_t);
 
-    return waveHeight.heightAmp * Complex(pcos, psin) +
-           waveHeight.heightAmp_conj * Complex(pcos, -psin);
+    return waveHeight.heightAmp * std::complex<float>(pcos, psin) +
+           waveHeight.heightAmp_conj * std::complex<float>(pcos, -psin);
   }
 
   // --------------------------------------------------------------------
@@ -281,25 +251,28 @@ private:
     return glm::sqrt(s_kG * k * (1 + k * k * L * L));
   }
 
-  std::unique_ptr<ComputePipeline>
-      precomputeTwiddleFactorAndInputIndicesPipeline;
-  std::unique_ptr<ComputePipeline> horizontalStepInverseFFTPipeline;
-  std::unique_ptr<ComputePipeline> verticalStepInverseFFTPipeline;
-  std::unique_ptr<ComputePipeline> scalePipeline;
-  std::unique_ptr<ComputePipeline> permutePipeline;
+  std::unique_ptr<Buffer<std::complex<float>>> FFTData;
+  std::unique_ptr<Buffer<BaseWaveHeight>> baseWaveHeightField;
+  std::unique_ptr<Buffer<WaveVector>> waveVectors;
+  std::unique_ptr<Buffer<Displacement>> displacements;
+  std::unique_ptr<Buffer<Normal>> normals;
+  std::unique_ptr<DescriptorSetLayout> preFFTSetLayout;
+  VkDescriptorSet preFFTSet;
+  std::unique_ptr<DescriptorSetLayout> postFFTSetLayout;
+  VkDescriptorSet postFFTSet;
 
-  std::unique_ptr<DescriptorSetLayout> setLayout;
-  VkDescriptorSet set;
+  VkFFTApplication app{};
+  void gpuIfft2d(std::complex<float> *data);
 
-  std::unique_ptr<Buffer> fftDataBuf0;
-  std::unique_ptr<Buffer> fftDataBuf1;
-  std::unique_ptr<Buffer> precomputeBuf;
+  VkFence fence;
 
-  struct PushConstants {
-    int N;     // FFT size
-    int stage; // Current stage (0 to log2(N)-1)
-    int mode;  // 0=rows, 1=columns
+  std::unique_ptr<ComputePipeline> preFFTPipeline;
+  std::unique_ptr<ComputePipeline> postFFTPipeline;
+
+  struct PushConstantData {
+    float t;
   };
-  void gpuIfft2d(Complex *data);
+
+  void createDescriptors();
 };
 } // namespace vkh

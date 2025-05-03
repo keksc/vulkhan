@@ -25,7 +25,7 @@ template <typename T> struct MeshCreateInfo {
 template <typename T> class Mesh {
 public:
   Mesh(EngineContext &context, const std::filesystem::path &path,
-       VkSampler sampler, DescriptorSetLayout& setLayout)
+       VkSampler sampler, DescriptorSetLayout &setLayout)
       : context{context} {
     loadModel(path);
     createDescriptors(sampler, setLayout);
@@ -48,7 +48,8 @@ public:
     vkCmdBindIndexBuffer(commandBuffer, *indexBuffer, 0, VK_INDEX_TYPE_UINT32);
     if (!descriptorSets.empty()) {
       vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              pipelineLayout, 0, static_cast<uint32_t>(descriptorSets.size()),
+                              pipelineLayout, 0,
+                              static_cast<uint32_t>(descriptorSets.size()),
                               descriptorSets.data(), 0, nullptr);
     }
   }
@@ -183,26 +184,20 @@ private:
     VkDeviceSize indicesSize = sizeof(uint32_t) * indexCount;
     VkDeviceSize verticesSize = sizeof(T) * vertexCount;
 
-    BufferCreateInfo bufInfo{};
-    bufInfo.instanceSize = verticesSize + indicesSize;
-    bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-    bufInfo.memoryProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    Buffer stagingBuffer{context, bufInfo};
+    Buffer<std::byte> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                    verticesSize + indicesSize);
 
-    bufInfo.memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+    indexBuffer = std::make_unique<Buffer<uint32_t>>(
+        context,
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexCount);
 
-    bufInfo.instanceSize = sizeof(uint32_t);
-    bufInfo.instanceCount = indexCount;
-    bufInfo.usage =
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    indexBuffer = std::make_unique<Buffer>(context, bufInfo);
-
-    bufInfo.instanceSize = sizeof(T);
-    bufInfo.instanceCount = vertexCount;
-    bufInfo.usage =
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    vertexBuffer = std::make_unique<Buffer>(context, bufInfo);
+    vertexBuffer = std::make_unique<Buffer<T>>(
+        context,
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexCount);
 
     stagingBuffer.map();
     stagingBuffer.write(indices.data(), indicesSize);
@@ -230,10 +225,10 @@ private:
 
   EngineContext &context;
 
-  std::unique_ptr<Buffer> vertexBuffer;
+  std::unique_ptr<Buffer<T>> vertexBuffer;
   uint32_t vertexCount;
 
-  std::unique_ptr<Buffer> indexBuffer;
+  std::unique_ptr<Buffer<uint32_t>> indexBuffer;
   uint32_t indexCount;
 };
 } // namespace vkh

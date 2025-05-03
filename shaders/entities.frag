@@ -6,12 +6,7 @@ layout(location = 2) in vec2 uv;
 
 layout (location = 0) out vec4 outColor;
 
-layout(set = 0, binding = 0) uniform GlobalUbo {
-  mat4 projection;
-  mat4 view;
-  mat4 inverseView;
-  float aspectRatio;
-} ubo;
+#include "globalUbo.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D texSampler;
 
