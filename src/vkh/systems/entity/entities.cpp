@@ -1,4 +1,5 @@
 #include "entities.hpp"
+#include <memory>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -114,8 +115,10 @@ void EntitySys::render() {
 void EntitySys::addEntity(Transform transform,
                           const std::filesystem::path &path,
                           RigidBody rigidBody) {
-  entities.emplace_back(transform, rigidBody,
-                        std::make_unique<Mesh<EntitySys::Vertex>>(
-                            context, path, sampler, *setLayout));
+  entities.emplace_back(transform, rigidBody, createMesh(path));
+}
+std::shared_ptr<Mesh<EntitySys::Vertex>>
+EntitySys::createMesh(const std::filesystem::path &path) {
+  return std::make_shared<Mesh<Vertex>>(context, path, sampler, *setLayout);
 }
 } // namespace vkh

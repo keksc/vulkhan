@@ -1,44 +1,82 @@
 #pragma once
 
+#include <cassert>
+#include <cstring>
 #include <vulkan/vulkan_core.h>
 
 #include "deviceHelpers.hpp"
 #include "engineContext.hpp"
 
 namespace vkh {
-struct BufferCreateInfo {
-  VkDeviceSize instanceSize;
-  uint32_t instanceCount = 1;
-  VkBufferUsageFlags usage;
-  VkMemoryPropertyFlags memoryProperties;
-};
-class Buffer {
+template <typename T> class Buffer {
 public:
-  Buffer(EngineContext &context, const BufferCreateInfo &createInfo);
-  ~Buffer();
+  Buffer(EngineContext &context, VkBufferUsageFlags usage,
+         VkMemoryPropertyFlags memoryProperties, unsigned int instanceCount = 1)
+      : context{context} {
+    // alignmentSize = getAlignment(createInfo.instanceSize, 1);
+    instanceSize = sizeof(T);
+    bufSize = instanceSize * instanceCount;
+    createBuffer(context, bufSize, usage, memoryProperties, buf, memory);
+  }
+  ~Buffer() {
+    unmap();
+    vkDestroyBuffer(context.vulkan.device, buf, nullptr);
+    vkFreeMemory(context.vulkan.device, memory, nullptr);
+  }
 
   Buffer(const Buffer &) = delete;
   Buffer &operator=(const Buffer &) = delete;
 
-  Buffer(Buffer &&other) noexcept
-      : context(other.context), mapped(other.mapped), buf(other.buf),
-        memory(other.memory), bufSize(other.bufSize),
-        instanceSize(other.instanceSize), alignmentSize(other.alignmentSize) {
-    other.mapped = nullptr;
-    other.buf = VK_NULL_HANDLE;
-    other.memory = VK_NULL_HANDLE;
+  void *map(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0) {
+    assert(buf && memory && "Called map on buffer before create");
+    vkMapMemory(context.vulkan.device, memory, offset, size, 0, &mapped);
+    return mapped;
+  }
+  void unmap() {
+    if (mapped) {
+      vkUnmapMemory(context.vulkan.device, memory);
+      mapped = nullptr;
+    }
   }
 
-  void *map(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
-  void unmap();
-
   void write(const void *data, VkDeviceSize size = VK_WHOLE_SIZE,
-             VkDeviceSize offset = 0);
-  VkResult flush(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0);
+             VkDeviceSize offset = 0) {
+    assert(mapped && "Cannot copy to unmapped buffer");
+
+    if (size == VK_WHOLE_SIZE) {
+      memcpy(mapped, data, bufSize);
+    } else {
+      char *memOffset = (char *)mapped;
+      memOffset += offset;
+      memcpy(memOffset, data, size);
+    }
+  }
+  VkResult flush(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0) {
+    VkMappedMemoryRange mappedRange = {};
+    mappedRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+    mappedRange.memory = memory;
+    mappedRange.offset = offset;
+    mappedRange.size = size;
+    return vkFlushMappedMemoryRanges(context.vulkan.device, 1, &mappedRange);
+  }
   VkDescriptorBufferInfo descriptorInfo(VkDeviceSize size = VK_WHOLE_SIZE,
-                                        VkDeviceSize offset = 0);
+                                        VkDeviceSize offset = 0) {
+    return VkDescriptorBufferInfo{
+        buf,
+        offset,
+        VK_WHOLE_SIZE,
+    };
+  }
   VkResult invalidate(VkDeviceSize size = VK_WHOLE_SIZE,
-                      VkDeviceSize offset = 0);
+                      VkDeviceSize offset = 0) {
+    VkMappedMemoryRange mappedRange = {};
+    mappedRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+    mappedRange.memory = memory;
+    mappedRange.offset = offset;
+    mappedRange.size = size;
+    return vkInvalidateMappedMemoryRanges(context.vulkan.device, 1,
+                                          &mappedRange);
+  }
 
   void writeToIndex(void *data, int index);
   VkResult flushIndex(int index);
@@ -46,33 +84,23 @@ public:
   VkResult invalidateIndex(int index);
 
   operator VkBuffer() { return buf; }
+  operator VkBuffer *() { return &buf; }
 
   void copyToMapped(const void *srcData, VkDeviceSize size,
-                    void *destAddr = nullptr) const;
+                    void *destAddr = nullptr) const {
+    void *dest = destAddr == nullptr ? mapped : destAddr;
+    memcpy(dest, srcData, static_cast<size_t>(size));
+  }
   void *getMappedAddr() const { return mapped; }
 
   void copyFromBuffer(VkCommandBuffer cmdBuffer, Buffer &srcBuffer,
                       VkDeviceSize size = VK_WHOLE_SIZE,
-                      VkDeviceSize srcOffset = 0, VkDeviceSize dstOffset = 0);
-
-  Buffer(EngineContext &context, VkDeviceSize size,
-         VkBufferUsageFlags usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-         VkMemoryPropertyFlags memoryProperties =
-             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-         VkSharingMode sharingMode = VK_SHARING_MODE_EXCLUSIVE)
-      : context{context} {
-    // Create the buffer
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = size;
-    bufferInfo.usage = usage;
-    bufferInfo.sharingMode = sharingMode;
-    bufferInfo.flags = 0;
-
-    vkCreateBuffer(context.vulkan.device, &bufferInfo, nullptr, &buf);
-    allocateMemory(memoryProperties);
-    vkBindBufferMemory(context.vulkan.device, buf, memory, 0);
+                      VkDeviceSize srcOffset = 0, VkDeviceSize dstOffset = 0) {
+    VkBufferCopy copyRegion{};
+    copyRegion.srcOffset = srcOffset;
+    copyRegion.dstOffset = dstOffset;
+    copyRegion.size = size == VK_WHOLE_SIZE ? bufSize : size;
+    vkCmdCopyBuffer(cmdBuffer, srcBuffer.buf, buf, 1, &copyRegion);
   }
 
   void allocateMemory(VkMemoryPropertyFlags properties) {
@@ -91,8 +119,24 @@ public:
   }
 
 private:
-  static VkDeviceSize getAlignment(VkDeviceSize instanceSize,
-                                   VkDeviceSize minOffsetAlignment);
+  /**
+   * Returns the minimum instance size required to be compatible with devices
+   * minOffsetAlignment
+   *
+   * @param instanceSize The size of an instance
+   * @param minOffsetAlignment The minimum required alignment, in bytes, for the
+   * offset member (eg minUniformBufferOffsetAlignment)
+   *
+   * @return VkResult of the buffer mapping call
+   */
+  VkDeviceSize getAlignment(VkDeviceSize instanceSize,
+                            VkDeviceSize minOffsetAlignment) {
+    if (minOffsetAlignment > 0) {
+      return (instanceSize + minOffsetAlignment - 1) &
+             ~(minOffsetAlignment - 1);
+    }
+    return instanceSize;
+  }
 
   EngineContext &context;
 

@@ -19,11 +19,10 @@ const int MAX_STORAGE_IMAGES = 100;
 const int MAX_STORAGE_BUFFERS = 100;
 class DescriptorPool;
 class DescriptorSetLayout;
-class Buffer;
+template <typename T> class Buffer;
 
 struct GlobalUbo {
-  alignas(16) glm::mat4 projection{1.f};
-  alignas(16) glm::mat4 view{1.f};
+  alignas(16) glm::mat4 projView{1.f};
   alignas(16) glm::mat4 inverseView{1.f};
   alignas(4) float aspectRatio;
 };
@@ -32,6 +31,7 @@ const int NUM_BUFFERS = 2;
 
 class SwapChain;
 struct EngineContext {
+  EngineContext &operator=(const EngineContext &) = delete;
   struct {
     glm::ivec2 size = {800, 600};
     bool framebufferResized = false;
@@ -62,7 +62,7 @@ struct EngineContext {
     std::unique_ptr<SwapChain> swapChain;
     std::unique_ptr<DescriptorPool> globalDescriptorPool;
     std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout;
-    std::vector<std::unique_ptr<Buffer>> globalUBOs;
+    std::vector<std::unique_ptr<Buffer<GlobalUbo>>> globalUBOs;
     std::vector<VkDescriptorSet> globalDescriptorSets;
   } vulkan;
   struct {
@@ -86,11 +86,12 @@ struct EngineContext {
         cursorPosition;
     std::unordered_map<void *, std::function<void(unsigned int)>> character;
     std::unordered_map<void *, std::function<void(int, int, int, int)>> key;
+    std::unordered_map<void *, std::function<void()>> doubleClick;
   };
   std::unordered_map<void *, InputCallbackSystem> inputCallbackSystems;
   void *currentInputCallbackSystemKey;
   struct {
-    glm::ivec2 cursorPos;
+    glm::vec2 cursorPos;
   } input;
 };
 } // namespace vkh
