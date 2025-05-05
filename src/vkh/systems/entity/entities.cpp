@@ -12,8 +12,8 @@
 #include <vector>
 
 #include "../../descriptors.hpp"
-#include "../../mesh.hpp"
 #include "../../pipeline.hpp"
+#include "../../scene.hpp"
 #include "../../swapChain.hpp"
 
 namespace vkh {
@@ -98,18 +98,21 @@ void EntitySys::render() {
   for (auto &entity : entities) {
     auto &transform = entity.transform;
     auto &model = entity.mesh;
-    PushConstantData push{};
-    push.modelMatrix = transform.mat4();
-    push.normalMatrix = transform.normalMatrix();
-
-    vkCmdPushConstants(context.frameInfo.commandBuffer, pipeline->getLayout(),
-                       VK_SHADER_STAGE_VERTEX_BIT |
-                           VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, sizeof(PushConstantData), &push);
     model->bind(
         context, context.frameInfo.commandBuffer, *pipeline,
         {context.frameInfo.globalDescriptorSet, model->textureDescriptorSet});
-    model->draw(context.frameInfo.commandBuffer);
+
+    PushConstantData push{};
+    for (auto &mesh : *model) {
+      push.modelMatrix = transform.mat4() * mesh.transform;
+      push.normalMatrix = transform.normalMatrix();
+
+      vkCmdPushConstants(context.frameInfo.commandBuffer, pipeline->getLayout(),
+                         VK_SHADER_STAGE_VERTEX_BIT |
+                             VK_SHADER_STAGE_FRAGMENT_BIT,
+                         0, sizeof(PushConstantData), &push);
+      mesh.draw(context.frameInfo.commandBuffer);
+    }
   }
 }
 void EntitySys::addEntity(Transform transform,
@@ -117,8 +120,8 @@ void EntitySys::addEntity(Transform transform,
                           RigidBody rigidBody) {
   entities.emplace_back(transform, rigidBody, createMesh(path));
 }
-std::shared_ptr<Mesh<EntitySys::Vertex>>
+std::shared_ptr<Scene<EntitySys::Vertex>>
 EntitySys::createMesh(const std::filesystem::path &path) {
-  return std::make_shared<Mesh<Vertex>>(context, path, sampler, *setLayout);
+  return std::make_shared<Scene<Vertex>>(context, path, sampler, *setLayout);
 }
 } // namespace vkh
