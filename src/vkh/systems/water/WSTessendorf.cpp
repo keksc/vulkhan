@@ -12,55 +12,6 @@
 #include "../../deviceHelpers.hpp"
 
 namespace vkh {
-void WSTessendorf::gpuIfft2d(std::complex<float> *data) {}
-
-void WSTessendorf::ifft1d(std::complex<float> *data) {
-  const int N = tileSize;
-  const float pi = glm::pi<float>();
-  int j = 0;
-  for (int i = 0; i < N - 1; i++) {
-    if (i < j)
-      std::swap(data[i], data[j]);
-    int k = N >> 1;
-    while (k <= j)
-      j -= k, k >>= 1;
-    j += k;
-  }
-
-  int mmax = 1;
-  while (mmax < N) {
-    int istep = mmax << 1;
-    float theta = 2.0f * pi / istep;
-    std::complex<float> wp(cos(theta), sin(theta));
-    std::complex<float> w(1.0f, 0.0f);
-    for (int m = 0; m < mmax; m++) {
-      for (int i = m; i < N; i += istep) {
-        int j = i + mmax;
-        std::complex<float> temp = w * data[j];
-        data[j] = data[i] - temp;
-        data[i] += temp;
-      }
-      w *= wp;
-    }
-    mmax = istep;
-  }
-}
-
-void WSTessendorf::ifft2d(std::complex<float> *data) {
-  const int N = tileSize;
-  for (int i = 0; i < N; i++)
-    ifft1d(data + i * N);
-
-  std::vector<std::complex<float>> col(N);
-  for (int j = 0; j < N; j++) {
-    for (int i = 0; i < N; i++)
-      col[i] = data[i * N + j];
-    ifft1d(col.data());
-    for (int i = 0; i < N; i++)
-      data[i * N + j] = col[i];
-  }
-}
-
 void WSTessendorf::createDescriptors() {
   preFFTSetLayout = DescriptorSetLayout::Builder(context)
                         .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,

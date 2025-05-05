@@ -9,6 +9,14 @@ namespace audio {
 void init();
 void cleanup();
 void update(EngineContext &context);
-void play(const std::filesystem::path &file);
+
+struct Sound {
+  Sound(const std::filesystem::path &file);
+  ALuint source;
+  ALuint buffer;
+  void play(ALint spacialized = AL_FALSE, ALint loop = AL_FALSE);
+  void stop();
+  ~Sound();
+};
 } // namespace audio
 } // namespace vkh

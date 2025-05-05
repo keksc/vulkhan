@@ -19,30 +19,6 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
                  int mods) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
-  if (key == GLFW_KEY_O && action == GLFW_PRESS) {
-    int cursorSetting = glfwGetInputMode(context->window, GLFW_CURSOR);
-    if (cursorSetting == GLFW_CURSOR_DISABLED)
-      cursorSetting = GLFW_CURSOR_NORMAL;
-    else
-      cursorSetting = GLFW_CURSOR_DISABLED;
-    glfwSetInputMode(context->window, GLFW_CURSOR, cursorSetting);
-    return;
-  }
-  if (key == GLFW_KEY_F11 && action == GLFW_PRESS) {
-    if (context->window.fullscreen) {
-      glfwSetWindowMonitor(window, NULL, 100, 100, 800, 600, 0);
-    } else {
-      GLFWmonitor *monitor = glfwGetPrimaryMonitor();
-      const GLFWvidmode *mode = glfwGetVideoMode(monitor);
-      glfwSetWindowMonitor(window, monitor, 0, 0, mode->width, mode->height,
-                           mode->refreshRate);
-    }
-    context->window.fullscreen = !context->window.fullscreen;
-    return;
-  }
-  if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-    glfwSetWindowShouldClose(context->window, GLFW_TRUE);
-  }
   if (!context->currentInputCallbackSystemKey)
     return;
   for (auto &pair :
@@ -117,19 +93,17 @@ void init(EngineContext &context) {
   glfwSetScrollCallback(context.window, scrollCallback);
   glfwSetMouseButtonCallback(context.window, mouseButtonCallback);
 }
+glm::dvec2 lastPos;
 void moveInPlaneXZ(EngineContext &context) {
-  static glm::vec2 lastPos;
+  glm::dvec2 currentPos;
+  glfwGetCursorPos(context.window, &currentPos.x, &currentPos.y);
 
-  double x, y;
-  glfwGetCursorPos(context.window, &x, &y);
-  glm::vec2 currentPos{static_cast<float>(x), static_cast<float>(y)};
-
-  glm::vec2 delta = currentPos - lastPos;
+  glm::dvec2 delta = currentPos - lastPos;
   lastPos = currentPos;
 
   const float sensitivity = .002f;
-  float dYaw = delta.x * sensitivity;
-  float dPitch = -delta.y * sensitivity;
+  double dYaw = delta.x * sensitivity;
+  double dPitch = -delta.y * sensitivity;
 
   context.camera.yaw += dYaw;
   context.camera.pitch += dPitch;

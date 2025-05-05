@@ -35,10 +35,20 @@ struct EngineContext {
   struct {
     glm::ivec2 size = {800, 600};
     bool framebufferResized = false;
-    bool fullscreen = false;
     VkExtent2D getExtent() {
       return {static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y)};
     };
+    void setFullscreen(bool fullscreen) {
+      if (fullscreen) {
+        glfwSetWindowMonitor(*this, NULL, 100, 100, 800, 600, 0);
+      } else {
+        GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+        const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+        glfwSetWindowMonitor(*this, monitor, 0, 0, mode->width, mode->height,
+                             mode->refreshRate);
+      }
+    }
+
     float aspectRatio = static_cast<float>(size.x) / static_cast<float>(size.y);
     operator GLFWwindow *() { return glfwWindow; }
     GLFWwindow *glfwWindow;
