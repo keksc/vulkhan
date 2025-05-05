@@ -33,7 +33,6 @@
 
 #include <chrono>
 #include <memory>
-#include <thread>
 #include <vector>
 
 namespace vkh {
@@ -60,6 +59,22 @@ void run() {
 
     hud::View hudWorld(context);
     hud::View hudPause(context);
+    hud::View canvasView(context);
+    auto test = canvasView.addElement<hud::Rect>(glm::vec2{0.f}, glm::vec2{1.f},
+                                                 glm::vec3{1.f});
+    auto canvas = canvasView.addElement<hud::Canvas>(
+        glm::vec2{-1.f, -1.f}, glm::vec2{2.f, 2.f},
+        glm::vec3{.22f, .05f, .04f});
+    canvas->lineColor = {.72f, .69f, .68f};
+    auto rSlider = canvas->addChild<hud::Slider>(
+        glm::vec2{}, glm::vec2{.5f}, glm::vec3{}, glm::vec3{.3f},
+        glm::vec2{0.f, 1.f}, canvas->lineColor.r);
+    auto gSlider = canvas->addChild<hud::Slider>(
+        glm::vec2{0.f, .5f}, glm::vec2{.5f}, glm::vec3{}, glm::vec3{.3f},
+        glm::vec2{0.f, 1.f}, canvas->lineColor.g);
+    auto bSlider = canvas->addChild<hud::Slider>(
+        glm::vec2{0.f, 1.f}, glm::vec2{.5f}, glm::vec3{}, glm::vec3{.3f},
+        glm::vec2{0.f, 1.f}, canvas->lineColor.b); // TODO: make these bitches display on the canvas
     auto rect = hudWorld.addElement<hud::Rect>(glm::vec2{-1.f, -1.f},
                                                glm::vec2{.3f, .3f},
                                                glm::vec3{.678f, .007f, .388f});
@@ -73,26 +88,65 @@ void run() {
           }
         });
 
+    audio::Sound uiSound("sounds/ui.wav");
+    audio::Sound paperSound("sounds/568962__efrane__ripping-paper-10.wav");
     auto btn = hudPause.addElement<hud::Button>(
         glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, .5f, 1.f},
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            audio::play("sounds/ui.wav");
+            uiSound.play();
             hudSys.setView(&hudWorld);
           }
         });
-    auto slider = hudPause.addElement<hud::Slider>(
-        glm::vec2{-1.f, -1.f}, glm::vec2{.5f, .1f}, glm::vec3{.5f, .5f, .8f},
-        glm::vec2{0.f, 1.f}, .9f);
-    auto sliderBg = hudPause.addElement<hud::Rect>(
-        slider->position, slider->size, slider->color * .5f);
-    auto logtxt = hudPause.addElement<hud::Text>(glm::vec2{-1.f, .3f});
-    hudPause.addElement<hud::Canvas>(glm::vec2{-.5f, -.5f},
-                                     glm::vec2{.4f, .4f});
+    auto go2Canvas = hudPause.addElement<hud::Button>(
+        glm::vec2{.8f, -1.f}, glm::vec2{.2f, .2f}, glm::vec3{0.f, 0.f, .5f},
+        [&](int button, int action, int) {
+          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            paperSound.play();
+            hudSys.setView(&canvasView);
+          }
+        });
+    glm::dvec2 worldCursorPos{};
+    hud::EventListener<&EngineContext::InputCallbackSystem::key>
+        worldKeyListener(hudWorld, [&](int key, int scancode, int action,
+                                       int mods) {
+          if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+            glfwGetCursorPos(context.window, &worldCursorPos.x,
+                             &worldCursorPos.y);
+            input::lastPos = worldCursorPos;
+            glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            hudSys.setView(&hudPause);
+          }
+        });
+    hud::EventListener<&EngineContext::InputCallbackSystem::key>
+        pauseKeyListener(hudPause, [&](int key, int scancode, int action,
+                                       int mods) {
+          if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+            input::lastPos = worldCursorPos;
+            glfwSetCursorPos(context.window, worldCursorPos.x,
+                             worldCursorPos.y);
+            glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            hudSys.setView(&hudWorld);
+          }
+        });
+    // if (key == GLFW_KEY_F11 && action == GLFW_PRESS) {
+    //   return;
+    // }
+    // if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+    //   glfwSetWindowShouldClose(context->window, GLFW_TRUE);
+    // }
+    hud::EventListener<&EngineContext::InputCallbackSystem::key>
+        canvasKeyListener(canvasView,
+                          [&](int key, int scancode, int action, int mods) {
+                            if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+                              hudSys.setView(&hudPause);
+                          });
+    go2Canvas->addChild<hud::Text>(glm::vec2{}, "Go to canvas");
     hudSys.setView(&hudWorld);
 
     // btn->addChild(std::make_shared<hud::Rect>(
-    //     glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, 0.f, 0.f}));
+    //     glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, 0.f,
+    //     0.f}));
 
     // std::vector<glm::vec3> lightColors{{1.f, .1f, .1f}, {.1f, .1f, 1.f},
     //                                    {.1f, 1.f, .1f}, {1.f, 1.f, .1f},
@@ -100,8 +154,8 @@ void run() {
     //
     // for (int i = 0; i < lightColors.size(); i++) {
     //   auto rotateLight = glm::rotate(
-    //       glm::mat4(1.f), (i * glm::two_pi<float>()) / lightColors.size(),
-    //       {0.f, 1.f, 0.f});
+    //       glm::mat4(1.f), (i * glm::two_pi<float>()) /
+    //       lightColors.size(), {0.f, 1.f, 0.f});
     //   particleSys.particles.push_back(
     //       {.pos = rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f),
     //        .col = glm::vec4(lightColors[i], 1.f),
@@ -123,8 +177,11 @@ void run() {
           std::chrono::duration<float, std::chrono::seconds::period>(
               newTime - currentTime)
               .count();
-      sliderBg->position = slider->position;
-      sliderBg->size = slider->size;
+
+      canvas->lineColor.r = rSlider->value;
+      canvas->lineColor.g = gSlider->value;
+      canvas->lineColor.b = bSlider->value;
+
       fpstxt->content =
           fmt::format("FPS: {}", static_cast<int>(1.f / frameTime));
 
@@ -132,7 +189,6 @@ void run() {
       orientationtxt->position.x = 1.f - orientationtxt->size.x;
       orientationtxt->content = fmt::format(
           "Yaw: {}\nPitch:{}", context.camera.yaw, context.camera.pitch);
-      logtxt->content = fmt::format("{}", slider->value);
       currentTime = newTime;
 
       input::moveInPlaneXZ(context);
@@ -158,7 +214,8 @@ void run() {
 
         // update
         GlobalUbo ubo{};
-        ubo.projView = context.camera.projectionMatrix * context.camera.viewMatrix;
+        ubo.projView =
+            context.camera.projectionMatrix * context.camera.viewMatrix;
         ubo.inverseView = context.camera.inverseViewMatrix;
         ubo.aspectRatio = aspect;
         particleSys.update();

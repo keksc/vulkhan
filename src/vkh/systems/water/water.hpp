@@ -14,6 +14,7 @@
 #include "../../engineContext.hpp"
 #include "../../image.hpp"
 #include "../../mesh.hpp"
+#include "../../audio.hpp"
 #include "../system.hpp"
 #include "WSTessendorf.hpp"
 #include "skyPreetham.hpp"
@@ -197,5 +198,7 @@ private:
   void createDescriptorSetLayout();
   void createMesh();
   void createStagingBuffer();
+
+  audio::Sound oceanSound;
 };
 } // namespace vkh

@@ -71,7 +71,7 @@ public:
   Element(View &view, Element *parent, glm::vec2 position, glm::vec2 offset)
       : position{position}, size{offset}, view{view} {
     if (parent) {
-      this->position = parent->position + position * parent->size;
+      this->position = parent->position + position;
       this->size = parent->size * size;
     }
   }
@@ -189,7 +189,7 @@ class Text : public Element {
 public:
   Text(View &view, Element *parent, glm::vec2 position,
        const std::string &content = "")
-      : Element(view, parent, position, {}) {}
+      : Element(view, parent, position, {}), content{content} {}
   std::string content;
 
 protected:
@@ -295,7 +295,7 @@ class Slider
           &EngineContext::InputCallbackSystem::cursorPosition> {
 public:
   Slider(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
-         glm::vec3 color, glm::vec2 bounds, float value = {})
+         glm::vec3 color, glm::vec3 bgColor, glm::vec2 bounds, float value = {})
       : Element(view, parent, position, size),
         EventListener<&EngineContext::InputCallbackSystem::mouseButton>(
             view,
@@ -308,6 +308,7 @@ public:
         color{color}, bounds{bounds}, value{value} {
     float p = value / (bounds.y - bounds.x);
     centerX = glm::mix(position.x, position.x + size.x, p);
+    addChild<Rect>(glm::vec2{}, glm::vec2{1.f}, bgColor);
   }
   glm::vec3 color;
   glm::vec2 bounds;
@@ -379,7 +380,8 @@ class Canvas
       public EventListener<&EngineContext::InputCallbackSystem::cursorPosition>,
       public EventListener<&EngineContext::InputCallbackSystem::doubleClick> {
 public:
-  Canvas(View &view, Element *parent, glm::vec2 position, glm::vec2 size)
+  Canvas(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
+         glm::vec3 bgColor)
       : Element(view, parent, position, size),
         EventListener<&EngineContext::InputCallbackSystem::mouseButton>(
             view,
@@ -391,8 +393,10 @@ public:
                          double ypos) { cursorPositionCallback(xpos, ypos); }),
         EventListener<&EngineContext::InputCallbackSystem::doubleClick>(
             view, [this]() { doubleClickCallback(); }) {
-    bg = addChild<Rect>(glm::vec2{}, glm::vec2{1.f}, glm::vec3{.5f, .5f, .5f});
+    bg = addChild<Rect>(glm::vec2{}, glm::vec2{1.f}, bgColor);
   }
+
+  glm::vec3 lineColor{};
 
 private:
   void mouseButtonCallback(int button, int action, int mods) {
@@ -412,8 +416,8 @@ private:
     selected = true;
 
     // fix it creating size=0 lines on double clicks
-    elementBeingAdded = addChild<Line>((cursorPos - position) / size,
-                                       glm::vec2{}, glm::vec3{1.f, 0.f, 0.f});
+    elementBeingAdded =
+        addChild<Line>((cursorPos - position), glm::vec2{}, lineColor);
   }
   void cursorPositionCallback(double xpos, double ypos) {
     if (!selected)
@@ -426,10 +430,7 @@ private:
   void doubleClickCallback() {
     const auto &cursorPos = view.context.input.cursorPos;
 
-    // view.addElement<Text>(cursorPos, "aaaaaaa");
-    // view.addElement<Text>((cursorPos - position) / size, "aaaaaaa");
-    // addChild<Rect>((cursorPos - position) / size, glm::vec2{.2f},
-    //                glm::vec3{1.f, .5f, .5f});
+    addChild<TextInput>((cursorPos - position));
 
     std::iter_swap(std::find(children.begin(), children.end(), bg),
                    std::prev(children.end()));

@@ -101,9 +101,6 @@ public:
   void SetDamping(float damping);
 
 private:
-  void ifft1d(std::complex<float> *data);
-  void ifft2d(std::complex<float> *data);
-
   struct WaveVector {
     glm::vec2 vec;
     glm::vec2 unit;
@@ -262,7 +259,6 @@ private:
   VkDescriptorSet postFFTSet;
 
   VkFFTApplication app{};
-  void gpuIfft2d(std::complex<float> *data);
 
   VkFence fence;
 
