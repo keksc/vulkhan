@@ -13,12 +13,6 @@
 
 namespace vkh {
 namespace audio {
-ALCdevice *device = nullptr;
-ALCcontext *context = nullptr;
-
-std::vector<ALuint> sources;
-std::vector<ALuint> buffers;
-
 std::vector<short> convertTo16Bit(const AudioFile<float> &audioFile) {
   std::vector<short> result;
   const auto &samples = audioFile.samples[0];
@@ -27,6 +21,40 @@ std::vector<short> convertTo16Bit(const AudioFile<float> &audioFile) {
   }
   return result;
 }
+Sound::Sound(const std::filesystem::path &file) {
+  AudioFile<float> audioFile;
+  if (!audioFile.load(file.string())) {
+    throw std::runtime_error("Failed to load WAV file.");
+  }
+
+  auto data = convertTo16Bit(audioFile);
+
+  alGenBuffers(1, &buffer);
+  alBufferData(buffer, AL_FORMAT_MONO16, data.data(),
+               static_cast<ALsizei>(data.size() * sizeof(short)),
+               static_cast<ALsizei>(audioFile.getSampleRate()));
+  alGenSources(1, &source);
+  alSourcei(source, AL_BUFFER, buffer);
+};
+void Sound::play(ALint spacialized, ALint loop) {
+  alSourcei(source, AL_LOOPING, loop);
+  if (spacialized == AL_TRUE) {
+    alSourcei(source, AL_SOURCE_RELATIVE, AL_FALSE);
+    alSource3f(source, AL_POSITION, 0.0f, 0.0f, 0.0f);
+  } else {
+    alSourcei(source, AL_SOURCE_RELATIVE, AL_TRUE);
+    alSource3f(source, AL_POSITION, 0.0f, 0.0f, 0.0f);
+  }
+  alSourcePlay(source);
+}
+void Sound::stop() { alSourceStop(source); }
+Sound::~Sound() {
+  alDeleteSources(1, &source);
+  alDeleteBuffers(1, &buffer);
+}
+ALCdevice *device = nullptr;
+ALCcontext *context = nullptr;
+
 void init() {
   device = alcOpenDevice(nullptr);
   if (!device) {
@@ -90,30 +118,8 @@ void update(EngineContext &context) {
   //    alDeleteBuffers(1, &buffer);
   //  }
 }
-void play(const std::filesystem::path &file) {
-  AudioFile<float> audioFile;
-  if (!audioFile.load(file.string())) {
-    throw std::runtime_error("Failed to load WAV file.");
-  }
-
-  auto data = convertTo16Bit(audioFile);
-
-  auto &source = sources.emplace_back();
-  auto &buffer = buffers.emplace_back();
-  alGenBuffers(1, &buffer);
-  alBufferData(buffer, AL_FORMAT_MONO16, data.data(),
-               static_cast<ALsizei>(data.size() * sizeof(short)),
-               static_cast<ALsizei>(audioFile.getSampleRate()));
-  alGenSources(1, &source);
-  alSourcei(source, AL_BUFFER, buffer);
-  alSourcei(source, AL_SOURCE_RELATIVE, AL_TRUE);
-  alSource3f(source, AL_POSITION, 0.0f, 0.0f, 0.0f);
-  alSourcei(source, AL_LOOPING, AL_TRUE);
-  alSourcePlay(source);
-}
+void play() {}
 void cleanup() {
-  alDeleteSources(static_cast<ALsizei>(sources.size()), sources.data());
-  alDeleteBuffers(static_cast<ALsizei>(buffers.size()), buffers.data());
   alcMakeContextCurrent(nullptr);
   if (context)
     alcDestroyContext(context);

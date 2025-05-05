@@ -37,7 +37,8 @@ void WaterSys::createSampler() {
   }
 }
 WaterSys::WaterSys(EngineContext &context)
-    : System(context), modelTess(context) {
+    : System(context), modelTess(context),
+      oceanSound("sounds/76007__noisecollector__capemay_delawarebay_loop.wav") {
   createSampler();
 
   createDescriptorSetLayout();
@@ -51,7 +52,7 @@ WaterSys::WaterSys(EngineContext &context)
   createRenderData();
   prepare();
 
-  audio::play("sounds/ocean-noise.wav");
+  oceanSound.play(false, true);
 }
 void WaterSys::createPipeline() {
   PipelineCreateInfo pipelineInfo{};
@@ -63,7 +64,7 @@ void WaterSys::createPipeline() {
   pipelineInfo.attributeDescriptions = Vertex::s_AttribDescriptions;
   pipelineInfo.bindingDescriptions = Vertex::s_BindingDescriptions;
   pipeline = std::make_unique<GraphicsPipeline>(
-      context, "shaders/water.vert.spv", "shaders/water.frag.spv",
+      context, "shaders/water/water.vert.spv", "shaders/water/water.frag.spv",
       pipelineInfo);
 }
 void WaterSys::createUniformBuffers(const uint32_t bufferCount) {
