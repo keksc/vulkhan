@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../mesh.hpp"
+#include "../../scene.hpp"
 #include "../system.hpp"
 #include <algorithm>
 #include <memory>
@@ -51,14 +51,14 @@ public:
   struct Entity {
     Transform transform;
     RigidBody rigidBody;
-    std::shared_ptr<Mesh<Vertex>> mesh;
+    std::shared_ptr<Scene<Vertex>> mesh;
   };
   EntitySys(EngineContext &context, std::vector<Entity> &entities);
   ~EntitySys();
   void render();
   void addEntity(Transform transform, const std::filesystem::path &path,
                  RigidBody rigidBody);
-  std::shared_ptr<Mesh<Vertex>> createMesh(const std::filesystem::path &path);
+  std::shared_ptr<Scene<Vertex>> createMesh(const std::filesystem::path &path);
   std::vector<Entity> &entities;
 
 private:

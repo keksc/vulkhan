@@ -202,25 +202,25 @@ WaterSys::createGridVertices(const uint32_t tileSize, const float scale) {
   return vertices;
 }
 
-std::vector<uint32_t> WaterSys::createGridIndices(const uint32_t kTileSize) {
-  const uint32_t kVertexCount = kTileSize + 1;
+std::vector<uint32_t> WaterSys::createGridIndices(const uint32_t tileSize) {
+  const uint32_t vertexCount = tileSize + 1;
 
   std::vector<uint32_t> indices;
-  indices.reserve(getTotalIndexCount(kVertexCount * kVertexCount));
+  indices.reserve(getTotalIndexCount(vertexCount * vertexCount));
 
-  for (uint32_t y = 0; y < kTileSize; ++y) {
-    for (uint32_t x = 0; x < kTileSize; ++x) {
-      const uint32_t kVertexIndex = y * kVertexCount + x;
+  for (uint32_t y = 0; y < tileSize; ++y) {
+    for (uint32_t x = 0; x < tileSize; ++x) {
+      const uint32_t kVertexIndex = y * vertexCount + x;
 
       // Top triangle
       indices.emplace_back(kVertexIndex);
-      indices.emplace_back(kVertexIndex + kVertexCount);
+      indices.emplace_back(kVertexIndex + vertexCount);
       indices.emplace_back(kVertexIndex + 1);
 
       // Bottom triangle
       indices.emplace_back(kVertexIndex + 1);
-      indices.emplace_back(kVertexIndex + kVertexCount);
-      indices.emplace_back(kVertexIndex + kVertexCount + 1);
+      indices.emplace_back(kVertexIndex + vertexCount);
+      indices.emplace_back(kVertexIndex + vertexCount + 1);
     }
   }
 
@@ -323,7 +323,7 @@ void WaterSys::render() {
                           kDynamicOffsetCount, kDynamicOffsets);
 
   mesh->bind(context, context.frameInfo.commandBuffer, *pipeline);
-  mesh->draw(context.frameInfo.commandBuffer);
+  mesh->begin()->draw(context.frameInfo.commandBuffer);
 }
 
 void WaterSys::createDescriptorSetLayout() {
@@ -355,7 +355,7 @@ void WaterSys::createMesh() {
   std::vector<uint32_t> indices = createGridIndices(m_TileSize);
 
   MeshCreateInfo<Vertex> meshInfo{.vertices = vertices, .indices = indices};
-  mesh = std::make_unique<Mesh<Vertex>>(context, meshInfo);
+  mesh = std::make_unique<Scene<Vertex>>(context, meshInfo);
 }
 
 void WaterSys::createStagingBuffer() {

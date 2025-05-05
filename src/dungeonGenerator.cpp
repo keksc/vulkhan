@@ -55,10 +55,14 @@ void generateDungeon(vkh::EntitySys &entitySys) {
   // }
 
   auto westWingAssets = entitySys.createMesh("models/westwingassets.glb");
-  for (int x = 0; x < 10; x++) {
     entitySys.entities.push_back(
-        {{.position = {x, 100.f, 0.f}, .scale = glm::vec3(.5f)},
+        {{.position = {0.f, 100.f, 0.f}, .scale = glm::vec3(.5f)},
          {},
          westWingAssets});
-  }
+  // for (int x = 0; x < 10; x++) {
+  //   entitySys.entities.push_back(
+  //       {{.position = {x, 100.f, 0.f}, .scale = glm::vec3(.5f)},
+  //        {},
+  //        westWingAssets});
+  // }
 }

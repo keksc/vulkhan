@@ -1,5 +1,7 @@
 #pragma once
 
+#include <fmt/core.h>
+#include <mutex>
 #include <vulkan/vulkan_core.h>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -22,21 +24,21 @@ template <typename T> struct MeshCreateInfo {
   std::vector<T> &vertices;
   std::vector<uint32_t> &indices;
 };
-template <typename T> class Mesh {
+template <typename T> class Scene {
 public:
-  Mesh(EngineContext &context, const std::filesystem::path &path,
-       VkSampler sampler, DescriptorSetLayout &setLayout)
+  Scene(EngineContext &context, const std::filesystem::path &path,
+        VkSampler sampler, DescriptorSetLayout &setLayout)
       : context{context} {
     loadModel(path);
     createDescriptors(sampler, setLayout);
   }
-  Mesh(EngineContext &context, const MeshCreateInfo<T> &createInfo)
+  Scene(EngineContext &context, const MeshCreateInfo<T> &createInfo)
       : context{context} {
     createBuffers(createInfo.vertices, createInfo.indices);
   }
 
-  Mesh(const Mesh &) = delete;
-  Mesh &operator=(const Mesh &) = delete;
+  Scene(const Scene &) = delete;
+  Scene &operator=(const Scene &) = delete;
 
   void bind(EngineContext &context, VkCommandBuffer commandBuffer,
             VkPipelineLayout pipelineLayout,
@@ -52,9 +54,6 @@ public:
                               static_cast<uint32_t>(descriptorSets.size()),
                               descriptorSets.data(), 0, nullptr);
     }
-  }
-  void draw(VkCommandBuffer commandBuffer) {
-    vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
   }
   void loadModel(const std::filesystem::path &path) {
     auto gltfFile = fastgltf::GltfDataBuffer::FromPath(path);
@@ -76,6 +75,9 @@ public:
     std::vector<uint32_t> indices;
 
     for (const auto &mesh : gltf.meshes) {
+      Mesh newMesh{};
+      uint32_t start = static_cast<uint32_t>(indices.size());
+      newMesh.indexOffset = start;
       for (const auto &primitive : mesh.primitives) {
         size_t initial_vtx = vertices.size();
 
@@ -87,12 +89,10 @@ public:
               gltf, indexAccessor, [initial_vtx, &indices](std::uint32_t idx) {
                 indices.push_back(idx + static_cast<uint32_t>(initial_vtx));
               });
+          indexCount += indexAccessor.count;
         }
 
         auto posAttribute = primitive.findAttribute("POSITION");
-        if (posAttribute == primitive.attributes.end()) {
-          throw std::runtime_error("Mesh primitive has no POSITION attribute");
-        }
         {
           fastgltf::Accessor &posAccessor =
               gltf.accessors[posAttribute->accessorIndex];
@@ -131,41 +131,53 @@ public:
               });
         }
       }
+      uint32_t end = static_cast<uint32_t>(indices.size());
+      newMesh.indexCount = end - start;
+      meshes.push_back(newMesh);
     }
+
+    fastgltf::iterateSceneNodes(
+        gltf, 0, fastgltf::math::fmat4x4(),
+        [&](fastgltf::Node &node, fastgltf::math::fmat4x4 matrix) {
+          if (node.meshIndex.has_value()) {
+            std::memcpy(&meshes[*node.meshIndex].transform, &matrix,
+                        sizeof(glm::mat4));
+          }
+        });
 
     if (gltf.images.empty()) {
-      throw std::runtime_error(
-          fmt::format("no image in GLB {}", path.string()));
-    }
-    auto &image = gltf.images[0];
-    std::visit(
-        fastgltf::visitor{
-            [](auto &arg) {},
-            [&](fastgltf::sources::BufferView &view) {
-              auto &bufferView = gltf.bufferViews[view.bufferViewIndex];
-              auto &buffer = gltf.buffers[bufferView.bufferIndex];
-              // Yes, we've already loaded every buffer into some GL buffer.
-              // However, with GL it's simpler to just copy the buffer data
-              // again for the texture. Besides, this is just an example.
-              std::visit(
-                  fastgltf::visitor{
-                      // We only care about VectorWithMime here, because we
-                      // specify LoadExternalBuffers, meaning
-                      // all buffers are already loaded into a vector.
-                      [](auto &arg) {},
-                      [&](fastgltf::sources::Array &vector) {
-                        texture = std::make_shared<Image>(
-                            context,
-                            reinterpret_cast<const void *>(
-                                vector.bytes.data() + bufferView.byteOffset),
-                            static_cast<int>(bufferView.byteLength));
-                      }},
-                  buffer.data);
-            },
-        },
-        image.data);
+      ImageCreateInfo imageInfo{};
+      imageInfo.w = imageInfo.h = 1;
+      imageInfo.color = 0x0;
+      imageInfo.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      imageInfo.usage =
+          VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+      texture = std::make_shared<Image>(context, imageInfo);
+    } else {
+      auto &image = gltf.images[0];
+      std::visit(
+          fastgltf::visitor{
+              [](auto &arg) {},
+              [&](fastgltf::sources::BufferView &view) {
+                auto &bufferView = gltf.bufferViews[view.bufferViewIndex];
+                auto &buffer = gltf.buffers[bufferView.bufferIndex];
+                std::visit(
+                    fastgltf::visitor{
+                        [](auto &arg) {},
+                        [&](fastgltf::sources::Array &vector) {
+                          texture = std::make_shared<Image>(
+                              context,
+                              reinterpret_cast<const void *>(
+                                  vector.bytes.data() + bufferView.byteOffset),
+                              static_cast<int>(bufferView.byteLength));
+                        }},
+                    buffer.data);
+              },
+          },
+          image.data);
 
-    createBuffers(vertices, indices);
+      createBuffers(vertices, indices);
+    }
   }
 
   std::shared_ptr<Image> texture;
@@ -175,7 +187,22 @@ public:
   size_t getIndicesSize() const { return indexCount; }
   size_t getVerticesSize() const { return vertexCount; }
 
+  auto begin() { return meshes.begin(); }
+  auto end() { return meshes.end(); }
+  auto begin() const { return meshes.begin(); }
+  auto end() const { return meshes.end(); }
+
 private:
+  struct Mesh {
+    uint32_t indexOffset{};
+    uint32_t indexCount{};
+    glm::mat4 transform;
+    void draw(VkCommandBuffer commandBuffer) {
+      vkCmdDrawIndexed(commandBuffer, indexCount, 1, indexOffset, 0, 0);
+    }
+  };
+  std::vector<Mesh> meshes;
+
   void createBuffers(const std::vector<T> &vertices,
                      const std::vector<uint32_t> &indices) {
     indexCount = static_cast<uint32_t>(indices.size());
@@ -215,6 +242,8 @@ private:
     copyRegion.size = verticesSize;
     vkCmdCopyBuffer(cmd, stagingBuffer, *vertexBuffer, 1, &copyRegion);
     endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+
+    meshes.push_back({0, indexCount});
   }
   void createDescriptors(VkSampler sampler, DescriptorSetLayout &setLayout) {
     auto descriptorInfo = texture->getDescriptorInfo(sampler);

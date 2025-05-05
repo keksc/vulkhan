@@ -13,7 +13,7 @@
 
 #include "../../engineContext.hpp"
 #include "../../image.hpp"
-#include "../../mesh.hpp"
+#include "../../scene.hpp"
 #include "../../audio.hpp"
 #include "../system.hpp"
 #include "WSTessendorf.hpp"
@@ -87,7 +87,7 @@ private:
   std::vector<VkDescriptorSet> descriptorSets;
   std::vector<std::unique_ptr<Buffer<std::byte>>> uniformBuffers;
   std::unique_ptr<GraphicsPipeline> pipeline;
-  std::unique_ptr<Mesh<Vertex>> mesh;
+  std::unique_ptr<Scene<Vertex>> mesh;
 
   WSTessendorf modelTess;
   FrameMapData frameMap;
