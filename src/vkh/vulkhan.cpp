@@ -80,24 +80,9 @@ void run() {
                                                glm::vec3{.678f, .007f, .388f});
     auto fpstxt = rect->addChild<hud::Text>(glm::vec2{0.f, 0.f});
     auto orientationtxt = hudWorld.addElement<hud::Text>(glm::vec2{1.f, -1.f});
-    hudWorld.addElement<hud::Button>(
-        glm::vec2{-.5f, -.5f}, glm::vec2{.3f, .3f}, glm::vec3{1.f, .5f, 1.f},
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            hudSys.setView(&hudPause);
-          }
-        });
 
     audio::Sound uiSound("sounds/ui.wav");
     audio::Sound paperSound("sounds/568962__efrane__ripping-paper-10.wav");
-    auto btn = hudPause.addElement<hud::Button>(
-        glm::vec2{.1f, .1f}, glm::vec2{.8f, .8f}, glm::vec3{1.f, .5f, 1.f},
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            uiSound.play();
-            hudSys.setView(&hudWorld);
-          }
-        });
     auto go2Canvas = hudPause.addElement<hud::Button>(
         glm::vec2{.8f, -1.f}, glm::vec2{.2f, .2f}, glm::vec3{0.f, 0.f, .5f},
         [&](int button, int action, int) {
