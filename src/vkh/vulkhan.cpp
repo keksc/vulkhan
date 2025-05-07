@@ -50,6 +50,9 @@ void run() {
     std::vector<EntitySys::Entity> entities;
     EntitySys entitySys(context, entities);
 
+    auto env = entitySys.createMesh("models/env.glb");
+    entitySys.entities.push_back(
+        {{.position = {0.f, -25.f, 0.f}, .scale = glm::vec3(30.f)}, {}, env});
     generateDungeon(entitySys);
 
     ParticleSys particleSys(context);
@@ -74,7 +77,8 @@ void run() {
         glm::vec2{0.f, 1.f}, canvas->lineColor.g);
     auto bSlider = canvas->addChild<hud::Slider>(
         glm::vec2{0.f, 1.f}, glm::vec2{.5f}, glm::vec3{}, glm::vec3{.3f},
-        glm::vec2{0.f, 1.f}, canvas->lineColor.b); // TODO: make these bitches display on the canvas
+        glm::vec2{0.f, 1.f},
+        canvas->lineColor.b); // TODO: make these bitches display on the canvas
     auto rect = hudWorld.addElement<hud::Rect>(glm::vec2{-1.f, -1.f},
                                                glm::vec2{.3f, .3f},
                                                glm::vec3{.678f, .007f, .388f});

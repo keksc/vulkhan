@@ -83,7 +83,7 @@ public:
   VkDescriptorBufferInfo descriptorInfoForIndex(int index);
   VkResult invalidateIndex(int index);
 
-  operator VkBuffer() { return buf; }
+  operator VkBuffer &() { return buf; }
   operator VkBuffer *() { return &buf; }
 
   void copyToMapped(const void *srcData, VkDeviceSize size,
