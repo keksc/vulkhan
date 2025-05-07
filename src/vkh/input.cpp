@@ -139,8 +139,8 @@ void moveInPlaneXZ(EngineContext &context) {
 
   if (glm::length2(moveDir) > std::numeric_limits<float>::epsilon()) {
     float sprint =
-        (glfwGetKey(context.window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) ? 4.0f
-                                                                        : 1.0f;
+        (glfwGetKey(context.window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) ? 10.0f
+                                                                        : 2.0f;
     context.camera.position +=
         glm::normalize(moveDir) * sprint * moveSpeed * context.frameInfo.dt;
   }

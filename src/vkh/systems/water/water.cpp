@@ -95,18 +95,13 @@ void WaterSys::createRenderData() {
 }
 
 std::unique_ptr<Image> createMap(EngineContext &context,
-                                 VkCommandBuffer cmdBuffer,
-                                 const uint32_t kSize,
-                                 const VkFormat kMapFormat,
+                                 VkCommandBuffer cmdBuffer, const uint32_t size,
+                                 const VkFormat mapFormat,
                                  const bool kUseMipMapping) {
-  ImageCreateInfo imageInfo{};
-  imageInfo.w = imageInfo.h = kSize;
-  imageInfo.format = kMapFormat;
-  imageInfo.usage =
-      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-  imageInfo.layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-
-  return std::make_unique<Image>(context, imageInfo);
+  return std::make_unique<Image>(context, size, size, mapFormat,
+                                 VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                     VK_IMAGE_USAGE_SAMPLED_BIT,
+                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 }
 void WaterSys::createFrameMaps(VkCommandBuffer cmdBuffer) {
   vkQueueWaitIdle(context.vulkan.graphicsQueue);
@@ -123,19 +118,16 @@ void WaterSys::updateFrameMaps(VkCommandBuffer cmdBuffer, FrameMapData &frame) {
       alignSizeTo(mesh->getVerticesSize() + mesh->getIndicesSize(),
                   Image::formatSize(mapFormat));
 
-  frame.displacementMap->copyFromBuffer(
-      cmdBuffer, *stagingBuffer, useMipMapping,
-      VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-      static_cast<uint32_t>(stagingBufferOffset));
+  frame.displacementMap->recordCopyFromBuffer(
+      cmdBuffer, *stagingBuffer, static_cast<uint32_t>(stagingBufferOffset));
 
   const VkDeviceSize mapSize = Image::formatSize(mapFormat) *
                                frame.displacementMap->w *
                                frame.displacementMap->h;
   stagingBufferOffset += mapSize;
 
-  frame.normalMap->copyFromBuffer(cmdBuffer, *stagingBuffer, useMipMapping,
-                                  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                                  static_cast<uint32_t>(stagingBufferOffset));
+  frame.normalMap->recordCopyFromBuffer(
+      cmdBuffer, *stagingBuffer, static_cast<uint32_t>(stagingBufferOffset));
 }
 void WaterSys::copyModelTessDataToStagingBuffer() {
   assert(stagingBuffer != nullptr);
