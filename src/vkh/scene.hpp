@@ -85,10 +85,31 @@ public:
           fastgltf::Accessor &indexAccessor =
               gltf.accessors[primitive.indicesAccessor.value()];
           indices.reserve(indices.size() + indexAccessor.count);
-          fastgltf::iterateAccessor<std::uint32_t>(
-              gltf, indexAccessor, [initial_vtx, &indices](std::uint32_t idx) {
-                indices.push_back(idx + static_cast<uint32_t>(initial_vtx));
-              });
+          if (indexAccessor.componentType ==
+              fastgltf::ComponentType::UnsignedInt) {
+            fastgltf::iterateAccessor<std::uint32_t>(
+                gltf, indexAccessor,
+                [initial_vtx, &indices](std::uint32_t idx) {
+                  indices.push_back(idx + static_cast<uint32_t>(initial_vtx));
+                });
+          } else if (indexAccessor.componentType ==
+                     fastgltf::ComponentType::UnsignedShort) {
+            fastgltf::iterateAccessor<std::uint16_t>(
+                gltf, indexAccessor,
+                [initial_vtx, &indices](std::uint16_t idx) {
+                  indices.push_back(static_cast<uint32_t>(idx) +
+                                    static_cast<uint32_t>(initial_vtx));
+                });
+          } else if (indexAccessor.componentType ==
+                     fastgltf::ComponentType::UnsignedByte) {
+            fastgltf::iterateAccessor<std::uint8_t>(
+                gltf, indexAccessor, [initial_vtx, &indices](std::uint8_t idx) {
+                  indices.push_back(static_cast<uint32_t>(idx) +
+                                    static_cast<uint32_t>(initial_vtx));
+                });
+          } else {
+            throw std::runtime_error("Unsupported index component type");
+          }
           indexCount += indexAccessor.count;
         }
 
@@ -97,7 +118,6 @@ public:
           fastgltf::Accessor &posAccessor =
               gltf.accessors[posAttribute->accessorIndex];
           size_t count = posAccessor.count;
-          // Increase vertices for this primitive.
           vertices.resize(vertices.size() + count);
           fastgltf::iterateAccessorWithIndex<glm::vec3>(
               gltf, posAccessor,
@@ -175,9 +195,9 @@ public:
               },
           },
           image.data);
-
-      createBuffers(vertices, indices);
     }
+
+    createBuffers(vertices, indices);
   }
 
   std::shared_ptr<Image> texture;
@@ -205,6 +225,10 @@ private:
 
   void createBuffers(const std::vector<T> &vertices,
                      const std::vector<uint32_t> &indices) {
+    if (vertices.empty() || indices.empty()) {
+      throw std::runtime_error(
+          "Cannot create buffers with empty vertices or indices");
+    }
     indexCount = static_cast<uint32_t>(indices.size());
     vertexCount = static_cast<uint32_t>(vertices.size());
 
