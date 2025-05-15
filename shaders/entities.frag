@@ -15,6 +15,15 @@ layout(push_constant) uniform Push {
   mat4 normalMatrix;
 } push;
 
+vec3 palette( float t ) {
+    vec3 a = vec3(0.5, 0.5, 0.5);
+    vec3 b = vec3(0.5, 0.5, 0.5);
+    vec3 c = vec3(1.0, 1.0, 1.0);
+    vec3 d = vec3(0.263,0.416,0.557);
+
+    return a + b*cos( 6.28318*(c*t+d) );
+}
+
 void main() {
   const vec3 lightDir = vec3(500.0, 30.0, -1.0);
   const float ambient = 0.1;
@@ -40,5 +49,25 @@ void main() {
   // float ambientLight = 1.0;
   //
   // outColor = texture(texSampler, uv)*((diffuseLight+specularLight)*attenuation+ambientLight);
-  outColor = texture(texSampler, uv)*lightIntensity;
+  
+
+  vec2 nv = uv * 2.0 - 1.0;
+  vec2 nv0 = nv;
+  vec3 finalColor = vec3(0.0);
+
+  for (float i = 0.0; i < 4.0; i++) {
+      nv = fract(nv * 1.5) - 0.5;
+
+      float d = length(nv) * exp(-length(nv0));
+
+      vec3 col = palette(length(nv0) + i*.4 + ubo.time*.4);
+
+      d = sin(d*8. + ubo.time)/8.;
+      d = abs(d);
+
+      d = pow(0.01 / d, 1.2);
+
+      finalColor += col * d;
+  }
+  outColor = vec4(finalColor, 1.0) + texture(texSampler, uv);//*lightIntensity;
 }

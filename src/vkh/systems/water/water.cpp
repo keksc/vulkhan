@@ -52,7 +52,7 @@ WaterSys::WaterSys(EngineContext &context)
   createRenderData();
   prepare();
 
-  oceanSound.play(false, true);
+  // oceanSound.play(false, true);
 }
 void WaterSys::createPipeline() {
   PipelineCreateInfo pipelineInfo{};
@@ -96,8 +96,7 @@ void WaterSys::createRenderData() {
 
 std::unique_ptr<Image> createMap(EngineContext &context,
                                  VkCommandBuffer cmdBuffer, const uint32_t size,
-                                 const VkFormat mapFormat,
-                                 const bool kUseMipMapping) {
+                                 const VkFormat mapFormat) {
   return std::make_unique<Image>(context, size, size, mapFormat,
                                  VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                                      VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -109,33 +108,39 @@ void WaterSys::createFrameMaps(VkCommandBuffer cmdBuffer) {
   const uint32_t kSize = maxTileSize;
 
   frameMap.displacementMap =
-      createMap(context, cmdBuffer, kSize, mapFormat, useMipMapping);
+      createMap(context, cmdBuffer, kSize, mapFormat);
   frameMap.normalMap =
-      createMap(context, cmdBuffer, kSize, mapFormat, useMipMapping);
+      createMap(context, cmdBuffer, kSize, mapFormat);
 }
-void WaterSys::updateFrameMaps(VkCommandBuffer cmdBuffer, FrameMapData &frame) {
+void WaterSys::updateFrameMaps(VkCommandBuffer cmd, FrameMapData &frame) {
   VkDeviceSize stagingBufferOffset =
       alignSizeTo(mesh->getVerticesSize() + mesh->getIndicesSize(),
                   Image::formatSize(mapFormat));
 
+  frame.displacementMap->recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   frame.displacementMap->recordCopyFromBuffer(
-      cmdBuffer, *stagingBuffer, static_cast<uint32_t>(stagingBufferOffset));
+      cmd, *stagingBuffer, static_cast<uint32_t>(stagingBufferOffset));
+  frame.displacementMap->recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   const VkDeviceSize mapSize = Image::formatSize(mapFormat) *
                                frame.displacementMap->w *
                                frame.displacementMap->h;
   stagingBufferOffset += mapSize;
 
+  frame.normalMap->recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   frame.normalMap->recordCopyFromBuffer(
-      cmdBuffer, *stagingBuffer, static_cast<uint32_t>(stagingBufferOffset));
+      cmd, *stagingBuffer, static_cast<uint32_t>(stagingBufferOffset));
+  frame.normalMap->recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
 void WaterSys::copyModelTessDataToStagingBuffer() {
   assert(stagingBuffer != nullptr);
 
-  const VkDeviceSize kDisplacementsSize =
-      sizeof(WSTessendorf::Displacement) * modelTess.getDisplacementCount();
-  const VkDeviceSize kNormalsSize =
-      sizeof(WSTessendorf::Normal) * modelTess.getNormalCount();
+  unsigned int tileSizeSquared =
+      modelTess.getTileSize() * modelTess.getTileSize();
+  const VkDeviceSize displacementsSize =
+      sizeof(WSTessendorf::Displacement) * tileSizeSquared;
+  const VkDeviceSize normalsSize =
+      sizeof(WSTessendorf::Normal) * tileSizeSquared;
 
   // StagingBuffer layout:
   //  ----------------------------------------------
@@ -145,26 +150,22 @@ void WaterSys::copyModelTessDataToStagingBuffer() {
 
   VkDeviceSize offset;
 
-  // Copy displacements
-  {
-    offset = alignSizeTo(mesh->getVerticesSize() + mesh->getIndicesSize(),
-                         Image::formatSize(mapFormat));
+  auto cmd = beginSingleTimeCommands(context);
+  offset = alignSizeTo(mesh->getVerticesSize() + mesh->getIndicesSize(),
+                       Image::formatSize(mapFormat));
+  stagingBuffer->recordCopyFromBuffer(cmd, modelTess.getDisplacementsBuffer(),
+                                      displacementsSize, 0, offset);
 
-    stagingBuffer->write(modelTess.getDisplacements().data(),
-                         kDisplacementsSize, offset);
-  }
+  offset += displacementsSize;
 
-  // Copy normals
-  {
-    offset += kDisplacementsSize;
+  stagingBuffer->recordCopyFromBuffer(cmd, modelTess.getNormalsBuffer(),
+                                      normalsSize, 0, offset);
 
-    stagingBuffer->write(modelTess.getNormals().data(), kNormalsSize, offset);
-  }
-
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
   stagingBuffer->flush(getNonCoherentAtomSizeAlignment(
       context, alignSizeTo(mesh->getVerticesSize() + mesh->getIndicesSize(),
                            Image::formatSize(mapFormat)) +
-                   kDisplacementsSize + kNormalsSize));
+                   displacementsSize + normalsSize));
 }
 std::vector<WaterSys::Vertex>
 WaterSys::createGridVertices(const uint32_t tileSize, const float scale) {
@@ -230,16 +231,14 @@ void WaterSys::updateDescriptorSet(VkDescriptorSet set) {
   bufferInfos[1].range = sizeof(WaterSurfaceUBO);
 
   // textures
-  const auto &kFrameMaps = frameMap;
-
-  assert(kFrameMaps.displacementMap != nullptr);
-  assert(kFrameMaps.normalMap != nullptr);
+  assert(frameMap.displacementMap != nullptr);
+  assert(frameMap.normalMap != nullptr);
 
   VkDescriptorImageInfo imageInfos[2] = {};
-  imageInfos[0] = kFrameMaps.displacementMap->getDescriptorInfo(sampler);
+  imageInfos[0] = frameMap.displacementMap->getDescriptorInfo(sampler);
   // TODO force future image layout
   imageInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  imageInfos[1] = kFrameMaps.normalMap->getDescriptorInfo(sampler);
+  imageInfos[1] = frameMap.normalMap->getDescriptorInfo(sampler);
   // TODO force future image layout
   imageInfos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -362,7 +361,8 @@ void WaterSys::createStagingBuffer() {
       (kMapSize * 2);
 
   stagingBuffer = std::make_unique<Buffer<std::byte>>(
-      context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      context,
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, totalSize);
   stagingBuffer->map();
 }

@@ -1,0 +1,19 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer Displacements { vec4 displacements[]; };
+layout(set = 0, binding = 1) buffer Scale { float scale; };
+
+layout(push_constant) uniform PushConstants {
+    uint tileSize;
+} pc;
+
+void main() {
+    uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+    uint index = x + y * pc.tileSize;
+    if (x < pc.tileSize && y < pc.tileSize) {
+        displacements[index].y *= scale;
+    }
+}
