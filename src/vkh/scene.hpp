@@ -187,9 +187,9 @@ public:
                         [&](fastgltf::sources::Array &vector) {
                           texture = std::make_shared<Image>(
                               context,
-                              reinterpret_cast<const void *>(
+                              reinterpret_cast<void *>(
                                   vector.bytes.data() + bufferView.byteOffset),
-                              static_cast<int>(bufferView.byteLength));
+                              static_cast<size_t>(bufferView.byteLength));
                         }},
                     buffer.data);
               },

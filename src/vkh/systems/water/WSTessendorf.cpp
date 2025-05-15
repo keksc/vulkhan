@@ -1,11 +1,12 @@
 #include "WSTessendorf.hpp"
 
+#include <cstring>
 #include <fmt/format.h>
 #include <vulkan/vulkan_core.h>
 
+#include <algorithm>
 #include <limits>
 #include <memory>
-#include <algorithm>
 #include <stdexcept>
 
 #include "../../descriptors.hpp"
@@ -39,12 +40,112 @@ void WSTessendorf::createDescriptors() {
                                      VK_SHADER_STAGE_COMPUTE_BIT)
                          .build();
   VkDescriptorBufferInfo postFFTDescriptorInfos[] = {
-      FFTData->descriptorInfo(), displacements->descriptorInfo(), normals->descriptorInfo()};
+      FFTData->descriptorInfo(), displacements->descriptorInfo(),
+      normals->descriptorInfo()};
   DescriptorWriter(*postFFTSetLayout, *context.vulkan.globalDescriptorPool)
       .writeBuffer(0, &postFFTDescriptorInfos[0])
       .writeBuffer(1, &postFFTDescriptorInfos[1])
       .writeBuffer(2, &postFFTDescriptorInfos[2])
       .build(postFFTSet);
+
+  // Reduction descriptor set layout for stage 0
+  reductionSetLayout0 =
+      DescriptorSetLayout::Builder(context)
+          .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                      VK_SHADER_STAGE_COMPUTE_BIT) // displacements
+          .addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                      VK_SHADER_STAGE_COMPUTE_BIT) // minOut
+          .addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                      VK_SHADER_STAGE_COMPUTE_BIT) // maxOut
+          .build();
+
+  // Reduction descriptor set layout for subsequent stages
+  reductionSetLayout1 = DescriptorSetLayout::Builder(context)
+                            .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                        VK_SHADER_STAGE_COMPUTE_BIT) // minIn
+                            .addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                        VK_SHADER_STAGE_COMPUTE_BIT) // maxIn
+                            .addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                        VK_SHADER_STAGE_COMPUTE_BIT) // minOut
+                            .addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                        VK_SHADER_STAGE_COMPUTE_BIT) // maxOut
+                            .build();
+
+  // Create reduction descriptor sets
+  VkDescriptorBufferInfo reductionInfos0[] = {
+      displacements->descriptorInfo(), minReductionBuffer0->descriptorInfo(),
+      maxReductionBuffer0->descriptorInfo()};
+  DescriptorWriter(*reductionSetLayout0, *context.vulkan.globalDescriptorPool)
+      .writeBuffer(0, &reductionInfos0[0])
+      .writeBuffer(1, &reductionInfos0[1])
+      .writeBuffer(2, &reductionInfos0[2])
+      .build(reductionSet0);
+
+  VkDescriptorBufferInfo reductionInfos1[] = {
+      minReductionBuffer0->descriptorInfo(),
+      maxReductionBuffer0->descriptorInfo(),
+      minReductionBuffer1->descriptorInfo(),
+      maxReductionBuffer1->descriptorInfo()};
+  DescriptorWriter(*reductionSetLayout1, *context.vulkan.globalDescriptorPool)
+      .writeBuffer(0, &reductionInfos1[0])
+      .writeBuffer(1, &reductionInfos1[1])
+      .writeBuffer(2, &reductionInfos1[2])
+      .writeBuffer(3, &reductionInfos1[3])
+      .build(reductionSet1);
+
+  VkDescriptorBufferInfo reductionInfos2[] = {
+      minReductionBuffer1->descriptorInfo(),
+      maxReductionBuffer1->descriptorInfo(),
+      minReductionBuffer2->descriptorInfo(),
+      maxReductionBuffer2->descriptorInfo()};
+  DescriptorWriter(*reductionSetLayout1, *context.vulkan.globalDescriptorPool)
+      .writeBuffer(0, &reductionInfos2[0])
+      .writeBuffer(1, &reductionInfos2[1])
+      .writeBuffer(2, &reductionInfos2[2])
+      .writeBuffer(3, &reductionInfos2[3])
+      .build(reductionSet2);
+
+  updateSetLayout =
+      DescriptorSetLayout::Builder(context)
+          .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                      VK_SHADER_STAGE_COMPUTE_BIT) // minReductionBuffer2
+          .addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                      VK_SHADER_STAGE_COMPUTE_BIT) // maxReductionBuffer2
+          .addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                      VK_SHADER_STAGE_COMPUTE_BIT) // masterMinBuffer
+          .addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                      VK_SHADER_STAGE_COMPUTE_BIT) // masterMaxBuffer
+          .addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                      VK_SHADER_STAGE_COMPUTE_BIT) // scaleBuffer
+          .build();
+
+  VkDescriptorBufferInfo updateInfos[] = {
+      minReductionBuffer2->descriptorInfo(),
+      maxReductionBuffer2->descriptorInfo(), masterMinBuffer->descriptorInfo(),
+      masterMaxBuffer->descriptorInfo(), scaleBuffer->descriptorInfo()};
+  DescriptorWriter(*updateSetLayout, *context.vulkan.globalDescriptorPool)
+      .writeBuffer(0, &updateInfos[0])
+      .writeBuffer(1, &updateInfos[1])
+      .writeBuffer(2, &updateInfos[2])
+      .writeBuffer(3, &updateInfos[3])
+      .writeBuffer(4, &updateInfos[4])
+      .build(updateSet);
+
+  // Normalize descriptor set layout
+  normalizeSetLayout =
+      DescriptorSetLayout::Builder(context)
+          .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                      VK_SHADER_STAGE_COMPUTE_BIT) // displacements
+          .addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                      VK_SHADER_STAGE_COMPUTE_BIT) // scaleBuffer
+          .build();
+
+  VkDescriptorBufferInfo normalizeInfos[] = {displacements->descriptorInfo(),
+                                             scaleBuffer->descriptorInfo()};
+  DescriptorWriter(*normalizeSetLayout, *context.vulkan.globalDescriptorPool)
+      .writeBuffer(0, &normalizeInfos[0])
+      .writeBuffer(1, &normalizeInfos[1])
+      .build(normalizeSet);
 }
 
 WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
@@ -71,16 +172,71 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
       tileSizeSquared);
 
   displacements = std::make_unique<Buffer<Displacement>>(
-      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      context,
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
       tileSizeSquared);
 
   normals = std::make_unique<Buffer<Normal>>(
-      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      context,
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
       tileSizeSquared);
+
+  // Initialize reduction buffers
+  const uint32_t reductionSize0 =
+      tileSizeSquared / 256; // 1024 for tileSize=512
+  minReductionBuffer0 = std::make_unique<Buffer<float>>(
+      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, reductionSize0);
+  maxReductionBuffer0 = std::make_unique<Buffer<float>>(
+      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, reductionSize0);
+
+  const uint32_t reductionSize1 = reductionSize0 / 256; // 4
+  minReductionBuffer1 = std::make_unique<Buffer<float>>(
+      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, reductionSize1);
+  maxReductionBuffer1 = std::make_unique<Buffer<float>>(
+      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, reductionSize1);
+
+  minReductionBuffer2 = std::make_unique<Buffer<float>>(
+      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      1);
+  maxReductionBuffer2 = std::make_unique<Buffer<float>>(
+      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      1);
+
+  masterMinBuffer = std::make_unique<Buffer<float>>(
+      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      1);
+  masterMaxBuffer = std::make_unique<Buffer<float>>(
+      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      1);
+  scaleBuffer = std::make_unique<Buffer<float>>(
+      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 1);
+
+  float initMin = std::numeric_limits<float>::max();
+  masterMinBuffer->map();
+  masterMinBuffer->write(&initMin);
+  masterMinBuffer->unmap();
+
+  float initMax = -std::numeric_limits<float>::max();
+  masterMaxBuffer->map();
+  masterMaxBuffer->write(&initMax);
+  masterMaxBuffer->unmap();
 
   VkFFTConfiguration config{};
   config.physicalDevice = &context.vulkan.physicalDevice;
@@ -116,8 +272,8 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
 
   VkPipelineLayoutCreateInfo layoutInfo{};
   layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  layoutInfo.pSetLayouts = *preFFTSetLayout;
   layoutInfo.setLayoutCount = 1;
+  layoutInfo.pSetLayouts = *preFFTSetLayout;
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.size = sizeof(PushConstantData);
   pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -125,11 +281,50 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   layoutInfo.pPushConstantRanges = &pushConstantRange;
   preFFTPipeline = std::make_unique<ComputePipeline>(
       context, "shaders/water/preFFT.comp.spv", layoutInfo);
+
+  layoutInfo.pSetLayouts = *postFFTSetLayout;
   postFFTPipeline = std::make_unique<ComputePipeline>(
       context, "shaders/water/postFFT.comp.spv", layoutInfo);
 
+  // Create reduction pipelines
+  VkPushConstantRange reductionPushConstant{};
+  reductionPushConstant.size = sizeof(ReductionPushConstants);
+  reductionPushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  VkPipelineLayoutCreateInfo reductionLayoutInfo{};
+  reductionLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  reductionLayoutInfo.setLayoutCount = 1;
+  reductionLayoutInfo.pushConstantRangeCount = 1;
+  reductionLayoutInfo.pPushConstantRanges = &reductionPushConstant;
+
+  reductionLayoutInfo.pSetLayouts = *reductionSetLayout0;
+  reductionPipeline0 = std::make_unique<ComputePipeline>(
+      context, "shaders/water/reduction_stage0.comp.spv", reductionLayoutInfo);
+
+  reductionLayoutInfo.pSetLayouts = *reductionSetLayout1;
+  reductionPipeline1 = std::make_unique<ComputePipeline>(
+      context, "shaders/water/reduction_stage1.comp.spv", reductionLayoutInfo);
+
+  VkPipelineLayoutCreateInfo updateLayoutInfo{};
+  updateLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  updateLayoutInfo.setLayoutCount = 1;
+  updateLayoutInfo.pSetLayouts = *updateSetLayout;
+  updatePipeline = std::make_unique<ComputePipeline>(
+      context, "shaders/water/update_master.comp.spv", updateLayoutInfo);
+
+  VkPushConstantRange normalizePushConstant{};
+  normalizePushConstant.size = sizeof(uint32_t);
+  normalizePushConstant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  VkPipelineLayoutCreateInfo normalizeLayoutInfo{};
+  normalizeLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  normalizeLayoutInfo.setLayoutCount = 1;
+  normalizeLayoutInfo.pSetLayouts = *normalizeSetLayout;
+  normalizeLayoutInfo.pushConstantRangeCount = 1;
+  normalizeLayoutInfo.pPushConstantRanges = &normalizePushConstant;
+  normalizePipeline = std::make_unique<ComputePipeline>(
+      context, "shaders/water/normalize.comp.spv", normalizeLayoutInfo);
+
   SetWindDirection(defaultWindDir);
-  SetWindSpeed(defaultWindSpeed);
+  m_WindSpeed = glm::max(0.0001f, defaultWindSpeed);
   SetAnimationPeriod(defaultAnimPeriod);
   SetDamping(defaultPhillipsDamping);
 
@@ -145,11 +340,6 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   waveVectors->map();
   waveVectors->write(waveVecs.data());
   waveVectors->unmap();
-
-  const Displacement kDefaultDisplacement{0.0};
-  m_Displacements.resize(tileSizeSquared, kDefaultDisplacement);
-  const Normal kDefaultNormal{0.0, 1.0, 0.0, 0.0};
-  m_Normals.resize(tileSizeSquared, kDefaultNormal);
 }
 
 WSTessendorf::~WSTessendorf() {
@@ -219,8 +409,8 @@ float WSTessendorf::computeWaves(float t) {
                      &data);
   preFFTPipeline->bind(cmd);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          preFFTPipeline->getLayout(), 0, 1, &preFFTSet,
-                          0, nullptr);
+                          preFFTPipeline->getLayout(), 0, 1, &preFFTSet, 0,
+                          nullptr);
   vkCmdDispatch(cmd, tileSize / 16, tileSize / 16, 1);
 
   VkMemoryBarrier memoryBarrier{};
@@ -231,7 +421,6 @@ float WSTessendorf::computeWaves(float t) {
                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
                        &memoryBarrier, 0, nullptr, 0, nullptr);
 
-  // Perform GPU-accelerated IFFT
   VkFFTLaunchParams launchParams{};
   launchParams.buffer = *FFTData;
   launchParams.commandBuffer = &cmd;
@@ -242,58 +431,104 @@ float WSTessendorf::computeWaves(float t) {
                        &memoryBarrier, 0, nullptr, 0, nullptr);
 
   vkCmdPushConstants(cmd, postFFTPipeline->getLayout(),
-                     VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                     sizeof(PushConstantData), &data);
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstantData),
+                     &data);
   postFFTPipeline->bind(cmd);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                           postFFTPipeline->getLayout(), 0, 1, &postFFTSet, 0,
                           nullptr);
   vkCmdDispatch(cmd, tileSize / 16, tileSize / 16, 1);
 
+  // Reduction Stage 0: Reduce 262,144 heights to 1024 min/max values
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, *reductionPipeline0);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          reductionPipeline0->getLayout(), 0, 1, &reductionSet0,
+                          0, nullptr);
+  uint32_t inputSize = tileSizeSquared;
+  vkCmdPushConstants(cmd, reductionPipeline0->getLayout(),
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t),
+                     &inputSize);
+  uint32_t workgroupCount = (tileSizeSquared + 255) / 256; // 1024
+  vkCmdDispatch(cmd, workgroupCount, 1, 1);
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                       &memoryBarrier, 0, nullptr, 0, nullptr);
+
+  // Reduction Stage 1: Reduce 1024 min/max values to 4
+  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, *reductionPipeline1);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          reductionPipeline1->getLayout(), 0, 1, &reductionSet1,
+                          0, nullptr);
+  inputSize = workgroupCount;
+  workgroupCount = (inputSize + 255) / 256;
+  vkCmdPushConstants(cmd, reductionPipeline1->getLayout(),
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t),
+                     &inputSize);
+  vkCmdDispatch(cmd, workgroupCount, 1, 1);
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                       &memoryBarrier, 0, nullptr, 0, nullptr);
+
+  // Reduction Stage 2: Reduce 4 min/max values to 1
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          reductionPipeline1->getLayout(), 0, 1, &reductionSet2,
+                          0, nullptr);
+  inputSize = workgroupCount;
+  workgroupCount = 1;
+  vkCmdPushConstants(cmd, reductionPipeline1->getLayout(),
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t),
+                     &inputSize);
+  vkCmdDispatch(cmd, workgroupCount, 1, 1);
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                       &memoryBarrier, 0, nullptr, 0, nullptr);
+
+  // Update master min/max and compute scale
+  updatePipeline->bind(cmd);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          updatePipeline->getLayout(), 0, 1, &updateSet, 0,
+                          nullptr);
+  vkCmdDispatch(cmd, 1, 1, 1);
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                       &memoryBarrier, 0, nullptr, 0, nullptr);
+
+  // Normalize displacements on GPU
+  normalizePipeline->bind(cmd);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          normalizePipeline->getLayout(), 0, 1, &normalizeSet,
+                          0, nullptr);
+  uint32_t tileSizeConst = tileSize;
+  vkCmdPushConstants(cmd, normalizePipeline->getLayout(),
+                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t),
+                     &tileSizeConst);
+  vkCmdDispatch(cmd, (tileSize + 15) / 16, (tileSize + 15) / 16, 1);
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                       &memoryBarrier, 0, nullptr, 0, nullptr);
+
   endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
 
-  // Copy results back to CPU
-  displacements->map();
-  memcpy(m_Displacements.data(), displacements->getMappedAddr(),
-         tileSizeSquared * sizeof(Displacement));
-  displacements->unmap();
-  
-  float maxHeight = std::numeric_limits<float>::min();
-  float minHeight = std::numeric_limits<float>::max();
-  const float signs[] = {1.0f, -1.0f};
-
-  for (uint32_t m = 0; m < tileSize; ++m) {
-    for (uint32_t n = 0; n < tileSize; ++n) {
-      const uint32_t idx = m * tileSize + n;
-      float h_FT = m_Displacements[idx].y; // Height already computed in shader
-      maxHeight = glm::max(h_FT, maxHeight);
-      minHeight = glm::min(h_FT, minHeight);
-    }
-  }
-
-  float masterMaxHeight = glm::max(maxHeight, masterMaxHeight);
-  float masterMinHeight = glm::min(minHeight, masterMinHeight);
-
-  normals->map();
-  memcpy(m_Normals.data(), normals->getMappedAddr(),
-         tileSizeSquared * sizeof(Normal));
-  normals->unmap();
-
-  return NormalizeHeights(masterMinHeight, masterMaxHeight);
-}
-
-float WSTessendorf::NormalizeHeights(float minHeight, float maxHeight) {
+  maxReductionBuffer2->map();
+  float maxHeight;
+  memcpy(&maxHeight, maxReductionBuffer2->getMappedAddr(), sizeof(float));
+  maxReductionBuffer2->unmap();
+  minReductionBuffer2->map();
+  float minHeight;
+  memcpy(&minHeight, minReductionBuffer2->getMappedAddr(), sizeof(float));
+  minReductionBuffer2->unmap();
   const float A = glm::max(glm::abs(minHeight), glm::abs(maxHeight));
-  const float OneOverA = 1.f / A;
-  std::for_each(m_Displacements.begin(), m_Displacements.end(),
-                [OneOverA](auto &d) { d.y *= OneOverA; });
   return A;
 }
 
 void WSTessendorf::SetWindDirection(const glm::vec2 &w) {
   m_WindDir = glm::normalize(w);
 }
-void WSTessendorf::SetWindSpeed(float v) { m_WindSpeed = glm::max(0.0001f, v); }
 void WSTessendorf::SetAnimationPeriod(float T) {
   m_AnimationPeriod = T;
   m_BaseFreq = 2.0f * glm::pi<float>() / m_AnimationPeriod;

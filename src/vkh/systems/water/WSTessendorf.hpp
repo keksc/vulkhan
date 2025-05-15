@@ -52,12 +52,6 @@ public:
   WSTessendorf(EngineContext &context);
   ~WSTessendorf();
 
-  /**
-   * @brief Computes the wave height, horizontal displacement,
-   *  and normal for each vertex. "Prepare()" must be called once before.
-   * @param time Elapsed time in seconds
-   * @return Amplitude of normalized heights (in <-1, 1> )
-   */
   float computeWaves(float time);
 
   // ---------------------------------------------------------------------
@@ -72,25 +66,13 @@ public:
   auto getDamping() const { return m_Damping; }
   auto getDisplacementLambda() const { return m_Lambda; }
 
-  // Data
-
-  size_t getDisplacementCount() const { return m_Displacements.size(); }
-  const std::vector<Displacement> &getDisplacements() const {
-    return m_Displacements;
-  }
-
-  size_t getNormalCount() const { return m_Normals.size(); }
-  const std::vector<Normal> &getNormals() const { return m_Normals; }
-
+  Buffer<Displacement>& getDisplacementsBuffer() { return *displacements; }
+  Buffer<Normal>& getNormalsBuffer() { return *normals; }
   // ---------------------------------------------------------------------
   // Setters
 
   /** @param w Unit vector - direction of wind blowing */
   void SetWindDirection(const glm::vec2 &w);
-
-  /** @param v Positive floating point number - speed of the wind in its
-   * direction */
-  void SetWindSpeed(float v);
 
   void SetAnimationPeriod(float T);
 
@@ -127,12 +109,6 @@ private:
       const std::vector<WaveVector> waveVectors,
       const std::vector<std::complex<float>> &gaussRandomArray) const;
 
-  /**
-   * @brief Normalizes heights to interval <-1, 1>
-   * @return Ampltiude, to reconstruct the orignal signal
-   */
-  float NormalizeHeights(float minHeight, float maxHeight);
-
   // ---------------------------------------------------------------------
   // Properties
 
@@ -151,17 +127,6 @@ private:
   float m_BaseFreq{1.0f};
 
   float m_Lambda{-1.0f}; ///< Importance of displacement vector
-
-  // -------------------------------------------------------------------------
-  // Data
-
-  // vec4(Displacement_X, height, Displacement_Z, [jacobian])
-  std::vector<Displacement> m_Displacements;
-  // vec4(slopeX, slopeZ, dDxdx, dDzdz )
-  std::vector<Normal> m_Normals;
-
-  // =========================================================================
-  // Computation
 
 private:
   static constexpr float s_kG{9.81}; ///< Gravitational constant
@@ -270,5 +235,37 @@ private:
   };
 
   void createDescriptors();
+
+  std::unique_ptr<Buffer<float>> minReductionBuffer0;
+  std::unique_ptr<Buffer<float>> maxReductionBuffer0;
+  std::unique_ptr<Buffer<float>> minReductionBuffer1;
+  std::unique_ptr<Buffer<float>> maxReductionBuffer1;
+  std::unique_ptr<Buffer<float>> minReductionBuffer2;
+  std::unique_ptr<Buffer<float>> maxReductionBuffer2;
+
+  std::unique_ptr<DescriptorSetLayout> reductionSetLayout0;
+  std::unique_ptr<DescriptorSetLayout> reductionSetLayout1;
+  VkDescriptorSet reductionSet0;
+  VkDescriptorSet reductionSet1;
+  VkDescriptorSet reductionSet2;
+
+  std::unique_ptr<ComputePipeline> reductionPipeline0;
+  std::unique_ptr<ComputePipeline> reductionPipeline1;
+
+  struct ReductionPushConstants {
+    uint32_t inputSize;
+  };
+
+  std::unique_ptr<Buffer<float>> masterMinBuffer;
+  std::unique_ptr<Buffer<float>> masterMaxBuffer;
+  std::unique_ptr<Buffer<float>> scaleBuffer;
+
+  std::unique_ptr<DescriptorSetLayout> updateSetLayout;
+  VkDescriptorSet updateSet;
+  std::unique_ptr<DescriptorSetLayout> normalizeSetLayout;
+  VkDescriptorSet normalizeSet;
+
+  std::unique_ptr<ComputePipeline> updatePipeline;
+  std::unique_ptr<ComputePipeline> normalizePipeline;
 };
 } // namespace vkh

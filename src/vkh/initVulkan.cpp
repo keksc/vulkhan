@@ -50,7 +50,7 @@ debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
               VkDebugUtilsMessageTypeFlagsEXT messageType,
               const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
               void *pUserData) {
-  fmt::print("validation layers: {}\n", pCallbackData->pMessage);
+  fmt::println("validation layers: {}", pCallbackData->pMessage);
 
   return VK_FALSE;
 }
@@ -168,7 +168,7 @@ bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
 
   return requiredExtensions.empty();
 }
-bool isDeviceSuitable(EngineContext &context, VkPhysicalDevice device) {
+unsigned int getDeviceScore(EngineContext &context, VkPhysicalDevice device) {
   QueueFamilyIndices indices = findQueueFamilies(context, device);
 
   bool extensionsSupported = checkDeviceExtensionSupport(device);
@@ -184,8 +184,16 @@ bool isDeviceSuitable(EngineContext &context, VkPhysicalDevice device) {
   VkPhysicalDeviceFeatures supportedFeatures;
   vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
 
-  return indices.isComplete() && extensionsSupported && swapChainAdequate &&
-         supportedFeatures.samplerAnisotropy;
+  VkPhysicalDeviceProperties properties;
+  vkGetPhysicalDeviceProperties(device, &properties);
+
+  if (!(indices.isComplete() && extensionsSupported && swapChainAdequate &&
+        supportedFeatures.samplerAnisotropy))
+    return 0; // unsuitable
+
+  unsigned int score = 1;
+  score += (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
+  return score;
 }
 void pickPhysicalDevice(EngineContext &context) {
   uint32_t deviceCount = 0;
@@ -197,14 +205,19 @@ void pickPhysicalDevice(EngineContext &context) {
   vkEnumeratePhysicalDevices(context.vulkan.instance, &deviceCount,
                              devices.data());
 
+  unsigned int maxScore = 0;
   for (const auto &device : devices) {
-    if (isDeviceSuitable(context, device)) {
+    unsigned int score = getDeviceScore(context, device);
+    if (!score) {
+      continue;
+    }
+    if (score > maxScore) {
+      maxScore = score;
       context.vulkan.physicalDevice = device;
-      break;
     }
   }
 
-  if (context.vulkan.physicalDevice == VK_NULL_HANDLE) {
+  if (context.vulkan.physicalDevice == VK_NULL_HANDLE || !maxScore) {
     throw std::runtime_error("failed to find a suitable GPU!");
   }
 

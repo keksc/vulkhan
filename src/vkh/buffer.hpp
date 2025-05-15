@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstring>
+#include <glm/ext.hpp>
 #include <vulkan/vulkan_core.h>
 
 #include "deviceHelpers.hpp"
@@ -86,23 +87,28 @@ public:
   operator VkBuffer &() { return buf; }
   operator VkBuffer *() { return &buf; }
 
-  void copyToMapped(const void *srcData, VkDeviceSize size,
-                    void *destAddr = nullptr) const {
-    void *dest = destAddr == nullptr ? mapped : destAddr;
-    memcpy(dest, srcData, static_cast<size_t>(size));
-  }
   void *getMappedAddr() const { return mapped; }
 
-  void copyFromBuffer(VkCommandBuffer cmdBuffer, Buffer &srcBuffer,
-                      VkDeviceSize size = VK_WHOLE_SIZE,
+  template<typename U>
+  void copyFromBuffer(Buffer<U> &srcBuffer, VkDeviceSize size = VK_WHOLE_SIZE,
                       VkDeviceSize srcOffset = 0, VkDeviceSize dstOffset = 0) {
+    auto cmd = beginSingleTimeCommands(context);
+    recordCopyFromBuffer(cmd, srcBuffer, size, srcOffset, dstOffset);
+    endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+  }
+  template<typename U>
+  void recordCopyFromBuffer(VkCommandBuffer cmdBuffer, Buffer<U> &srcBuffer,
+                            VkDeviceSize size = VK_WHOLE_SIZE,
+                            VkDeviceSize srcOffset = 0,
+                            VkDeviceSize dstOffset = 0) {
     VkBufferCopy copyRegion{};
     copyRegion.srcOffset = srcOffset;
     copyRegion.dstOffset = dstOffset;
     copyRegion.size = size == VK_WHOLE_SIZE ? bufSize : size;
-    vkCmdCopyBuffer(cmdBuffer, srcBuffer.buf, buf, 1, &copyRegion);
+    vkCmdCopyBuffer(cmdBuffer, srcBuffer, buf, 1, &copyRegion);
   }
 
+private:
   void allocateMemory(VkMemoryPropertyFlags properties) {
     assert(buf != VK_NULL_HANDLE);
 
@@ -117,8 +123,6 @@ public:
 
     vkAllocateMemory(context.vulkan.device, &allocInfo, nullptr, &memory);
   }
-
-private:
   /**
    * Returns the minimum instance size required to be compatible with devices
    * minOffsetAlignment

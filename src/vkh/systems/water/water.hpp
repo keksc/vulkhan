@@ -11,10 +11,10 @@
 #include <memory>
 #include <vector>
 
+#include "../../audio.hpp"
 #include "../../engineContext.hpp"
 #include "../../image.hpp"
 #include "../../scene.hpp"
-#include "../../audio.hpp"
 #include "../system.hpp"
 #include "WSTessendorf.hpp"
 #include "skyPreetham.hpp"
@@ -73,15 +73,13 @@ private:
         s_AttribDescriptions{GetAttributeDescriptions()};
   };
   static constexpr VkFormat mapFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
-  static constexpr bool useMipMapping = false;
   struct FrameMapData {
     std::unique_ptr<Image> displacementMap{nullptr};
     std::unique_ptr<Image> normalMap{nullptr};
   };
   static const uint32_t maxTileSize{512};
   uint32_t m_TileSize{maxTileSize};
-  float m_VertexDistance{1000.f /
-                         static_cast<float>(maxTileSize)};
+  float m_VertexDistance{1000.f / static_cast<float>(maxTileSize)};
 
   std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
   std::vector<VkDescriptorSet> descriptorSets;
@@ -187,8 +185,8 @@ private:
   void createPipeline();
   void createUniformBuffers(const uint32_t bufferCount);
   void createDescriptorSets(const uint32_t count);
-  void createFrameMaps(VkCommandBuffer cmdBuffer);
-  void updateFrameMaps(VkCommandBuffer cmdBuffer, FrameMapData &frame);
+  void createFrameMaps(VkCommandBuffer cmd);
+  void updateFrameMaps(VkCommandBuffer cmd, FrameMapData &frame);
   void copyModelTessDataToStagingBuffer();
   std::vector<Vertex> createGridVertices(const uint32_t kTileSize,
                                          const float kScale);

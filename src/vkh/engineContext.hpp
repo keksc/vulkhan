@@ -25,6 +25,7 @@ struct GlobalUbo {
   alignas(16) glm::mat4 projView{1.f};
   alignas(16) glm::mat4 inverseView{1.f};
   alignas(4) float aspectRatio;
+  alignas(4) float time;
 };
 
 const int NUM_BUFFERS = 2;
