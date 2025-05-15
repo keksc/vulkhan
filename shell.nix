@@ -22,6 +22,7 @@ pkgs.mkShell {
     simdjson
     curl
     gcc
+    ktx-tools
   ];
 
   shellHook = ''

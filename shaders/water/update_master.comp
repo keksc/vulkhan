@@ -1,0 +1,16 @@
+#version 450
+
+layout(set = 0, binding = 0) buffer MinReduction { float currentMin; };
+layout(set = 0, binding = 1) buffer MaxReduction { float currentMax; };
+layout(set = 0, binding = 2) buffer MasterMin { float masterMin; };
+layout(set = 0, binding = 3) buffer MasterMax { float masterMax; };
+layout(set = 0, binding = 4) buffer Scale { float scale; };
+
+void main() {
+    float newMasterMin = min(currentMin, masterMin);
+    float newMasterMax = max(currentMax, masterMax);
+    masterMin = newMasterMin;
+    masterMax = newMasterMax;
+    float A = max(abs(newMasterMin), abs(newMasterMax));
+    scale = (A > 0.00001f) ? 1.0 / A : 1.0; // Avoid division by zero
+}

@@ -22,22 +22,18 @@ public:
   Image(EngineContext &context, uint32_t w, uint32_t h, VkFormat format,
         uint32_t usage, VkImageLayout layout);
   Image(EngineContext &context, const ImageCreateInfo &createInfo);
-  Image(EngineContext &context, const std::filesystem::path &path,
-        bool enableAlpha = true, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
-  Image(EngineContext &context, const void *data, int len,
-        bool enableAlpha = true, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
+  Image(EngineContext &context, const std::filesystem::path &path);
+  Image(EngineContext &context, void *data, size_t dataSize);
 
   operator VkImage() { return img; }
   inline const VkImageView getImageView() { return view; }
   ~Image();
 
-  void copyBufToImage(VkCommandBuffer cmd, VkBuffer buffer, VkImage image,
-                      uint32_t width, uint32_t height, uint32_t offset);
-  void copyFromBuffer(VkBuffer buffer, uint32_t bufferOffset);
-  void recordCopyFromBuffer(VkCommandBuffer cmdBuffer, VkBuffer buffer,
-                            uint32_t bufferOffset);
+  void copyFromBuffer(VkBuffer buffer, uint32_t bufferOffset = 0);
+  void recordCopyFromBuffer(VkCommandBuffer cmd, VkBuffer buffer,
+                            uint32_t bufferOffset = 0);
 
-  void transitionLayout(VkImageLayout oldLayout, VkImageLayout newLayout);
+  void transitionLayout(VkImageLayout newLayout);
 
   static uint32_t formatSize(VkFormat format);
 
@@ -47,21 +43,19 @@ public:
   }
 
   unsigned int w, h;
+  unsigned int mipLevels = 1;
 
-  void copyBufferToImage_def(VkCommandBuffer cmdBuffer, VkBuffer buffer,
-                             uint32_t bufferOffset = 0);
-  void recordTransitionLayout(VkCommandBuffer cmdBuffer,
-                              VkImageLayout oldLayout, VkImageLayout newLayout);
+  void recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout);
 
 private:
-  void RecordImageBarrier(VkCommandBuffer cmdBuffer,
+  void RecordImageBarrier(VkCommandBuffer cmd,
                           VkPipelineStageFlags srcStageMask,
                           VkPipelineStageFlags dstStageMask,
                           VkAccessFlags srcAccessMask,
                           VkAccessFlags dstAccessMask,
                           VkImageLayout newLayout) const;
 
-  void createImageFromPixels(void *pixels, int w, int h);
+  void createImageFromData(void *pixels, size_t dataSize);
   void createImage(EngineContext &context, int w, int h,
                    VkImageUsageFlags usage);
   struct TransitionParams {

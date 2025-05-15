@@ -207,11 +207,8 @@ void run() {
             context.camera.projectionMatrix * context.camera.viewMatrix;
         ubo.inverseView = context.camera.inverseViewMatrix;
         ubo.aspectRatio = aspect;
+        ubo.time = glfwGetTime();
         particleSys.update();
-        if (glfwGetKey(context.window, GLFW_KEY_U)) {
-          skyParams.props.sunDir.x += .1f * context.frameInfo.dt;
-          sky.update();
-        }
         waterSys.update(skyParams);
         context.vulkan.globalUBOs[frameIndex]->write(&ubo);
         context.vulkan.globalUBOs[frameIndex]->flush();
