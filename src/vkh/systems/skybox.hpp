@@ -1,17 +1,21 @@
 #pragma once
 
-#include "system.hpp"
-#include <algorithm>
-#include <memory>
+#include <vulkan/vulkan_core.h>
+
 #include <ktx.h>
 #include <ktxvulkan.h>
+
+#include <memory>
+
+#include "../image.hpp"
+#include "../scene.hpp"
+#include "system.hpp"
 
 namespace vkh {
 class SkyboxSys : public System {
 public:
   struct Vertex {
     glm::vec3 pos{};
-    glm::vec3 normal{};
 
     static std::vector<VkVertexInputBindingDescription>
     getBindingDescriptions() {
@@ -27,8 +31,6 @@ public:
 
       attributeDescriptions.push_back(
           {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)});
-      attributeDescriptions.push_back(
-          {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)});
 
       return attributeDescriptions;
     }
@@ -37,13 +39,15 @@ public:
   ~SkyboxSys();
   void render();
 
+  std::shared_ptr<DescriptorSetLayout> setLayout;
+  VkDescriptorSet set;
 private:
   void createSampler();
-  void loadAsset();
   void createSetLayout();
 
   std::unique_ptr<GraphicsPipeline> pipeline;
   VkSampler sampler;
-  std::shared_ptr<DescriptorSetLayout> setLayout;
+  Image cubeMap;
+  std::unique_ptr<Scene<Vertex>> cubeScene;
 };
 } // namespace vkh

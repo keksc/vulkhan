@@ -129,16 +129,16 @@ void ParticleSys::update() {
 }
 
 void ParticleSys::render() {
-  pipeline->bind(context.frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.cmd);
 
-  vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
+  vkCmdBindDescriptorSets(context.frameInfo.cmd,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
-  vkCmdBindVertexBuffers(context.frameInfo.commandBuffer, 0, 1, buffers,
+  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers,
                          offsets);
-  vkCmdDraw(context.frameInfo.commandBuffer, particles.size(), 1, 0, 0);
+  vkCmdDraw(context.frameInfo.cmd, particles.size(), 1, 0, 0);
 }
 } // namespace vkh

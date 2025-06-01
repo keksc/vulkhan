@@ -22,6 +22,8 @@ class DescriptorSetLayout;
 template <typename T> class Buffer;
 
 struct GlobalUbo {
+  alignas(16) glm::mat4 proj{1.f};
+  alignas(16) glm::mat4 view{1.f};
   alignas(16) glm::mat4 projView{1.f};
   alignas(16) glm::mat4 inverseView{1.f};
   alignas(4) float aspectRatio;
@@ -79,7 +81,7 @@ struct EngineContext {
   struct {
     int frameIndex;
     float dt;
-    VkCommandBuffer commandBuffer;
+    VkCommandBuffer cmd;
     VkDescriptorSet globalDescriptorSet;
   } frameInfo;
   struct {
