@@ -95,6 +95,8 @@ file(COPY "${PROJECT_SOURCE_DIR}/textures" DESTINATION "${PROJECT_BINARY_DIR}")
 
 install(TARGETS vulkhan DESTINATION bin)
 install(IMPORTED_RUNTIME_ARTIFACTS fmt::fmt glfw DESTINATION bin)
+if(WIN32)
 install(FILES ${PROJECT_BINARY_DIR}/OpenAL32.dll DESTINATION bin)
+endif()
 install(DIRECTORY ${PROJECT_BINARY_DIR}/shaders ${PROJECT_BINARY_DIR}/sounds
                   ${PROJECT_BINARY_DIR}/models DESTINATION bin)

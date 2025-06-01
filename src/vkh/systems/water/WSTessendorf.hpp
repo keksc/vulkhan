@@ -32,7 +32,7 @@ namespace vkh {
 class WSTessendorf : public System {
 public:
   static inline const glm::vec2 defaultWindDir{1.0f, 1.0f};
-  static constexpr float defaultWindSpeed{5.0f};
+  static constexpr float defaultWindSpeed{20.0f};
   static constexpr float defaultAnimPeriod{200.0f};
   static constexpr float defaultPhillipsConst{3e-7f};
   static constexpr float defaultPhillipsDamping{0.1f};
