@@ -39,14 +39,14 @@ SolidColorSys::SolidColorSys(EngineContext &context) : System(context) {
 }
 
 void SolidColorSys::render(size_t verticesSize) {
-  pipeline->bind(context.frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.cmd);
 
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
-  vkCmdBindVertexBuffers(context.frameInfo.commandBuffer, 0, 1, buffers,
+  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers,
                          offsets);
 
-  vkCmdDraw(context.frameInfo.commandBuffer,
+  vkCmdDraw(context.frameInfo.cmd,
             static_cast<uint32_t>(verticesSize), 1, 0, 0);
 }
 } // namespace vkh

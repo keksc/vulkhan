@@ -35,7 +35,7 @@ public:
 
   void transitionLayout(VkImageLayout newLayout);
 
-  static uint32_t formatSize(VkFormat format);
+  static uint32_t getFormatSize(VkFormat format);
 
   VkDescriptorImageInfo getDescriptorInfo(VkSampler sampler) {
     return VkDescriptorImageInfo{
@@ -45,7 +45,13 @@ public:
   unsigned int w, h;
   unsigned int mipLevels = 1;
 
-  void recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout);
+  void recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout,
+                              VkImageSubresourceRange subresourceRange = {
+                                  .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                  .baseMipLevel = 0,
+                                  .levelCount = 1,
+                                  .baseArrayLayer = 0,
+                                  .layerCount = 1});
 
 private:
   void RecordImageBarrier(VkCommandBuffer cmd,

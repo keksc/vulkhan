@@ -47,18 +47,18 @@ void FreezeAnimationSys::createPipeline() {
 FreezeAnimationSys::FreezeAnimationSys(EngineContext &context) : System(context) { createPipeline(); }
 
 void FreezeAnimationSys::render() {
-  pipeline->bind(context.frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.cmd);
 
-  vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
+  vkCmdBindDescriptorSets(context.frameInfo.cmd,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   PushConstantData push{};
   push.time = static_cast<float>(glfwGetTime());
 
-  vkCmdPushConstants(context.frameInfo.commandBuffer, *pipeline,
+  vkCmdPushConstants(context.frameInfo.cmd, *pipeline,
                      VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstantData),
                      &push);
-  vkCmdDraw(context.frameInfo.commandBuffer, 6, 1, 0, 0);
+  vkCmdDraw(context.frameInfo.cmd, 6, 1, 0, 0);
 }
 } // namespace vkh

@@ -83,15 +83,15 @@ void HudSys::render() {
 
   linesSys.render(drawInfo.lineVertices.size());
 
-  pipeline->bind(context.frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.cmd);
 
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
-  vkCmdBindVertexBuffers(context.frameInfo.commandBuffer, 0, 1, buffers,
+  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers,
                          offsets);
-  vkCmdBindIndexBuffer(context.frameInfo.commandBuffer, *indexBuffer, 0,
+  vkCmdBindIndexBuffer(context.frameInfo.cmd, *indexBuffer, 0,
                        VK_INDEX_TYPE_UINT32);
-  vkCmdDrawIndexed(context.frameInfo.commandBuffer,
+  vkCmdDrawIndexed(context.frameInfo.cmd,
                    static_cast<uint32_t>(drawInfo.solidColorIndices.size()), 1, 0, 0, 0);
 
   textSys.render(drawInfo.textIndices.size());

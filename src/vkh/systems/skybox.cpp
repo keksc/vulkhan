@@ -8,6 +8,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <ktx.h>
+#include <ktxvulkan.h>
 #include <vulkan/vulkan_core.h>
 
 #include <vector>
@@ -29,6 +31,10 @@ void SkyboxSys::createSetLayout() {
                   .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                               VK_SHADER_STAGE_FRAGMENT_BIT)
                   .build();
+  auto descInfo = cubeMap.getDescriptorInfo(sampler);
+  DescriptorWriter(*setLayout, *context.vulkan.globalDescriptorPool)
+      .writeImage(0, &descInfo)
+      .build(set);
 }
 void SkyboxSys::createSampler() {
   VkPhysicalDeviceProperties properties{};
@@ -57,13 +63,13 @@ void SkyboxSys::createSampler() {
 SkyboxSys::~SkyboxSys() {
   vkDestroySampler(context.vulkan.device, sampler, nullptr);
 }
-void SkyboxSys::loadAsset() {
-}
 SkyboxSys::SkyboxSys(EngineContext &context)
-    : System(context) {
+    : System(context), cubeMap(context, "textures/skybox.ktx2") {
   createSampler();
-  loadAsset();
   createSetLayout();
+
+  cubeScene = std::make_unique<Scene<Vertex>>(context, "models/cube.glb",
+                                              sampler, *setLayout, true);
 
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags =
@@ -87,17 +93,20 @@ SkyboxSys::SkyboxSys(EngineContext &context)
   pipelineConfig.renderPass = context.vulkan.swapChain->renderPass;
   pipelineConfig.attributeDescriptions = Vertex::getAttributeDescriptions();
   pipelineConfig.bindingDescriptions = Vertex::getBindingDescriptions();
+  pipelineConfig.depthStencilInfo.depthTestEnable = VK_FALSE;
+  pipelineConfig.depthStencilInfo.depthWriteEnable = VK_FALSE;
   pipeline = std::make_unique<GraphicsPipeline>(
       context, "shaders/skybox.vert.spv", "shaders/skybox.frag.spv",
       pipelineConfig);
 }
 
 void SkyboxSys::render() {
-  pipeline->bind(context.frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.cmd);
 
-  /*vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
-                          &context.frameInfo.globalDescriptorSet, 0, nullptr);*/
-
+  cubeScene->bind(context, context.frameInfo.cmd, *pipeline,
+                  {context.frameInfo.globalDescriptorSet, set});
+  for (auto &mesh : *cubeScene) {
+    mesh.draw(context.frameInfo.cmd);
+  }
 }
 } // namespace vkh

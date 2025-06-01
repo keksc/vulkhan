@@ -167,21 +167,21 @@ TextSys::TextSys(EngineContext &context) : System(context) {
   createPipeline();
 }
 void TextSys::render(size_t indicesSize) {
-  pipeline->bind(context.frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.cmd);
 
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
-  vkCmdBindVertexBuffers(context.frameInfo.commandBuffer, 0, 1, buffers,
+  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers,
                          offsets);
-  vkCmdBindIndexBuffer(context.frameInfo.commandBuffer, *indexBuffer, 0,
+  vkCmdBindIndexBuffer(context.frameInfo.cmd, *indexBuffer, 0,
                        VK_INDEX_TYPE_UINT32);
   VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
                                        descriptorSet};
-  vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
+  vkCmdBindDescriptorSets(context.frameInfo.cmd,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
                           descriptorSets, 0, nullptr);
 
-  vkCmdDrawIndexed(context.frameInfo.commandBuffer,
+  vkCmdDrawIndexed(context.frameInfo.cmd,
                    static_cast<uint32_t>(indicesSize), 1, 0, 0, 0);
 }
 } // namespace vkh

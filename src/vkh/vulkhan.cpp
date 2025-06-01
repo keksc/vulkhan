@@ -1,5 +1,6 @@
 #include "vulkhan.hpp"
 #include "systems/hud/hudElements.hpp"
+#include "systems/skybox.hpp"
 #include <vulkan/vulkan_core.h>
 
 #include <GLFW/glfw3.h>
@@ -43,10 +44,6 @@ void run() {
   audio::init();
   renderer::init(context);
   { // {} to handle call destructors of buffers before vulkan is cleaned up
-    WaterSys::SkyParams skyParams;
-    SkyPreetham sky({0.f, 3.f, .866f});
-    skyParams.props = sky.GetProperties();
-
     std::vector<EntitySys::Entity> entities;
     EntitySys entitySys(context, entities);
 
@@ -57,7 +54,8 @@ void run() {
 
     ParticleSys particleSys(context);
     FreezeAnimationSys freezeAnimationSys(context);
-    WaterSys waterSys(context);
+    SkyboxSys skyboxSys(context);
+    WaterSys waterSys(context, skyboxSys);
     HudSys hudSys(context);
 
     hud::View hudWorld(context);
@@ -203,13 +201,14 @@ void run() {
 
         // update
         GlobalUbo ubo{};
-        ubo.projView =
-            context.camera.projectionMatrix * context.camera.viewMatrix;
+        ubo.proj = context.camera.projectionMatrix;
+        ubo.view = context.camera.viewMatrix;
+        ubo.projView = ubo.proj * ubo.view;
         ubo.inverseView = context.camera.inverseViewMatrix;
         ubo.aspectRatio = aspect;
         ubo.time = glfwGetTime();
         particleSys.update();
-        waterSys.update(skyParams);
+        waterSys.update();
         context.vulkan.globalUBOs[frameIndex]->write(&ubo);
         context.vulkan.globalUBOs[frameIndex]->flush();
 
@@ -219,10 +218,11 @@ void run() {
         // order here matters
         hudSys.render();
         if (hudSys.getView() == &hudWorld) {
-          entitySys.render();
+          skyboxSys.render();
           waterSys.render();
-
           particleSys.render();
+
+          entitySys.render();
 
           if (glm::length2(entities[1].transform.position -
                            context.camera.position) < 25.f)
