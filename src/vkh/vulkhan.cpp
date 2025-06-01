@@ -47,10 +47,11 @@ void run() {
     std::vector<EntitySys::Entity> entities;
     EntitySys entitySys(context, entities);
 
-    auto env = entitySys.createMesh("models/env.glb");
-    entitySys.entities.push_back(
-        {{.position = {0.f, -25.f, 0.f}, .scale = glm::vec3(30.f)}, {}, env});
-    generateDungeon(entitySys);
+    // auto env = entitySys.createMesh("models/env.glb");
+    // entitySys.entities.push_back(
+    //     {{.position = {0.f, -25.f, 0.f}, .scale = glm::vec3(30.f)}, {},
+    //     env});
+    // generateDungeon(entitySys);
 
     ParticleSys particleSys(context);
     FreezeAnimationSys freezeAnimationSys(context);
@@ -216,7 +217,6 @@ void run() {
         renderer::beginSwapChainRenderPass(context, commandBuffer);
 
         // order here matters
-        hudSys.render();
         if (hudSys.getView() == &hudWorld) {
           skyboxSys.render();
           waterSys.render();
@@ -224,10 +224,12 @@ void run() {
 
           entitySys.render();
 
-          if (glm::length2(entities[1].transform.position -
-                           context.camera.position) < 25.f)
-            freezeAnimationSys.render();
+          // if (glm::length2(entities[1].transform.position -
+          //                  context.camera.position) < 25.f)
+          //   freezeAnimationSys.render();
         }
+        if (glfwGetKey(context.window, GLFW_KEY_F1))
+          hudSys.render();
 
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);
