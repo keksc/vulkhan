@@ -89,29 +89,29 @@ EntitySys::EntitySys(EngineContext &context, std::vector<Entity> &entities)
 }
 
 void EntitySys::render() {
-  pipeline->bind(context.frameInfo.commandBuffer);
+  pipeline->bind(context.frameInfo.cmd);
 
-  /*vkCmdBindDescriptorSets(context.frameInfo.commandBuffer,
+  /*vkCmdBindDescriptorSets(context.frameInfo.cmd,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);*/
 
   for (auto &entity : entities) {
     auto &transform = entity.transform;
-    auto &model = entity.mesh;
-    model->bind(
-        context, context.frameInfo.commandBuffer, *pipeline,
-        {context.frameInfo.globalDescriptorSet, model->textureDescriptorSet});
+    auto &scene = entity.mesh;
+    scene->bind(
+        context, context.frameInfo.cmd, *pipeline,
+        {context.frameInfo.globalDescriptorSet, scene->textureDescriptorSet});
 
     PushConstantData push{};
-    for (auto &mesh : *model) {
+    for (auto &mesh : *scene) {
       push.modelMatrix = transform.mat4() * mesh.transform;
       push.normalMatrix = transform.normalMatrix();
 
-      vkCmdPushConstants(context.frameInfo.commandBuffer, pipeline->getLayout(),
+      vkCmdPushConstants(context.frameInfo.cmd, pipeline->getLayout(),
                          VK_SHADER_STAGE_VERTEX_BIT |
                              VK_SHADER_STAGE_FRAGMENT_BIT,
                          0, sizeof(PushConstantData), &push);
-      mesh.draw(context.frameInfo.commandBuffer);
+      mesh.draw(context.frameInfo.cmd);
     }
   }
 }

@@ -6,6 +6,8 @@ layout(location = 1) in vec2 inUV;
 layout(location = 0) out vec4 outPos;
 layout(location = 1) out vec3 outNormal;
 layout(location = 2) out vec2 outUV;
+layout(location = 3) out vec3 outViewVec;
+layout(location = 4) out vec3 outLightVec;
 
 layout(set = 0, binding = 0) uniform VertexUBO
 {
@@ -37,4 +39,7 @@ void main()
   ));
 
   outUV = inUV;
+	vec3 lightPos = vec3(0.0f, -5.0f, 5.0f);
+	outLightVec = lightPos.xyz - outPos.xyz;
+	outViewVec = -outPos.xyz;
 }

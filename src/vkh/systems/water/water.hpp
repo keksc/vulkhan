@@ -1,5 +1,6 @@
 #pragma once
 
+#include <glm/geometric.hpp>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <fmt/format.h>
@@ -15,29 +16,24 @@
 #include "../../engineContext.hpp"
 #include "../../image.hpp"
 #include "../../scene.hpp"
+#include "../skybox.hpp"
 #include "../system.hpp"
 #include "WSTessendorf.hpp"
-#include "skyPreetham.hpp"
 
 namespace vkh {
 class WaterSys : public System {
 public:
-  struct SkyParams {
-    alignas(16) glm::vec3 sunColor{1.0};
-    float sunIntensity{1.0};
-    SkyPreetham::Props props{};
-  };
-
-  WaterSys(EngineContext &context);
+  WaterSys(EngineContext &context, SkyboxSys &skyboxSys);
   ~WaterSys();
   void prepare();
   void createRenderData();
   void render();
-  void update(const SkyParams &skyParams);
+  void update();
 
 private:
   void createSampler();
 
+  SkyboxSys &skyboxSys;
   VkSampler sampler;
   struct Vertex {
     glm::vec3 pos;
@@ -78,7 +74,7 @@ private:
     std::unique_ptr<Image> normalMap{nullptr};
   };
   static const uint32_t maxTileSize{512};
-  uint32_t m_TileSize{maxTileSize};
+  uint32_t tileSize{maxTileSize};
   float m_VertexDistance{1000.f / static_cast<float>(maxTileSize)};
 
   std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
@@ -143,18 +139,20 @@ private:
   } vertexUBO{};
 
   struct WaterSurfaceUBO {
+    alignas(16) glm::mat4 invModelView{1.f};
     alignas(16) glm::vec3 camPos{};
     float height{50.f};
-    alignas(16) glm::vec3 absorpCoef{glm::vec3{.420f, .063f, .019f}};
-    alignas(16) glm::vec3 scatterCoef{ComputeScatteringCoefPA01(.037f)};
+    alignas(16) glm::vec3 absorpCoef{.6f, .15f, .5f};
+    alignas(16) glm::vec3 scatterCoef{.01f, .1f, .02f};
     alignas(16) glm::vec3 backscatterCoef{
         ComputeBackscatteringCoefPA01(scatterCoef)};
-    // -------------------------------------------------
-    alignas(16) glm::vec3 terrainColor{.964f, 1.f, .824f};
-    float skyIntensity{1.f};
+    alignas(16) glm::vec3 terrainColor{.5f, .9f, .4f};
+    float skyIntensity{.8f};
     float specularIntensity{1.f};
     float specularHighlights{32.f};
-    SkyParams sky;
+    alignas(16) glm::vec3 sunColor;
+    float sunIntensity{.7f};
+    alignas(16) glm::vec3 sunDir = glm::normalize(glm::vec3{1.f});
   } waterSurfaceUBO;
 
   /**
