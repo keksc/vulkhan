@@ -13,13 +13,10 @@
 #include <glm/gtx/norm.hpp>
 #include <glm/gtx/quaternion.hpp>
 
-#include "../dungeonGenerator.hpp"
-#include "AxisAlignedBoundingBox.hpp"
 #include "audio.hpp"
 #include "buffer.hpp"
 #include "camera.hpp"
 #include "cleanupVulkan.hpp"
-#include "descriptors.hpp"
 #include "engineContext.hpp"
 #include "initVulkan.hpp"
 #include "input.hpp"
@@ -47,10 +44,12 @@ void run() {
     std::vector<EntitySys::Entity> entities;
     EntitySys entitySys(context, entities);
 
-    // auto env = entitySys.createMesh("models/env.glb");
+    auto manorcore = entitySys.createScene("models/manorcore.glb");
+    entitySys.entities.push_back(
+        {{.position = {}, .scale = glm::vec3(10.f)}, {}, manorcore});
+    // auto env = entitySys.createScene("models/env.glb");
     // entitySys.entities.push_back(
-    //     {{.position = {0.f, -25.f, 0.f}, .scale = glm::vec3(30.f)}, {},
-    //     env});
+    //     {{.position = {0.f, -25.f, 0.f}, .scale = glm::vec3(30.f)}, {}, env});
     // generateDungeon(entitySys);
 
     ParticleSys particleSys(context);
@@ -62,8 +61,6 @@ void run() {
     hud::View hudWorld(context);
     hud::View hudPause(context);
     hud::View canvasView(context);
-    auto test = canvasView.addElement<hud::Rect>(glm::vec2{0.f}, glm::vec2{1.f},
-                                                 glm::vec3{1.f});
     auto canvas = canvasView.addElement<hud::Canvas>(
         glm::vec2{-1.f, -1.f}, glm::vec2{2.f, 2.f},
         glm::vec3{.22f, .05f, .04f});
@@ -183,10 +180,8 @@ void run() {
 
       audio::update(context);
 
-      float aspect = context.window.aspectRatio;
-
-      context.camera.projectionMatrix =
-          glm::perspective(glm::radians(60.f), aspect, .1f, 1000.f);
+      context.camera.projectionMatrix = glm::perspective(
+          1.919'862'177f /*220deg*/, context.window.aspectRatio, .1f, 1000.f);
       context.camera.projectionMatrix[1][1] *= -1; // Flip Y for Vulkan
       context.camera.projectionMatrix[0][0] *= -1; // Flip X for rotation
       camera::calcViewYXZ(context);
@@ -206,7 +201,7 @@ void run() {
         ubo.view = context.camera.viewMatrix;
         ubo.projView = ubo.proj * ubo.view;
         ubo.inverseView = context.camera.inverseViewMatrix;
-        ubo.aspectRatio = aspect;
+        ubo.aspectRatio = context.window.aspectRatio;
         ubo.time = glfwGetTime();
         particleSys.update();
         waterSys.update();
@@ -220,16 +215,15 @@ void run() {
         if (hudSys.getView() == &hudWorld) {
           skyboxSys.render();
           waterSys.render();
-          particleSys.render();
-
           entitySys.render();
+          particleSys.render();
 
           // if (glm::length2(entities[1].transform.position -
           //                  context.camera.position) < 25.f)
           //   freezeAnimationSys.render();
         }
-        if (glfwGetKey(context.window, GLFW_KEY_F1))
-          hudSys.render();
+        // if (glfwGetKey(context.window, GLFW_KEY_F1))
+        hudSys.render();
 
         renderer::endSwapChainRenderPass(commandBuffer);
         renderer::endFrame(context);

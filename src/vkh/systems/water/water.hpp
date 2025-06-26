@@ -73,9 +73,8 @@ private:
     std::unique_ptr<Image> displacementMap{nullptr};
     std::unique_ptr<Image> normalMap{nullptr};
   };
-  static const uint32_t maxTileSize{512};
-  uint32_t tileSize{maxTileSize};
-  float m_VertexDistance{1000.f / static_cast<float>(maxTileSize)};
+  uint32_t tileResolution{32};
+  float vertexDistance{1000.f / static_cast<float>(tileResolution)};
 
   std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
   std::vector<VkDescriptorSet> descriptorSets;
@@ -85,7 +84,6 @@ private:
 
   WSTessendorf modelTess;
   FrameMapData frameMap;
-  std::unique_ptr<Buffer<std::byte>> stagingBuffer;
 
   bool playAnimation{true};
   float animSpeed{3.0};
@@ -135,24 +133,12 @@ private:
     alignas(16) glm::mat4 proj;
     float WSHeightAmp;
     float WSChoppy;
-    float scale{1.0f}; ///< Texture scale
+    float scale{1.0f};    ///< Texture scale
+    float vertexDistance; ///< Physical distance between vertices
   } vertexUBO{};
 
   struct WaterSurfaceUBO {
-    alignas(16) glm::mat4 invModelView{1.f};
     alignas(16) glm::vec3 camPos{};
-    float height{50.f};
-    alignas(16) glm::vec3 absorpCoef{.6f, .15f, .5f};
-    alignas(16) glm::vec3 scatterCoef{.01f, .1f, .02f};
-    alignas(16) glm::vec3 backscatterCoef{
-        ComputeBackscatteringCoefPA01(scatterCoef)};
-    alignas(16) glm::vec3 terrainColor{.5f, .9f, .4f};
-    float skyIntensity{.8f};
-    float specularIntensity{1.f};
-    float specularHighlights{32.f};
-    alignas(16) glm::vec3 sunColor;
-    float sunIntensity{.7f};
-    alignas(16) glm::vec3 sunDir = glm::normalize(glm::vec3{1.f});
   } waterSurfaceUBO;
 
   /**
@@ -163,37 +149,22 @@ private:
     return (size + alignment - 1) & ~(alignment - 1);
   }
 
-  uint32_t getTotalVertexCount(const uint32_t kTileSize) {
-    return (kTileSize + 1) * (kTileSize + 1);
-  }
-
-  uint32_t getTotalIndexCount(const uint32_t totalVertexCount) {
-    const uint32_t indicesPerTriangle = 3, trianglesPerQuad = 2;
-    return totalVertexCount * indicesPerTriangle * trianglesPerQuad;
-  }
-
-  static uint32_t getMaxVertexCount() {
-    return (maxTileSize + 1) * (maxTileSize + 1);
-  }
-  static uint32_t getMaxIndexCount() {
-    const uint32_t indicesPerTriangle = 3, trianglesPerQuad = 2;
-    return getMaxVertexCount() * indicesPerTriangle * trianglesPerQuad;
-  }
+  const uint32_t totalVertexCount = (tileResolution + 1) * (tileResolution + 1);
+  const uint32_t indicesPerQuad = 4;
+  const uint32_t totalIndexCount =
+      tileResolution * tileResolution * indicesPerQuad;
 
   void createPipeline();
   void createUniformBuffers(const uint32_t bufferCount);
   void createDescriptorSets(const uint32_t count);
   void createFrameMaps(VkCommandBuffer cmd);
-  void updateFrameMaps(VkCommandBuffer cmd, FrameMapData &frame);
-  void copyModelTessDataToStagingBuffer();
-  std::vector<Vertex> createGridVertices(const uint32_t kTileSize,
-                                         const float kScale);
-  std::vector<uint32_t> createGridIndices(const uint32_t kTileSize);
+  void recordUpdateFrameMaps(VkCommandBuffer cmd, FrameMapData &frame);
+  std::vector<Vertex> createGridVertices();
+  std::vector<uint32_t> createGridIndices();
   void updateDescriptorSet(VkDescriptorSet set);
   void updateUniformBuffer();
   void createDescriptorSetLayout();
   void createMesh();
-  void createStagingBuffer();
 
   audio::Sound oceanSound;
 };

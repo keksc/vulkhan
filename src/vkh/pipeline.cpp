@@ -1,7 +1,6 @@
 #include "pipeline.hpp"
 
 #include <fmt/core.h>
-#include <string>
 #include <vulkan/vulkan_core.h>
 
 #include <stdexcept>
@@ -16,85 +15,120 @@ Pipeline::~Pipeline() {
   vkDestroyPipeline(context.vulkan.device, pipeline, nullptr);
   vkDestroyPipelineLayout(context.vulkan.device, layout, nullptr);
 }
-void createShaderModule(EngineContext &context, const std::vector<char> &code,
-                        VkShaderModule *shaderModule) {
+VkShaderModule createShaderModule(EngineContext &context,
+                                  const std::vector<char> &code) {
   VkShaderModuleCreateInfo createInfo{};
   createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   createInfo.codeSize = code.size();
   createInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
 
+  VkShaderModule shaderModule;
   if (vkCreateShaderModule(context.vulkan.device, &createInfo, nullptr,
-                           shaderModule) != VK_SUCCESS) {
+                           &shaderModule) != VK_SUCCESS) {
     throw std::runtime_error("failed to create shader module");
   }
+  return shaderModule;
 }
 GraphicsPipeline::GraphicsPipeline(EngineContext &context,
-                                   const std::filesystem::path &vertpath,
-                                   const std::filesystem::path &fragpath,
-                                   const PipelineCreateInfo &configInfo)
+                                   const PipelineCreateInfo &createInfo)
     : Pipeline{context, VK_PIPELINE_BIND_POINT_GRAPHICS} {
-  auto vertCode = readFile(vertpath);
-  auto fragCode = readFile(fragpath);
+  std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
 
-  VkShaderModule vertShaderModule;
-  VkShaderModule fragShaderModule;
-  createShaderModule(context, vertCode, &vertShaderModule);
-  createShaderModule(context, fragCode, &fragShaderModule);
+  auto vertCode = readFile(createInfo.vertpath);
+  auto fragCode = readFile(createInfo.fragpath);
+  VkShaderModule vertShaderModule = createShaderModule(context, vertCode);
+  VkShaderModule fragShaderModule = createShaderModule(context, fragCode);
 
-  VkPipelineShaderStageCreateInfo shaderStages[2] = {
+  shaderStages.push_back(
       {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
        .stage = VK_SHADER_STAGE_VERTEX_BIT,
        .module = vertShaderModule,
-       .pName = "main"},
+       .pName = "main"});
+
+  shaderStages.push_back(
       {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
        .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
        .module = fragShaderModule,
-       .pName = "main"}};
+       .pName = "main"});
 
-  auto &bindingDescriptions = configInfo.bindingDescriptions;
-  auto &attributeDescriptions = configInfo.attributeDescriptions;
+  // Optional tessellation
+  VkShaderModule tescModule, teseModule;
+  bool useTessellation = false;
+  if (!createInfo.tescpath.empty() && !createInfo.tesepath.empty()) {
+    useTessellation = true;
+    auto tescCode = readFile(createInfo.tescpath);
+    auto teseCode = readFile(createInfo.tesepath);
+    tescModule = createShaderModule(context, tescCode);
+    teseModule = createShaderModule(context, teseCode);
+
+    shaderStages.push_back(
+        {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+         .stage = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+         .module = tescModule,
+         .pName = "main"});
+
+    shaderStages.push_back(
+        {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+         .stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
+         .module = teseModule,
+         .pName = "main"});
+  }
+
+  auto &bindingDescriptions = createInfo.bindingDescriptions;
+  auto &attributeDescriptions = createInfo.attributeDescriptions;
+
   VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
   vertexInputInfo.sType =
       VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-  vertexInputInfo.vertexAttributeDescriptionCount =
-      static_cast<uint32_t>(attributeDescriptions.size());
   vertexInputInfo.vertexBindingDescriptionCount =
       static_cast<uint32_t>(bindingDescriptions.size());
-  vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
   vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions.data();
+  vertexInputInfo.vertexAttributeDescriptionCount =
+      static_cast<uint32_t>(attributeDescriptions.size());
+  vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
+  VkPipelineTessellationStateCreateInfo tessellationInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
+      .patchControlPoints = 4};
 
   VkGraphicsPipelineCreateInfo pipelineInfo{};
   pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-  pipelineInfo.stageCount = 2;
-  pipelineInfo.pStages = shaderStages;
+  pipelineInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
+  pipelineInfo.pStages = shaderStages.data();
   pipelineInfo.pVertexInputState = &vertexInputInfo;
-  pipelineInfo.pInputAssemblyState = &configInfo.inputAssemblyInfo;
-  pipelineInfo.pViewportState = &configInfo.viewportInfo;
-  pipelineInfo.pRasterizationState = &configInfo.rasterizationInfo;
-  pipelineInfo.pMultisampleState = &configInfo.multisampleInfo;
-  pipelineInfo.pColorBlendState = &configInfo.colorBlendInfo;
-  pipelineInfo.pDepthStencilState = &configInfo.depthStencilInfo;
-  pipelineInfo.pDynamicState = &configInfo.dynamicStateInfo;
+  pipelineInfo.pInputAssemblyState = &createInfo.inputAssemblyInfo;
+  pipelineInfo.pViewportState = &createInfo.viewportInfo;
+  pipelineInfo.pRasterizationState = &createInfo.rasterizationInfo;
+  pipelineInfo.pMultisampleState = &createInfo.multisampleInfo;
+  pipelineInfo.pColorBlendState = &createInfo.colorBlendInfo;
+  pipelineInfo.pDepthStencilState = &createInfo.depthStencilInfo;
+  pipelineInfo.pDynamicState = &createInfo.dynamicStateInfo;
+  pipelineInfo.pTessellationState =
+      useTessellation ? &tessellationInfo : nullptr;
 
-  if (vkCreatePipelineLayout(context.vulkan.device, &configInfo.layoutInfo,
+  if (vkCreatePipelineLayout(context.vulkan.device, &createInfo.layoutInfo,
                              nullptr, &pipelineInfo.layout) != VK_SUCCESS)
     throw std::runtime_error("failed to create pipeline layout!");
   layout = pipelineInfo.layout;
 
-  pipelineInfo.renderPass = configInfo.renderPass;
-  pipelineInfo.subpass = configInfo.subpass;
+  pipelineInfo.renderPass = createInfo.renderPass;
+  pipelineInfo.subpass = createInfo.subpass;
 
   pipelineInfo.basePipelineIndex = -1;
   pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 
   if (vkCreateGraphicsPipelines(context.vulkan.device, VK_NULL_HANDLE, 1,
                                 &pipelineInfo, nullptr,
-                                &pipeline) != VK_SUCCESS) {
+                                &pipeline) != VK_SUCCESS)
     throw std::runtime_error("failed to create graphics pipeline");
-  }
 
   vkDestroyShaderModule(context.vulkan.device, vertShaderModule, nullptr);
   vkDestroyShaderModule(context.vulkan.device, fragShaderModule, nullptr);
+
+  if (useTessellation) {
+    vkDestroyShaderModule(context.vulkan.device, tescModule, nullptr);
+    vkDestroyShaderModule(context.vulkan.device, teseModule, nullptr);
+  }
 }
 
 ComputePipeline::ComputePipeline(EngineContext &context,
@@ -109,8 +143,7 @@ ComputePipeline::ComputePipeline(EngineContext &context,
 
   auto shaderCode = readFile(shaderpath);
 
-  VkShaderModule shaderModule;
-  createShaderModule(context, shaderCode, &shaderModule);
+  VkShaderModule shaderModule = createShaderModule(context, shaderCode);
 
   pipelineInfo.stage = {.sType =
                             VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,

@@ -1,4 +1,5 @@
 #include "entities.hpp"
+#include <fmt/core.h>
 #include <memory>
 
 #define GLM_FORCE_RADIANS
@@ -20,15 +21,9 @@ namespace vkh {
 
 struct PushConstantData {
   glm::mat4 modelMatrix{1.f};
-  glm::mat4 normalMatrix{1.f};
+  glm::mat3 normalMatrix{1.f};
 };
 
-void EntitySys::createSetLayout() {
-  setLayout = DescriptorSetLayout::Builder(context)
-                  .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                              VK_SHADER_STAGE_FRAGMENT_BIT)
-                  .build();
-}
 void EntitySys::createSampler() {
   VkPhysicalDeviceProperties properties{};
   vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice, &properties);
@@ -50,16 +45,17 @@ void EntitySys::createSampler() {
 
   if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr, &sampler) !=
       VK_SUCCESS) {
-    throw std::runtime_error("failed to create texture sampler!");
+    throw std::runtime_error("Failed to create texture sampler!");
   }
 }
+
 EntitySys::~EntitySys() {
   vkDestroySampler(context.vulkan.device, sampler, nullptr);
 }
+
 EntitySys::EntitySys(EngineContext &context, std::vector<Entity> &entities)
     : System(context), entities{entities} {
   createSampler();
-  createSetLayout();
 
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags =
@@ -68,7 +64,8 @@ EntitySys::EntitySys(EngineContext &context, std::vector<Entity> &entities)
   pushConstantRange.size = sizeof(PushConstantData);
 
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
-      *context.vulkan.globalDescriptorSetLayout, *setLayout};
+      *context.vulkan.globalDescriptorSetLayout,
+      *context.vulkan.sceneDescriptorSetLayout};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -78,36 +75,41 @@ EntitySys::EntitySys(EngineContext &context, std::vector<Entity> &entities)
   pipelineLayoutInfo.pushConstantRangeCount = 1;
   pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
-  PipelineCreateInfo pipelineConfig{};
-  pipelineConfig.layoutInfo = pipelineLayoutInfo;
-  pipelineConfig.renderPass = context.vulkan.swapChain->renderPass;
-  pipelineConfig.attributeDescriptions = Vertex::getAttributeDescriptions();
-  pipelineConfig.bindingDescriptions = Vertex::getBindingDescriptions();
-  pipeline = std::make_unique<GraphicsPipeline>(
-      context, "shaders/entities.vert.spv", "shaders/entities.frag.spv",
-      pipelineConfig);
+  PipelineCreateInfo pipelineInfo{};
+  pipelineInfo.layoutInfo = pipelineLayoutInfo;
+  pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
+  pipelineInfo.attributeDescriptions = Vertex::getAttributeDescriptions();
+  pipelineInfo.bindingDescriptions = Vertex::getBindingDescriptions();
+  pipelineInfo.vertpath = "shaders/entities.vert.spv";
+  pipelineInfo.fragpath = "shaders/entities.frag.spv";
+  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
 }
 
 void EntitySys::render() {
   pipeline->bind(context.frameInfo.cmd);
 
-  /*vkCmdBindDescriptorSets(context.frameInfo.cmd,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1,
-                          &context.frameInfo.globalDescriptorSet, 0, nullptr);*/
+  vkCmdBindDescriptorSets(context.frameInfo.cmd,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
+                          &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
   for (auto &entity : entities) {
-    auto &transform = entity.transform;
     auto &scene = entity.mesh;
-    scene->bind(
-        context, context.frameInfo.cmd, *pipeline,
-        {context.frameInfo.globalDescriptorSet, scene->textureDescriptorSet});
+    scene->bind(context, context.frameInfo.cmd, *pipeline);
 
-    PushConstantData push{};
     for (auto &mesh : *scene) {
-      push.modelMatrix = transform.mat4() * mesh.transform;
-      push.normalMatrix = transform.normalMatrix();
+      // auto &mesh = *(scene->begin());
+      PushConstantData push{};
+      push.modelMatrix = entity.transform.mat4() * mesh.transform;
+      push.normalMatrix = entity.transform.normalMatrix();
 
-      vkCmdPushConstants(context.frameInfo.cmd, pipeline->getLayout(),
+      vkCmdBindDescriptorSets(
+          context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1,
+          1,
+          &scene->imageDescriptorSets[scene->materials[mesh.materialIndex]
+                                          .baseColorTextureIndex],
+          0, nullptr);
+
+      vkCmdPushConstants(context.frameInfo.cmd, *pipeline,
                          VK_SHADER_STAGE_VERTEX_BIT |
                              VK_SHADER_STAGE_FRAGMENT_BIT,
                          0, sizeof(PushConstantData), &push);
@@ -115,13 +117,16 @@ void EntitySys::render() {
     }
   }
 }
+
 void EntitySys::addEntity(Transform transform,
                           const std::filesystem::path &path,
                           RigidBody rigidBody) {
-  entities.emplace_back(transform, rigidBody, createMesh(path));
+  entities.emplace_back(transform, rigidBody, createScene(path));
 }
+
 std::shared_ptr<Scene<EntitySys::Vertex>>
-EntitySys::createMesh(const std::filesystem::path &path) {
-  return std::make_shared<Scene<Vertex>>(context, path, sampler, *setLayout);
+EntitySys::createScene(const std::filesystem::path &path) {
+  return std::make_shared<Scene<Vertex>>(context, path);
 }
+
 } // namespace vkh

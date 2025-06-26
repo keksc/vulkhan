@@ -24,6 +24,14 @@ public:
   Image(EngineContext &context, const ImageCreateInfo &createInfo);
   Image(EngineContext &context, const std::filesystem::path &path);
   Image(EngineContext &context, void *data, size_t dataSize);
+  Image(Image &&other) noexcept
+      : context{other.context}, img{other.img}, view{other.view},
+        memory{other.memory}, format{other.format}, layout{other.layout} {
+    other.img = VK_NULL_HANDLE;
+    other.view = VK_NULL_HANDLE;
+    other.memory = VK_NULL_HANDLE;
+    other.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+  }
 
   operator VkImage() { return img; }
   inline const VkImageView getImageView() { return view; }
@@ -80,37 +88,5 @@ private:
   VkDeviceMemory memory;
   VkFormat format;
   VkImageLayout layout;
-
-  VkImageMemoryBarrier undef2DstBarrier{
-      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-      .srcAccessMask = 0,
-      .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-      .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-
-      .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .image = img,
-      .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                           .baseMipLevel = 0,
-                           .levelCount = 1,
-                           .baseArrayLayer = 0,
-                           .layerCount = 1}};
-
-  VkImageMemoryBarrier dst2ShaderReadOptiBarrier{
-      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-      .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-      .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-      .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-
-      .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .image = img,
-      .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                           .baseMipLevel = 0,
-                           .levelCount = 1,
-                           .baseArrayLayer = 0,
-                           .layerCount = 1}};
 };
 } // namespace vkh

@@ -73,8 +73,9 @@ void TextSys::createPipeline() {
       .depthWriteEnable = false,
       .depthCompareOp = VK_COMPARE_OP_LESS};
   GraphicsPipeline::enableAlphaBlending(pipelineInfo);
-  pipeline = std::make_unique<GraphicsPipeline>(
-      context, "shaders/text.vert.spv", "shaders/text.frag.spv", pipelineInfo);
+  pipelineInfo.vertpath = "shaders/text.vert.spv";
+  pipelineInfo.fragpath = "shaders/text.frag.spv";
+  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
 }
 void TextSys::createGlyphs() {
   std::vector<char> fontDataChar = readFile("fonts/Roboto-Regular.ttf");
@@ -171,8 +172,7 @@ void TextSys::render(size_t indicesSize) {
 
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
-  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers,
-                         offsets);
+  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers, offsets);
   vkCmdBindIndexBuffer(context.frameInfo.cmd, *indexBuffer, 0,
                        VK_INDEX_TYPE_UINT32);
   VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
@@ -181,7 +181,7 @@ void TextSys::render(size_t indicesSize) {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
                           descriptorSets, 0, nullptr);
 
-  vkCmdDrawIndexed(context.frameInfo.cmd,
-                   static_cast<uint32_t>(indicesSize), 1, 0, 0, 0);
+  vkCmdDrawIndexed(context.frameInfo.cmd, static_cast<uint32_t>(indicesSize), 1,
+                   0, 0, 0);
 }
 } // namespace vkh

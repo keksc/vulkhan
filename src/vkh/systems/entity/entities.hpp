@@ -58,15 +58,13 @@ public:
   void render();
   void addEntity(Transform transform, const std::filesystem::path &path,
                  RigidBody rigidBody);
-  std::shared_ptr<Scene<Vertex>> createMesh(const std::filesystem::path &path);
+  std::shared_ptr<Scene<Vertex>> createScene(const std::filesystem::path &path);
   std::vector<Entity> &entities;
 
 private:
   void createSampler();
-  void createSetLayout();
 
   std::unique_ptr<GraphicsPipeline> pipeline;
   VkSampler sampler;
-  std::shared_ptr<DescriptorSetLayout> setLayout;
 };
 } // namespace vkh

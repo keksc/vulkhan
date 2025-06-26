@@ -36,17 +36,14 @@ public:
     }
   };
   SkyboxSys(EngineContext &context);
-  ~SkyboxSys();
   void render();
 
   std::shared_ptr<DescriptorSetLayout> setLayout;
   VkDescriptorSet set;
 private:
-  void createSampler();
   void createSetLayout();
 
   std::unique_ptr<GraphicsPipeline> pipeline;
-  VkSampler sampler;
   Image cubeMap;
   std::unique_ptr<Scene<Vertex>> cubeScene;
 };

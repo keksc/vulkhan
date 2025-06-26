@@ -51,18 +51,28 @@ template <typename VertexType> struct SceneCreateInfo {
 // TODO: improve img support
 template <typename VertexType> class Scene {
 public:
+  struct Mesh {
+    uint32_t indexOffset{};
+    uint32_t indexCount{};
+    glm::mat4 transform;
+    size_t materialIndex;
+    void draw(VkCommandBuffer commandBuffer) {
+      vkCmdDrawIndexed(commandBuffer, indexCount, 1, indexOffset, 0, 0);
+    }
+  };
+  struct Material {
+    size_t baseColorTextureIndex;
+  };
   static_assert(has_pos<VertexType>::value,
                 "VertexType must have a pos member");
 
   Scene(EngineContext &context, const std::filesystem::path &path,
-        VkSampler sampler, DescriptorSetLayout &setLayout,
-        bool forceNoTexture = false)
-      : context{context}, forceNoTexture{forceNoTexture} {
+        bool disableMaterial = false)
+      : context{context}, disableMaterial{disableMaterial} {
     loadModel(path);
-    createDescriptors(sampler, setLayout);
   }
   Scene(EngineContext &context, const SceneCreateInfo<VertexType> &createInfo)
-      : context{context} {
+      : context{context}, disableMaterial{true} {
     createBuffers(createInfo.vertices, createInfo.indices);
   }
 
@@ -70,19 +80,12 @@ public:
   Scene &operator=(const Scene &) = delete;
 
   void bind(EngineContext &context, VkCommandBuffer commandBuffer,
-            VkPipelineLayout pipelineLayout,
-            std::vector<VkDescriptorSet> descriptorSets = {}) {
+            VkPipelineLayout pipelineLayout) {
     VkBuffer buffers[] = {*vertexBuffer};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, buffers, offsets);
 
     vkCmdBindIndexBuffer(commandBuffer, *indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-    if (!descriptorSets.empty()) {
-      vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              pipelineLayout, 0,
-                              static_cast<uint32_t>(descriptorSets.size()),
-                              descriptorSets.data(), 0, nullptr);
-    }
   }
 
   void loadModel(const std::filesystem::path &path) {
@@ -181,6 +184,9 @@ public:
                 });
           }
         }
+        if (!primitive.materialIndex.has_value())
+          fmt::println("No material index, using default 0");
+        newMesh.materialIndex = primitive.materialIndex.value_or(0);
       }
       uint32_t end = static_cast<uint32_t>(indices.size());
       newMesh.indexCount = end - start;
@@ -196,7 +202,7 @@ public:
           }
         });
 
-    if (forceNoTexture) {
+    if (disableMaterial) {
     } else if (gltf.images.empty()) {
       ImageCreateInfo imageInfo{};
       imageInfo.w = imageInfo.h = 1;
@@ -204,37 +210,56 @@ public:
       imageInfo.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
       imageInfo.usage =
           VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-      texture = std::make_shared<Image>(context, imageInfo);
+      images.emplace_back(context, imageInfo);
     } else {
-      auto &image = gltf.images[0];
-      std::visit(
-          fastgltf::visitor{
-              [](auto &arg) {},
-              [&](fastgltf::sources::BufferView &view) {
-                auto &bufferView = gltf.bufferViews[view.bufferViewIndex];
-                auto &buffer = gltf.buffers[bufferView.bufferIndex];
-                std::visit(
-                    fastgltf::visitor{
-                        [](auto &arg) {},
-                        [&](fastgltf::sources::Array &vector) {
-                          texture = std::make_shared<Image>(
-                              context,
-                              reinterpret_cast<void *>(vector.bytes.data() +
-                                                       bufferView.byteOffset),
-                              static_cast<size_t>(bufferView.byteLength));
-                        }},
-                    buffer.data);
-              },
-          },
-          image.data);
+      for (auto &image : gltf.images) {
+        std::visit(
+            fastgltf::visitor{
+                [](auto &arg) {},
+                [&](fastgltf::sources::BufferView &view) {
+                  auto &bufferView = gltf.bufferViews[view.bufferViewIndex];
+                  auto &buffer = gltf.buffers[bufferView.bufferIndex];
+                  std::visit(
+                      fastgltf::visitor{
+                          [](auto &arg) {},
+                          [&](fastgltf::sources::Array &vector) {
+                            auto &image = images.emplace_back(
+                                context,
+                                reinterpret_cast<void *>(vector.bytes.data() +
+                                                         bufferView.byteOffset),
+                                static_cast<size_t>(bufferView.byteLength));
+                            VkDescriptorSet set;
+                            auto descriptorInfo = image.getDescriptorInfo(
+                                context.vulkan.defaultSampler);
+                            DescriptorWriter(
+                                *context.vulkan.sceneDescriptorSetLayout,
+                                *context.vulkan.globalDescriptorPool)
+                                .writeImage(0, &descriptorInfo)
+                                .build(set);
+                            imageDescriptorSets.push_back(set);
+                          }},
+                      buffer.data);
+                },
+            },
+            image.data);
+      }
+      for (auto &material : gltf.materials) {
+        Material mat{};
+        if (material.pbrData.baseColorTexture.has_value()) {
+          auto &texInfo = material.pbrData.baseColorTexture.value();
+          auto &tex = gltf.textures[texInfo.textureIndex];
+          mat.baseColorTextureIndex = tex.imageIndex.value_or(0);
+        }
+        materials.push_back(mat);
+      }
     }
 
     createBuffers(vertices, indices);
   }
 
-  std::shared_ptr<Image> texture;
-
-  VkDescriptorSet textureDescriptorSet;
+  std::vector<Image> images;
+  std::vector<VkDescriptorSet> imageDescriptorSets;
+  std::vector<Material> materials;
 
   size_t getIndicesSize() const { return indexCount; }
   size_t getVerticesSize() const { return vertexCount; }
@@ -245,14 +270,6 @@ public:
   auto end() const { return meshes.end(); }
 
 private:
-  struct Mesh {
-    uint32_t indexOffset{};
-    uint32_t indexCount{};
-    glm::mat4 transform;
-    void draw(VkCommandBuffer commandBuffer) {
-      vkCmdDrawIndexed(commandBuffer, indexCount, 1, indexOffset, 0, 0);
-    }
-  };
   std::vector<Mesh> meshes;
 
   void createBuffers(const std::vector<VertexType> &vertices,
@@ -302,15 +319,6 @@ private:
     meshes.push_back({0, indexCount});
   }
 
-  void createDescriptors(VkSampler sampler, DescriptorSetLayout &setLayout) {
-    if (!forceNoTexture) {
-      auto descriptorInfo = texture->getDescriptorInfo(sampler);
-      DescriptorWriter(setLayout, *context.vulkan.globalDescriptorPool)
-          .writeImage(0, &descriptorInfo)
-          .build(textureDescriptorSet);
-    }
-  }
-
   EngineContext &context;
 
   std::unique_ptr<Buffer<VertexType>> vertexBuffer;
@@ -319,7 +327,7 @@ private:
   std::unique_ptr<Buffer<uint32_t>> indexBuffer;
   uint32_t indexCount;
 
-  bool forceNoTexture{};
+  bool disableMaterial{};
 };
 
 } // namespace vkh
