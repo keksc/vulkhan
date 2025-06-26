@@ -14,6 +14,11 @@ struct PipelineCreateInfo {
   PipelineCreateInfo(const PipelineCreateInfo &) = delete;
   PipelineCreateInfo &operator=(const PipelineCreateInfo &) = delete;
 
+  std::filesystem::path vertpath;
+  std::filesystem::path fragpath;
+  std::filesystem::path tescpath;
+  std::filesystem::path tesepath;
+
   std::vector<VkVertexInputBindingDescription> bindingDescriptions;
   std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
   VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{
@@ -61,7 +66,7 @@ struct PipelineCreateInfo {
 class Pipeline {
 public:
   Pipeline(EngineContext &context, VkPipelineBindPoint bindPoint);
-  ~Pipeline();
+  virtual ~Pipeline();
 
   Pipeline(const Pipeline &) = delete;
   Pipeline &operator=(const Pipeline &) = delete;
@@ -75,7 +80,6 @@ public:
 
 protected:
   EngineContext &context;
-
   VkPipeline pipeline;
   VkPipelineBindPoint bindPoint;
   VkPipelineLayout layout;
@@ -84,12 +88,11 @@ protected:
 class GraphicsPipeline : public Pipeline {
 public:
   GraphicsPipeline(EngineContext &context,
-                   const std::filesystem::path &vertpath,
-                   const std::filesystem::path &fragpath,
                    const PipelineCreateInfo &configInfo);
 
   static void enableAlphaBlending(PipelineCreateInfo &configInfo);
 };
+
 class ComputePipeline : public Pipeline {
 public:
   ComputePipeline(EngineContext &context,
@@ -97,4 +100,5 @@ public:
                   VkPipelineLayoutCreateInfo layoutInfo = {
                       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO});
 };
+
 } // namespace vkh

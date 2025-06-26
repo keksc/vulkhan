@@ -3,13 +3,13 @@
 
 #include <GLFW/glfw3.h>
 #include <chrono>
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <glm/ext/vector_common.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/norm.hpp>
 
 #include <limits>
-#include <mutex>
 
 namespace vkh {
 namespace input {
@@ -139,7 +139,7 @@ void moveInPlaneXZ(EngineContext &context) {
 
   if (glm::length2(moveDir) > std::numeric_limits<float>::epsilon()) {
     float sprint =
-        (glfwGetKey(context.window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) ? 10.0f
+        (glfwGetKey(context.window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) ? 30.0f
                                                                         : 2.0f;
     context.camera.position +=
         glm::normalize(moveDir) * sprint * moveSpeed * context.frameInfo.dt;

@@ -6,15 +6,12 @@ layout(std430, binding = 0) buffer FFTDataIn {
   vec2 FFTData[];
 };
 
-layout(std430, binding = 1) buffer DisplacementsOut {
-  vec4 displacements[];
+layout(std430, binding = 1) buffer DisplacementsAndNormalsOut {
+  vec4 displacementsAndNormals[];
 };
 
-layout(std430, binding = 2) buffer NormalsOut {
-  vec4 normals[];
-};
+#include "constants.glsl"
 
-const uint tileSize = 512;
 const uint bufferSize = tileSize * tileSize;
 const float lambda = -1.0;  // Should match m_Lambda from WSTessendorf
 
@@ -33,9 +30,9 @@ void main() {
   displacement.z = float(sign) * lambda * FFTData[idx + 4 * bufferSize].x;
   displacement.w = 1.0;
 
-  displacements[idx] = displacement;
+  displacementsAndNormals[idx] = displacement;
 
-  normals[idx] = vec4(sign * FFTData[idx + bufferSize].x,
+  displacementsAndNormals[idx + bufferSize] = vec4(sign * FFTData[idx + bufferSize].x,
                               sign * FFTData[idx + 2 * bufferSize].x,
                               sign * FFTData[idx + 5 * bufferSize].x,
                               sign * FFTData[idx + 6 * bufferSize].x);

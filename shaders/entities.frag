@@ -69,5 +69,5 @@ void main() {
 
       finalColor += col * d;
   }
-  outColor = vec4(finalColor, 1.0) + texture(texSampler, uv);//*lightIntensity;
+  outColor = texture(texSampler, uv);//*lightIntensity;
 }

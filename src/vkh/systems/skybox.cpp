@@ -29,47 +29,18 @@ struct PushConstantData {
 void SkyboxSys::createSetLayout() {
   setLayout = DescriptorSetLayout::Builder(context)
                   .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                              VK_SHADER_STAGE_FRAGMENT_BIT)
+                              VK_SHADER_STAGE_FRAGMENT_BIT) // Base color
                   .build();
-  auto descInfo = cubeMap.getDescriptorInfo(sampler);
+  auto descInfo = cubeMap.getDescriptorInfo(context.vulkan.defaultSampler);
   DescriptorWriter(*setLayout, *context.vulkan.globalDescriptorPool)
       .writeImage(0, &descInfo)
       .build(set);
 }
-void SkyboxSys::createSampler() {
-  VkPhysicalDeviceProperties properties{};
-  vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice, &properties);
-
-  VkSamplerCreateInfo samplerInfo{};
-  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-  samplerInfo.magFilter = VK_FILTER_LINEAR;
-  samplerInfo.minFilter = VK_FILTER_LINEAR;
-  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.anisotropyEnable = VK_TRUE;
-  samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-  samplerInfo.unnormalizedCoordinates = VK_FALSE;
-  samplerInfo.compareEnable = VK_FALSE;
-  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-
-  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr, &sampler) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("failed to create texture sampler!");
-  }
-}
-SkyboxSys::~SkyboxSys() {
-  vkDestroySampler(context.vulkan.device, sampler, nullptr);
-}
 SkyboxSys::SkyboxSys(EngineContext &context)
     : System(context), cubeMap(context, "textures/skybox.ktx2") {
-  createSampler();
   createSetLayout();
 
-  cubeScene = std::make_unique<Scene<Vertex>>(context, "models/cube.glb",
-                                              sampler, *setLayout, true);
+  cubeScene = std::make_unique<Scene<Vertex>>(context, "models/cube.glb", true);
 
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags =
@@ -88,25 +59,26 @@ SkyboxSys::SkyboxSys(EngineContext &context)
   pipelineLayoutInfo.pushConstantRangeCount = 1;
   pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
-  PipelineCreateInfo pipelineConfig{};
-  pipelineConfig.layoutInfo = pipelineLayoutInfo;
-  pipelineConfig.renderPass = context.vulkan.swapChain->renderPass;
-  pipelineConfig.attributeDescriptions = Vertex::getAttributeDescriptions();
-  pipelineConfig.bindingDescriptions = Vertex::getBindingDescriptions();
-  pipelineConfig.depthStencilInfo.depthTestEnable = VK_FALSE;
-  pipelineConfig.depthStencilInfo.depthWriteEnable = VK_FALSE;
-  pipeline = std::make_unique<GraphicsPipeline>(
-      context, "shaders/skybox.vert.spv", "shaders/skybox.frag.spv",
-      pipelineConfig);
+  PipelineCreateInfo pipelineInfo{};
+  pipelineInfo.layoutInfo = pipelineLayoutInfo;
+  pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
+  pipelineInfo.attributeDescriptions = Vertex::getAttributeDescriptions();
+  pipelineInfo.bindingDescriptions = Vertex::getBindingDescriptions();
+  pipelineInfo.depthStencilInfo.depthTestEnable = VK_FALSE;
+  pipelineInfo.depthStencilInfo.depthWriteEnable = VK_FALSE;
+  pipelineInfo.vertpath = "shaders/skybox.vert.spv";
+  pipelineInfo.fragpath = "shaders/skybox.frag.spv";
+  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
 }
 
 void SkyboxSys::render() {
   pipeline->bind(context.frameInfo.cmd);
 
-  cubeScene->bind(context, context.frameInfo.cmd, *pipeline,
-                  {context.frameInfo.globalDescriptorSet, set});
-  for (auto &mesh : *cubeScene) {
-    mesh.draw(context.frameInfo.cmd);
-  }
+  VkDescriptorSet sets[] = {context.frameInfo.globalDescriptorSet, set};
+  vkCmdBindDescriptorSets(context.frameInfo.cmd,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
+                          sets, 0, nullptr);
+  cubeScene->bind(context, context.frameInfo.cmd, *pipeline);
+  cubeScene->begin()->draw(context.frameInfo.cmd);
 }
 } // namespace vkh

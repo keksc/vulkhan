@@ -55,7 +55,7 @@ SwapChain::~SwapChain() {
   vkDestroyRenderPass(context.vulkan.device, renderPass, nullptr);
 
   // cleanup synchronization objects
-  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+  for (size_t i = 0; i < context.vulkan.maxFramesInFlight; i++) {
     vkDestroySemaphore(context.vulkan.device, renderFinishedSemaphores[i],
                        nullptr);
     vkDestroySemaphore(context.vulkan.device, imageAvailableSemaphores[i],
@@ -68,20 +68,18 @@ VkResult SwapChain::acquireNextImage(uint32_t *imageIndex) {
   vkWaitForFences(context.vulkan.device, 1, &inFlightFences[currentFrame],
                   VK_TRUE, std::numeric_limits<uint64_t>::max());
 
-  VkResult result = vkAcquireNextImageKHR(
+  return vkAcquireNextImageKHR(
       context.vulkan.device, swapChain, std::numeric_limits<uint64_t>::max(),
       imageAvailableSemaphores[currentFrame], // must be a not signaled
                                               // semaphore
       VK_NULL_HANDLE, imageIndex);
-
-  return result;
 }
 
 VkResult SwapChain::submitCommandBuffers(const VkCommandBuffer *buffers,
                                          uint32_t *imageIndex) {
   if (imagesInFlight[*imageIndex] != VK_NULL_HANDLE) {
     vkWaitForFences(context.vulkan.device, 1, &imagesInFlight[*imageIndex],
-                    VK_TRUE, UINT64_MAX);
+                    VK_TRUE, std::numeric_limits<uint32_t>::max());
   }
   imagesInFlight[*imageIndex] = inFlightFences[currentFrame];
 
@@ -120,11 +118,9 @@ VkResult SwapChain::submitCommandBuffers(const VkCommandBuffer *buffers,
 
   presentInfo.pImageIndices = imageIndex;
 
-  auto result = vkQueuePresentKHR(context.vulkan.presentQueue, &presentInfo);
+  currentFrame = (currentFrame + 1) % context.vulkan.maxFramesInFlight;
 
-  currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
-
-  return result;
+  return vkQueuePresentKHR(context.vulkan.presentQueue, &presentInfo);
 }
 
 void SwapChain::createSwapChain() {
@@ -136,17 +132,11 @@ void SwapChain::createSwapChain() {
       chooseSwapPresentMode(swapChainSupport.presentModes);
   VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
 
-  uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
-  if (swapChainSupport.capabilities.maxImageCount > 0 &&
-      imageCount > swapChainSupport.capabilities.maxImageCount) {
-    imageCount = swapChainSupport.capabilities.maxImageCount;
-  }
-
   VkSwapchainCreateInfoKHR createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
   createInfo.surface = context.vulkan.surface;
 
-  createInfo.minImageCount = imageCount;
+  createInfo.minImageCount = context.vulkan.maxFramesInFlight;
   createInfo.imageFormat = surfaceFormat.format;
   createInfo.imageColorSpace = surfaceFormat.colorSpace;
   createInfo.imageExtent = extent;
@@ -186,10 +176,8 @@ void SwapChain::createSwapChain() {
   // we'll first query the final number of images with vkGetSwapchainImagesKHR,
   // then resize the container and finally call it again to retrieve the
   // handles.
-  vkGetSwapchainImagesKHR(context.vulkan.device, swapChain, &imageCount,
-                          nullptr);
-  swapChainImages.resize(imageCount);
-  vkGetSwapchainImagesKHR(context.vulkan.device, swapChain, &imageCount,
+  swapChainImages.resize(context.vulkan.maxFramesInFlight);
+  vkGetSwapchainImagesKHR(context.vulkan.device, swapChain, &context.vulkan.maxFramesInFlight,
                           swapChainImages.data());
 
   swapChainImageFormat = surfaceFormat.format;
@@ -339,9 +327,9 @@ void SwapChain::createDepthResources() {
 }
 
 void SwapChain::createSyncObjects() {
-  imageAvailableSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-  renderFinishedSemaphores.resize(MAX_FRAMES_IN_FLIGHT);
-  inFlightFences.resize(MAX_FRAMES_IN_FLIGHT);
+  imageAvailableSemaphores.resize(context.vulkan.maxFramesInFlight);
+  renderFinishedSemaphores.resize(context.vulkan.maxFramesInFlight);
+  inFlightFences.resize(context.vulkan.maxFramesInFlight);
   imagesInFlight.resize(imageCount(), VK_NULL_HANDLE);
 
   VkSemaphoreCreateInfo semaphoreInfo = {};
@@ -351,7 +339,7 @@ void SwapChain::createSyncObjects() {
   fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
   fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-  for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+  for (size_t i = 0; i < context.vulkan.maxFramesInFlight; i++) {
     if (vkCreateSemaphore(context.vulkan.device, &semaphoreInfo, nullptr,
                           &imageAvailableSemaphores[i]) != VK_SUCCESS ||
         vkCreateSemaphore(context.vulkan.device, &semaphoreInfo, nullptr,

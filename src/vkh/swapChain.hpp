@@ -10,8 +10,6 @@ namespace vkh {
 
 class SwapChain {
  public:
-  static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-
   SwapChain(EngineContext& context);
   SwapChain(
       EngineContext& context, std::shared_ptr<SwapChain> previous);
@@ -30,6 +28,9 @@ class SwapChain {
   uint32_t width() { return swapChainExtent.width; }
   uint32_t height() { return swapChainExtent.height; }
 
+  float extentAspectRatio() {
+    return static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.height);
+  }
   VkFormat findDepthFormat();
 
   VkResult acquireNextImage(uint32_t *imageIndex);

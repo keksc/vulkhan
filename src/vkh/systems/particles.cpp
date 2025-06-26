@@ -41,17 +41,17 @@ void ParticleSys::createPipeline() {
       static_cast<uint32_t>(descriptorSetLayouts.size());
   pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
 
-  PipelineCreateInfo pipelineConfig{};
-  GraphicsPipeline::enableAlphaBlending(pipelineConfig);
-  pipelineConfig.renderPass = context.vulkan.swapChain->renderPass;
-  pipelineConfig.layoutInfo = pipelineLayoutInfo;
-  pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-  pipelineConfig.bindingDescriptions = Vertex::getBindingDescriptions();
-  pipelineConfig.attributeDescriptions = Vertex::getAttributeDescriptions();
-  GraphicsPipeline::enableAlphaBlending(pipelineConfig);
-  pipeline = std::make_unique<GraphicsPipeline>(
-      context, "shaders/particles.vert.spv", "shaders/particles.frag.spv",
-      pipelineConfig);
+  PipelineCreateInfo pipelineInfo{};
+  GraphicsPipeline::enableAlphaBlending(pipelineInfo);
+  pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
+  pipelineInfo.layoutInfo = pipelineLayoutInfo;
+  pipelineInfo.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+  pipelineInfo.bindingDescriptions = Vertex::getBindingDescriptions();
+  pipelineInfo.attributeDescriptions = Vertex::getAttributeDescriptions();
+  GraphicsPipeline::enableAlphaBlending(pipelineInfo);
+  pipelineInfo.vertpath = "shaders/particles.vert.spv";
+  pipelineInfo.fragpath = "shaders/particles.frag.spv";
+  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
 }
 ParticleSys::ParticleSys(EngineContext &context)
     : System(context), rng(rd()), rand(0.f, 1.f) {
@@ -137,8 +137,7 @@ void ParticleSys::render() {
 
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
-  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers,
-                         offsets);
+  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers, offsets);
   vkCmdDraw(context.frameInfo.cmd, particles.size(), 1, 0, 0);
 }
 } // namespace vkh

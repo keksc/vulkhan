@@ -12,13 +12,13 @@ layout(location = 2) out vec2 fragUV;
 
 layout(push_constant) uniform Push {
   mat4 modelMatrix;
-  mat4 normalMatrix;
+  mat3 normalMatrix; // Changed from mat4 to mat3 to match C++ struct
 } pc;
 
 void main() {
   vec4 positionWorld = pc.modelMatrix * vec4(position, 1.0);
   gl_Position = ubo.projView * positionWorld;
-  fragNormalWorld = normalize(mat3(pc.normalMatrix) * normal);
+  fragNormalWorld = normalize(pc.normalMatrix * normal); // mat3 used directly
   fragPosWorld = positionWorld.xyz;
   fragUV = uv;
 }

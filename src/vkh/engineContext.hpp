@@ -73,10 +73,13 @@ struct EngineContext {
     VkQueue presentQueue;
     VkCommandPool commandPool;
     std::unique_ptr<SwapChain> swapChain;
+    uint32_t maxFramesInFlight;
     std::unique_ptr<DescriptorPool> globalDescriptorPool;
     std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout;
     std::vector<std::unique_ptr<Buffer<GlobalUbo>>> globalUBOs;
     std::vector<VkDescriptorSet> globalDescriptorSets;
+    std::unique_ptr<DescriptorSetLayout> sceneDescriptorSetLayout;
+    VkSampler defaultSampler;
   } vulkan;
   struct {
     int frameIndex;

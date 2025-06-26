@@ -1,5 +1,6 @@
 #include "initVulkan.hpp"
 
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <fmt/core.h>
 #include <fmt/format.h>
@@ -13,7 +14,6 @@
 #include "buffer.hpp"
 #include "descriptors.hpp"
 #include "deviceHelpers.hpp"
-#include "swapChain.hpp"
 
 namespace vkh {
 const std::vector<const char *> validationLayers = {
@@ -56,15 +56,14 @@ debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 }
 void populateDebugMessengerCreateInfo(
     VkDebugUtilsMessengerCreateInfoEXT &createInfo) {
-  createInfo = {};
-  createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+  createInfo = {.sType =
+                    VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
   createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
                                VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
   createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                            VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                            VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
   createInfo.pfnUserCallback = debugCallback;
-  createInfo.pUserData = nullptr; // Optional
 }
 std::vector<const char *> getRequiredExtensions(EngineContext &context) {
   uint32_t glfwExtensionCount = 0;
@@ -110,7 +109,7 @@ void createInstance(EngineContext &context) {
   appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
   appInfo.pEngineName = "No Engine";
   appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-  appInfo.apiVersion = VK_API_VERSION_1_0;
+  appInfo.apiVersion = VK_API_VERSION_1_1;
 
   VkInstanceCreateInfo createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -242,8 +241,9 @@ void createLogicalDevice(EngineContext &context) {
     queueCreateInfos.push_back(queueCreateInfo);
   }
 
-  VkPhysicalDeviceFeatures deviceFeatures = {};
-  deviceFeatures.samplerAnisotropy = VK_TRUE;
+  VkPhysicalDeviceFeatures deviceFeatures = {.tessellationShader = VK_TRUE,
+                                             .fillModeNonSolid = VK_TRUE,
+                                             .samplerAnisotropy = VK_TRUE};
 
   VkDeviceCreateInfo createInfo = {};
   createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -307,35 +307,37 @@ std::string deviceTypeToString(VkPhysicalDeviceType type) {
   }
 }
 void displayInitInfo(EngineContext &context) {
-  fmt::print("{:=<60}\n", ""); // Table border
+  fmt::println("{:=<60}", ""); // Table border
 
   // Header row
-  fmt::print("{:<30} {:<25}\n", "Property", "Value");
-  fmt::print("{:-<60}\n", ""); // Divider
+  fmt::println("{:<30} {:<25}", "Property", "Value");
+  fmt::println("{:-<60}", ""); // Divider
 
   // Device Info
-  fmt::print("{:<30} {:<25}\n", "Selected GPU",
+  fmt::println("{:<30} {:<25}", "Selected GPU",
              context.vulkan.physicalDeviceProperties.deviceName);
-  fmt::print(
-      "{:<30} {}.{}.{}\n", "API Version",
+  fmt::println(
+      "{:<30} {}.{}.{}", "API Version",
       VK_VERSION_MAJOR(context.vulkan.physicalDeviceProperties.apiVersion),
       VK_VERSION_MINOR(context.vulkan.physicalDeviceProperties.apiVersion),
       VK_VERSION_PATCH(context.vulkan.physicalDeviceProperties.apiVersion));
 
-  fmt::print("{:=<60}\n", ""); // Table border
+  fmt::println("Max frames in flight: {}", context.vulkan.maxFramesInFlight);
+
+  fmt::println("{:=<60}", ""); // Table border
 }
 void setupGlobResources(EngineContext &context) {
   context.vulkan.globalDescriptorPool =
       DescriptorPool::Builder(context)
-          .setMaxSets(SwapChain::MAX_FRAMES_IN_FLIGHT + MAX_SAMPLERS)
+          .setMaxSets(context.vulkan.maxFramesInFlight + MAX_SAMPLERS)
           .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                       SwapChain::MAX_FRAMES_IN_FLIGHT + 90)
+                       context.vulkan.maxFramesInFlight + 90)
           .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_SAMPLERS)
           .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, MAX_STORAGE_IMAGES)
           .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_STORAGE_BUFFERS)
           .build();
 
-  context.vulkan.globalUBOs.resize(SwapChain::MAX_FRAMES_IN_FLIGHT);
+  context.vulkan.globalUBOs.resize(context.vulkan.maxFramesInFlight);
   for (int i = 0; i < context.vulkan.globalUBOs.size(); i++) {
     context.vulkan.globalUBOs[i] = std::make_unique<Buffer<GlobalUbo>>(
         context, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -349,7 +351,7 @@ void setupGlobResources(EngineContext &context) {
                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
           .build();
 
-  context.vulkan.globalDescriptorSets.resize(SwapChain::MAX_FRAMES_IN_FLIGHT);
+  context.vulkan.globalDescriptorSets.resize(context.vulkan.maxFramesInFlight);
   for (int i = 0; i < context.vulkan.globalDescriptorSets.size(); i++) {
     auto bufferInfo = context.vulkan.globalUBOs[i]->descriptorInfo();
     DescriptorWriter(*context.vulkan.globalDescriptorSetLayout,
@@ -365,8 +367,47 @@ void initVulkan(EngineContext &context) {
                           &context.vulkan.surface);
   pickPhysicalDevice(context);
   createLogicalDevice(context);
+
+  auto swapChainSupport = getSwapChainSupport(context);
+  uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+  if (swapChainSupport.capabilities.maxImageCount > 0 &&
+      imageCount > swapChainSupport.capabilities.maxImageCount) {
+    imageCount = swapChainSupport.capabilities.maxImageCount;
+  }
+  context.vulkan.maxFramesInFlight = imageCount;
+
+  context.vulkan.sceneDescriptorSetLayout =
+      DescriptorSetLayout::Builder(context)
+          .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                      VK_SHADER_STAGE_FRAGMENT_BIT)
+          .build();
+
   createCommandPool(context);
   displayInitInfo(context);
+
+  VkPhysicalDeviceProperties properties{};
+  vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice, &properties);
+
+  VkSamplerCreateInfo samplerInfo{};
+  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  samplerInfo.magFilter = VK_FILTER_LINEAR;
+  samplerInfo.minFilter = VK_FILTER_LINEAR;
+  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerInfo.anisotropyEnable = VK_TRUE;
+  samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
+  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+  samplerInfo.unnormalizedCoordinates = VK_FALSE;
+  samplerInfo.compareEnable = VK_FALSE;
+  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr,
+                      &context.vulkan.defaultSampler) != VK_SUCCESS) {
+    throw std::runtime_error("failed to create texture sampler!");
+  }
+
   setupGlobResources(context);
 }
 } // namespace vkh

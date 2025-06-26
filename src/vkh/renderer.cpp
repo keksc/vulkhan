@@ -33,7 +33,7 @@ void recreateSwapChain(EngineContext &context) {
 }
 
 void createCommandBuffers(EngineContext &context) {
-  commandBuffers.resize(SwapChain::MAX_FRAMES_IN_FLIGHT);
+  commandBuffers.resize(context.vulkan.maxFramesInFlight);
 
   VkCommandBufferAllocateInfo allocInfo{};
   allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -116,7 +116,7 @@ void endFrame(EngineContext &context) {
   }
 
   isFrameStarted = false;
-  currentFrameIndex = (currentFrameIndex + 1) % SwapChain::MAX_FRAMES_IN_FLIGHT;
+  currentFrameIndex = (currentFrameIndex + 1) % context.vulkan.maxFramesInFlight;
 }
 
 void beginSwapChainRenderPass(EngineContext &context,

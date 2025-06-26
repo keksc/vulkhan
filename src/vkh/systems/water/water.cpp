@@ -46,8 +46,6 @@ WaterSys::WaterSys(EngineContext &context, SkyboxSys &skyboxSys)
 
   createPipeline();
 
-  createStagingBuffer();
-
   createMesh();
 
   createRenderData();
@@ -63,11 +61,15 @@ void WaterSys::createPipeline() {
   pipelineInfo.layoutInfo.setLayoutCount = 2;
   pipelineInfo.layoutInfo.pSetLayouts = setLayouts;
   pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
+  pipelineInfo.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
+  // pipelineInfo.rasterizationInfo.polygonMode = VK_POLYGON_MODE_LINE;
   pipelineInfo.attributeDescriptions = Vertex::s_AttribDescriptions;
   pipelineInfo.bindingDescriptions = Vertex::s_BindingDescriptions;
-  pipeline = std::make_unique<GraphicsPipeline>(
-      context, "shaders/water/water.vert.spv", "shaders/water/water.frag.spv",
-      pipelineInfo);
+  pipelineInfo.vertpath = "shaders/water/water.vert.spv";
+  pipelineInfo.fragpath = "shaders/water/water.frag.spv";
+  pipelineInfo.tescpath = "shaders/water/water.tesc.spv";
+  pipelineInfo.tesepath = "shaders/water/water.tese.spv";
+  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
 }
 void WaterSys::createUniformBuffers(const uint32_t bufferCount) {
   const VkDeviceSize bufferSize =
@@ -105,79 +107,36 @@ std::unique_ptr<Image> createMap(EngineContext &context,
                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 }
 void WaterSys::createFrameMaps(VkCommandBuffer cmdBuffer) {
-  vkQueueWaitIdle(context.vulkan.graphicsQueue);
-
-  const uint32_t kSize = maxTileSize;
-
-  frameMap.displacementMap = createMap(context, cmdBuffer, kSize, mapFormat);
-  frameMap.normalMap = createMap(context, cmdBuffer, kSize, mapFormat);
+  frameMap.displacementMap =
+      createMap(context, cmdBuffer, modelTess.tileSize, mapFormat);
+  frameMap.normalMap =
+      createMap(context, cmdBuffer, modelTess.tileSize, mapFormat);
 }
-void WaterSys::updateFrameMaps(VkCommandBuffer cmd, FrameMapData &frame) {
-  VkDeviceSize stagingBufferOffset =
-      alignSizeTo(mesh->getVerticesSize() + mesh->getIndicesSize(),
-                  Image::getFormatSize(mapFormat));
-
+void WaterSys::recordUpdateFrameMaps(VkCommandBuffer cmd, FrameMapData &frame) {
   frame.displacementMap->recordTransitionLayout(
       cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   frame.displacementMap->recordCopyFromBuffer(
-      cmd, *stagingBuffer, static_cast<uint32_t>(stagingBufferOffset));
+      cmd, modelTess.getDisplacementsAndNormalsBuffer());
   frame.displacementMap->recordTransitionLayout(
       cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   const VkDeviceSize mapSize = Image::getFormatSize(mapFormat) *
                                frame.displacementMap->w *
                                frame.displacementMap->h;
-  stagingBufferOffset += mapSize;
 
   frame.normalMap->recordTransitionLayout(cmd,
                                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   frame.normalMap->recordCopyFromBuffer(
-      cmd, *stagingBuffer, static_cast<uint32_t>(stagingBufferOffset));
+      cmd, modelTess.getDisplacementsAndNormalsBuffer(), mapSize);
   frame.normalMap->recordTransitionLayout(
       cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 }
-void WaterSys::copyModelTessDataToStagingBuffer() {
-  assert(stagingBuffer != nullptr);
-
-  unsigned int tileSizeSquared =
-      modelTess.getTileSize() * modelTess.getTileSize();
-  const VkDeviceSize displacementsSize =
-      sizeof(WSTessendorf::Displacement) * tileSizeSquared;
-  const VkDeviceSize normalsSize =
-      sizeof(WSTessendorf::Normal) * tileSizeSquared;
-
-  // StagingBuffer layout:
-  //  ----------------------------------------------
-  // | Vertices | Indices | Displacements | Normals |
-  //  ----------------------------------------------
-  // mapped
-
-  VkDeviceSize offset;
-
-  auto cmd = beginSingleTimeCommands(context);
-  offset = alignSizeTo(mesh->getVerticesSize() + mesh->getIndicesSize(),
-                       Image::getFormatSize(mapFormat));
-  stagingBuffer->recordCopyFromBuffer(cmd, modelTess.getDisplacementsBuffer(),
-                                      displacementsSize, 0, offset);
-
-  offset += displacementsSize;
-
-  stagingBuffer->recordCopyFromBuffer(cmd, modelTess.getNormalsBuffer(),
-                                      normalsSize, 0, offset);
-
-  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
-  stagingBuffer->flush(getNonCoherentAtomSizeAlignment(
-      context, alignSizeTo(mesh->getVerticesSize() + mesh->getIndicesSize(),
-                           Image::getFormatSize(mapFormat)) +
-                   displacementsSize + normalsSize));
-}
-std::vector<WaterSys::Vertex>
-WaterSys::createGridVertices(const uint32_t tileSize, const float scale) {
+std::vector<WaterSys::Vertex> WaterSys::createGridVertices() {
   std::vector<Vertex> vertices;
 
-  vertices.reserve(getTotalVertexCount(tileSize));
+  vertices.reserve(totalVertexCount);
 
-  const int32_t halfSize = tileSize / 2;
+  const int32_t halfSize = tileResolution / 2;
 
   for (int32_t y = -halfSize; y <= halfSize; ++y) {
     for (int32_t x = -halfSize; x <= halfSize; ++x) {
@@ -187,40 +146,34 @@ WaterSys::createGridVertices(const uint32_t tileSize, const float scale) {
                     0.0f,                  // y
                     static_cast<float>(y)  // z
                     ) *
-              scale,
+              vertexDistance,
           // Texcoords
           glm::vec2(static_cast<float>(x + halfSize), // u
                     static_cast<float>(y + halfSize)  // v
                     ) /
-              static_cast<float>(tileSize));
+              static_cast<float>(tileResolution));
     }
   }
 
   return vertices;
 }
 
-std::vector<uint32_t> WaterSys::createGridIndices(const uint32_t tileSize) {
-  const uint32_t vertexCount = tileSize + 1;
-
+std::vector<uint32_t> WaterSys::createGridIndices() {
+  const uint32_t vertexCount = tileResolution + 1;
   std::vector<uint32_t> indices;
-  indices.reserve(getTotalIndexCount(vertexCount * vertexCount));
-
-  for (uint32_t y = 0; y < tileSize; ++y) {
-    for (uint32_t x = 0; x < tileSize; ++x) {
-      const uint32_t kVertexIndex = y * vertexCount + x;
-
-      // Top triangle
-      indices.emplace_back(kVertexIndex);
-      indices.emplace_back(kVertexIndex + vertexCount);
-      indices.emplace_back(kVertexIndex + 1);
-
-      // Bottom triangle
-      indices.emplace_back(kVertexIndex + 1);
-      indices.emplace_back(kVertexIndex + vertexCount);
-      indices.emplace_back(kVertexIndex + vertexCount + 1);
+  indices.reserve(tileResolution * tileResolution * 4); // 4 indices per quad
+  for (uint32_t y = 0; y < tileResolution; ++y) {
+    for (uint32_t x = 0; x < tileResolution; ++x) {
+      uint32_t v0 = y * vertexCount + x;
+      uint32_t v1 = y * vertexCount + (x + 1);
+      uint32_t v2 = (y + 1) * vertexCount + (x + 1);
+      uint32_t v3 = (y + 1) * vertexCount + x;
+      indices.push_back(v0);
+      indices.push_back(v1);
+      indices.push_back(v2);
+      indices.push_back(v3);
     }
   }
-
   return indices;
 }
 void WaterSys::updateDescriptorSet(VkDescriptorSet set) {
@@ -229,7 +182,6 @@ void WaterSys::updateDescriptorSet(VkDescriptorSet set) {
   bufferInfos[0].buffer = *uniformBuffers[context.frameInfo.frameIndex];
   bufferInfos[0].offset = 0;
   bufferInfos[0].range = sizeof(VertexUBO);
-
   bufferInfos[1].buffer = *uniformBuffers[context.frameInfo.frameIndex];
   bufferInfos[1].offset = getUniformBufferAlignment(context, sizeof(VertexUBO));
   bufferInfos[1].range = sizeof(WaterSurfaceUBO);
@@ -248,12 +200,11 @@ void WaterSys::updateDescriptorSet(VkDescriptorSet set) {
 
   DescriptorWriter descriptorWriter(*descriptorSetLayout,
                                     *context.vulkan.globalDescriptorPool);
-  uint32_t binding = 0;
 
-  descriptorWriter.writeBuffer(binding++, &bufferInfos[0])
-      .writeBuffer(binding++, &bufferInfos[1])
-      .writeImage(binding++, &imageInfos[0])
-      .writeImage(binding++, &imageInfos[1]);
+  descriptorWriter.writeBuffer(0, &bufferInfos[0])
+      .writeBuffer(1, &bufferInfos[1])
+      .writeImage(2, &imageInfos[0])
+      .writeImage(3, &imageInfos[1]);
 
   descriptorWriter.overwrite(set);
 }
@@ -274,9 +225,8 @@ void WaterSys::prepare() {
   // Do one pass to initialize the maps
   vertexUBO.WSHeightAmp =
       modelTess.computeWaves(static_cast<float>(glfwGetTime()) * animSpeed);
-  copyModelTessDataToStagingBuffer();
 
-  updateFrameMaps(cmd, frameMap);
+  recordUpdateFrameMaps(cmd, frameMap);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 }
 
@@ -285,22 +235,20 @@ void WaterSys::update() {
   vertexUBO.view = context.camera.viewMatrix;
   vertexUBO.proj = context.camera.projectionMatrix;
 
-  vertexUBO.WSChoppy = modelTess.getDisplacementLambda();
+  vertexUBO.WSChoppy = modelTess.lambda;
 
   waterSurfaceUBO.camPos = context.camera.position;
-  waterSurfaceUBO.invModelView = glm::inverse(context.camera.viewMatrix);
 
   updateUniformBuffer();
   // UpdateMeshBuffers(device, cmdBuffer);
   updateDescriptorSet(descriptorSets[context.frameInfo.frameIndex]);
   if (playAnimation) {
-    updateFrameMaps(context.frameInfo.cmd, frameMap);
+    recordUpdateFrameMaps(context.frameInfo.cmd, frameMap);
     // auto cmd = beginSingleTimeCommands(context);
     // vkCmdDispatch(cmd, 16, 16, 1);
     // endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
     vertexUBO.WSHeightAmp =
         modelTess.computeWaves(static_cast<float>(glfwGetTime()) * animSpeed);
-    copyModelTessDataToStagingBuffer();
   }
 }
 
@@ -320,51 +268,32 @@ void WaterSys::render() {
 
 void WaterSys::createDescriptorSetLayout() {
   uint32_t bindingPoint = 0;
-
   descriptorSetLayout =
       DescriptorSetLayout::Builder(context)
           // VertexUBO
           .addBinding(bindingPoint++, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                      VK_SHADER_STAGE_VERTEX_BIT)
+                      VK_SHADER_STAGE_VERTEX_BIT |
+                          VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT |
+                          VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
           // WaterSurfaceUBO
           .addBinding(bindingPoint++, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                      VK_SHADER_STAGE_FRAGMENT_BIT)
+                      VK_SHADER_STAGE_FRAGMENT_BIT |
+                          VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT |
+                          VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
           // Displacement map
           .addBinding(bindingPoint++, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                      VK_SHADER_STAGE_VERTEX_BIT)
+                      VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
           // Normal map
           .addBinding(bindingPoint++, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                      VK_SHADER_STAGE_VERTEX_BIT)
+                      VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
           .build();
 }
 
 void WaterSys::createMesh() {
-  const VkDeviceSize kMaxVerticesSize = sizeof(Vertex) * getMaxVertexCount();
-  const VkDeviceSize kMaxIndicesSize = sizeof(uint32_t) * getMaxIndexCount();
-
-  std::vector<Vertex> vertices =
-      createGridVertices(tileSize, m_VertexDistance);
-  std::vector<uint32_t> indices = createGridIndices(tileSize);
+  std::vector<Vertex> vertices = createGridVertices();
+  std::vector<uint32_t> indices = createGridIndices();
 
   SceneCreateInfo<Vertex> meshInfo{.vertices = vertices, .indices = indices};
   mesh = std::make_unique<Scene<Vertex>>(context, meshInfo);
-}
-
-void WaterSys::createStagingBuffer() {
-  const VkDeviceSize verticesSize =
-      sizeof(Vertex) * getTotalVertexCount(tileSize);
-  const VkDeviceSize indicesSize =
-      sizeof(uint32_t) * getTotalIndexCount(getTotalVertexCount(tileSize));
-  const VkDeviceSize mapSize =
-      Image::getFormatSize(mapFormat) * tileSize * tileSize;
-  const VkDeviceSize totalSize = alignSizeTo(verticesSize + indicesSize,
-                                             Image::getFormatSize(mapFormat)) +
-                                 (mapSize * 2);
-
-  stagingBuffer = std::make_unique<Buffer<std::byte>>(
-      context,
-      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, totalSize);
-  stagingBuffer->map();
 }
 } // namespace vkh

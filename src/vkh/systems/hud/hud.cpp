@@ -13,12 +13,18 @@
 
 namespace vkh {
 void HudSys::createBuffers() {
-  vertexBuffer = std::make_unique<Buffer<hud::SolidColorVertex>>(context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, maxVertexCount);
+  vertexBuffer = std::make_unique<Buffer<hud::SolidColorVertex>>(
+      context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      maxVertexCount);
   vertexBuffer->map();
 
-  indexBuffer = std::make_unique<Buffer<uint32_t>>(context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, maxIndexCount);
+  indexBuffer = std::make_unique<Buffer<uint32_t>>(
+      context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      maxIndexCount);
   indexBuffer->map();
 }
 
@@ -31,9 +37,9 @@ void HudSys::createPipeline() {
   pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.attributeDescriptions = attributeDescriptions;
   pipelineInfo.bindingDescriptions = bindingDescriptions;
-  pipeline = std::make_unique<GraphicsPipeline>(
-      context, "shaders/solidColor.vert.spv", "shaders/solidColor.frag.spv",
-      pipelineInfo);
+  pipelineInfo.vertpath = "shaders/solidColor.vert.spv";
+  pipelineInfo.fragpath = "shaders/solidColor.frag.spv";
+  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
 }
 HudSys::HudSys(EngineContext &context)
     : System(context), textSys(context), linesSys(context) {
@@ -87,12 +93,12 @@ void HudSys::render() {
 
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
-  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers,
-                         offsets);
+  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers, offsets);
   vkCmdBindIndexBuffer(context.frameInfo.cmd, *indexBuffer, 0,
                        VK_INDEX_TYPE_UINT32);
   vkCmdDrawIndexed(context.frameInfo.cmd,
-                   static_cast<uint32_t>(drawInfo.solidColorIndices.size()), 1, 0, 0, 0);
+                   static_cast<uint32_t>(drawInfo.solidColorIndices.size()), 1,
+                   0, 0, 0);
 
   textSys.render(drawInfo.textIndices.size());
 } // namespace hudSys
