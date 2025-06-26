@@ -15,72 +15,22 @@
 #include <vkFFT.h>
 
 namespace vkh {
-/**
- * @brief Generates data used for rendering the water surface
- *  - displacements
- *      horizontal displacements along with vertical displacement = height,
- *  - normals
- *  Based on: Jerry Tessendorf. Simulating Ocean Water. 1999.
- *
- * Assumptions:
- *  1) Size of a tile (patch) of the surface is a power of two:
- *      size = size_X = size_Z
- *  2) A tile is a uniform grid of points and waves, number of points
- *      on the grid is same as the number of waves, and it is
- *      a power of two. Commonly used sizes: 256 or 512
- */
 class WSTessendorf : public System {
 public:
-  static inline const glm::vec2 defaultWindDir{1.0f, 1.0f};
-  static constexpr float defaultWindSpeed{20.0f};
-  static constexpr float defaultAnimPeriod{200.0f};
-  static constexpr float defaultPhillipsConst{3e-7f};
-  static constexpr float defaultPhillipsDamping{0.1f};
-
-  // Both vec4 due to GPU memory alignment requirements
-  using Displacement = glm::vec4;
-  using Normal = glm::vec4;
-
-  /**
-   * @brief Sets up the surface's properties.
-   *  1. Call "Prepare()" to setup necessary structures for computation of waves
-   *  2. Call "ComputeWaves()" fnc.
-   * @param tileSize Size of the tile, is the number of points and waves,
-   *  must be power of two
-   * @param tileLength Length of tile, or wave length
-   */
   WSTessendorf(EngineContext &context);
   ~WSTessendorf();
 
   float computeWaves(float time);
 
-  // ---------------------------------------------------------------------
-  // Getters
+  // has to be a power of 2
+  const unsigned int tileSize = 512;
+  const unsigned int tileSizeSquared = tileSize * tileSize;
+  const float tileLength = 1000.0f;
 
-  auto getTileSize() const { return tileSize; }
-  auto getTileLength() const { return m_TileLength; }
-  auto getWindDir() const { return m_WindDir; }
-  auto getWindSpeed() const { return m_WindSpeed; }
-  auto getAnimationPeriod() const { return m_AnimationPeriod; }
-  auto getPhillipsConst() const { return m_A; }
-  auto getDamping() const { return m_Damping; }
-  auto getDisplacementLambda() const { return m_Lambda; }
-
-  Buffer<Displacement>& getDisplacementsBuffer() { return *displacements; }
-  Buffer<Normal>& getNormalsBuffer() { return *normals; }
-  // ---------------------------------------------------------------------
-  // Setters
-
-  /** @param w Unit vector - direction of wind blowing */
-  void SetWindDirection(const glm::vec2 &w);
-
-  void SetAnimationPeriod(float T);
-
-  /** @param lambda Importance of displacement vector */
-  void SetLambda(float lambda);
-
-  /** @param Damping Suppresses wave lengths smaller that its value */
-  void SetDamping(float damping);
+  Buffer<glm::vec4> &getDisplacementsAndNormalsBuffer() {
+    return *displacementsAndNormals;
+  }
+  float lambda{-1.0f}; ///< Importance of displacement vector
 
 private:
   struct WaveVector {
@@ -104,63 +54,19 @@ private:
                 "BaseWaveHeight must match std430!");
 
   void computeWaveVectors(std::vector<WaveVector> &waveVecs);
-  std::vector<std::complex<float>> ComputeGaussRandomArray() const;
-  std::vector<BaseWaveHeight> computeBaseWaveHeightField(
-      const std::vector<WaveVector> waveVectors,
-      const std::vector<std::complex<float>> &gaussRandomArray) const;
+  // std::vector<BaseWaveHeight> computeBaseWaveHeightField(
+  //     const std::vector<WaveVector> waveVectors) const;
 
-  // ---------------------------------------------------------------------
-  // Properties
-
-  const uint32_t tileSize = 512;
-  const uint32_t tileSizeSquared = tileSize * tileSize;
-  const float m_TileLength = 1000.0f;
-
-  glm::vec2 m_WindDir; ///< Unit vector
-  float m_WindSpeed;
+  glm::vec2 m_WindDir = glm::vec2(.7071067812f); ///< Unit vector
+  float m_WindSpeed{50.0f};
 
   // Phillips spectrum
-  const float m_A = 3e-7f;
-  float m_Damping;
+  float m_Damping{0.1f};
 
   float m_AnimationPeriod;
   float m_BaseFreq{1.0f};
 
-  float m_Lambda{-1.0f}; ///< Importance of displacement vector
-
 private:
-  static constexpr float s_kG{9.81}; ///< Gravitational constant
-  static constexpr float s_kOneOver2sqrt{0.7071067812};
-
-  /**
-   * @brief Realization of water wave height field in fourier domain
-   * @return Fourier amplitudes of a wave height field
-   */
-  std::complex<float> BaseWaveHeightFT(const std::complex<float> gaussRandom,
-                                       const glm::vec2 unitWaveVec,
-                                       float k) const {
-    return s_kOneOver2sqrt * gaussRandom *
-           glm::sqrt(PhillipsSpectrum(unitWaveVec, k));
-  }
-
-  /**
-   * @brief Phillips spectrum - wave spectrum,
-   *  a model for wind-driven waves larger than capillary waves
-   */
-  float PhillipsSpectrum(const glm::vec2 unitWaveVec, float k) const {
-    const float k2 = k * k;
-    const float k4 = k2 * k2;
-
-    float cosFact = glm::dot(unitWaveVec, m_WindDir);
-    cosFact = cosFact * cosFact;
-
-    const float L = m_WindSpeed * m_WindSpeed / s_kG;
-    const float L2 = L * L;
-
-    return m_A * glm::exp(-1.0f / (k2 * L2)) / k4 * cosFact *
-           glm::exp(-k2 * m_Damping * m_Damping);
-  }
-
   static std::complex<float> WaveHeightFT(const BaseWaveHeight &waveHeight,
                                           const float t) {
     const float omega_t = waveHeight.dispersion * t;
@@ -173,51 +79,9 @@ private:
            waveHeight.heightAmp_conj * std::complex<float>(pcos, -psin);
   }
 
-  // --------------------------------------------------------------------
-
-  /**
-   * @brief Computes quantization of the dispersion surface
-   *  - of the frequencies of dispersion relation
-   * @param k Magnitude of wave vector
-   */
-  inline float QDispersion(float k) const {
-    return glm::floor(DispersionDeepWaves(k) / m_BaseFreq) * m_BaseFreq;
-  }
-
-  /**
-   * @brief Dispersion relation for deep water, where the bottom may be
-   *  ignored
-   * @param k Magnitude of wave vector
-   */
-  inline float DispersionDeepWaves(float k) const {
-    return glm::sqrt(s_kG * k);
-  }
-
-  /**
-   * @brief Dispersion relation for waves where the bottom is relatively
-   *  shallow compared to the length of the waves
-   * @param k Magnitude of wave vector
-   * @param D Depth below the mean water level
-   */
-  inline float DispersionTransWaves(float k, float D) const {
-    return glm::sqrt(s_kG * k * glm::tanh(k * D));
-  }
-
-  /**
-   * @brief Dispersion relation for very small waves, i.e., with
-   *  wavelength of about >1 cm
-   * @param k Magnitude of wave vector
-   * @param L wavelength
-   */
-  inline float DispersionSmallWaves(float k, float L) const {
-    return glm::sqrt(s_kG * k * (1 + k * k * L * L));
-  }
-
   std::unique_ptr<Buffer<std::complex<float>>> FFTData;
   std::unique_ptr<Buffer<BaseWaveHeight>> baseWaveHeightField;
   std::unique_ptr<Buffer<WaveVector>> waveVectors;
-  std::unique_ptr<Buffer<Displacement>> displacements;
-  std::unique_ptr<Buffer<Normal>> normals;
   std::unique_ptr<DescriptorSetLayout> preFFTSetLayout;
   VkDescriptorSet preFFTSet;
   std::unique_ptr<DescriptorSetLayout> postFFTSetLayout;
@@ -267,5 +131,8 @@ private:
 
   std::unique_ptr<ComputePipeline> updatePipeline;
   std::unique_ptr<ComputePipeline> normalizePipeline;
+
+  VkCommandBuffer preRecordedCmdBuffer{};
+  std::unique_ptr<Buffer<glm::vec4>> displacementsAndNormals;
 };
 } // namespace vkh

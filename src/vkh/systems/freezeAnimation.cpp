@@ -40,11 +40,14 @@ void FreezeAnimationSys::createPipeline() {
   GraphicsPipeline::enableAlphaBlending(pipelineInfo);
   pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.layoutInfo = pipelineLayoutInfo;
-  pipeline = std::make_unique<GraphicsPipeline>(
-      context, "shaders/freezeAnimation.vert.spv",
-      "shaders/freezeAnimation.frag.spv", pipelineInfo);
+  pipelineInfo.vertpath = "shaders/freezeAnimation.vert.spv";
+  pipelineInfo.fragpath = "shaders/freezeAnimation.frag.spv";
+  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
 }
-FreezeAnimationSys::FreezeAnimationSys(EngineContext &context) : System(context) { createPipeline(); }
+FreezeAnimationSys::FreezeAnimationSys(EngineContext &context)
+    : System(context) {
+  createPipeline();
+}
 
 void FreezeAnimationSys::render() {
   pipeline->bind(context.frameInfo.cmd);

@@ -244,7 +244,7 @@ void Image::createImageFromData(void *pixels, const size_t dataSize) {
 }
 Image::Image(EngineContext &context, void *data, size_t dataSize)
     : context{context} {
-  format = VK_FORMAT_R8G8B8A8_UNORM;
+  format = VK_FORMAT_R8G8B8A8_SRGB;
   int aw, ah, texChannels;
   stbi_uc *pixels = stbi_load_from_memory((const stbi_uc *)data, dataSize, &aw,
                                           &ah, &texChannels, STBI_rgb_alpha);
@@ -323,6 +323,7 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     vkAllocateMemory(context.vulkan.device, &memAllocInfo, nullptr,
                      &memory);
     vkBindImageMemory(context.vulkan.device, img, memory, 0);
+    layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VkCommandBuffer cmd = beginSingleTimeCommands(context);
 

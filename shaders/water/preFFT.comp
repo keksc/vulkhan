@@ -30,7 +30,7 @@ layout(std430, binding = 2) buffer WaveVectorsIn {
   WaveVector waveVectors[];
 };
 
-const uint tileSize = 512;
+#include "constants.glsl"
 
 vec2 cmul(vec2 a, vec2 b) {
   return vec2(a.x*b.x-a.y*b.y, a.x*b.y+b.x*a.y);

@@ -40,8 +40,8 @@ void WSTessendorf::createDescriptors() {
                                      VK_SHADER_STAGE_COMPUTE_BIT)
                          .build();
   VkDescriptorBufferInfo postFFTDescriptorInfos[] = {
-      FFTData->descriptorInfo(), displacements->descriptorInfo(),
-      normals->descriptorInfo()};
+      FFTData->descriptorInfo(), displacementsAndNormals->descriptorInfo(),
+      displacementsAndNormals->descriptorInfo()};
   DescriptorWriter(*postFFTSetLayout, *context.vulkan.globalDescriptorPool)
       .writeBuffer(0, &postFFTDescriptorInfos[0])
       .writeBuffer(1, &postFFTDescriptorInfos[1])
@@ -73,7 +73,8 @@ void WSTessendorf::createDescriptors() {
 
   // Create reduction descriptor sets
   VkDescriptorBufferInfo reductionInfos0[] = {
-      displacements->descriptorInfo(), minReductionBuffer0->descriptorInfo(),
+      displacementsAndNormals->descriptorInfo(),
+      minReductionBuffer0->descriptorInfo(),
       maxReductionBuffer0->descriptorInfo()};
   DescriptorWriter(*reductionSetLayout0, *context.vulkan.globalDescriptorPool)
       .writeBuffer(0, &reductionInfos0[0])
@@ -140,8 +141,8 @@ void WSTessendorf::createDescriptors() {
                       VK_SHADER_STAGE_COMPUTE_BIT) // scaleBuffer
           .build();
 
-  VkDescriptorBufferInfo normalizeInfos[] = {displacements->descriptorInfo(),
-                                             scaleBuffer->descriptorInfo()};
+  VkDescriptorBufferInfo normalizeInfos[] = {
+      displacementsAndNormals->descriptorInfo(), scaleBuffer->descriptorInfo()};
   DescriptorWriter(*normalizeSetLayout, *context.vulkan.globalDescriptorPool)
       .writeBuffer(0, &normalizeInfos[0])
       .writeBuffer(1, &normalizeInfos[1])
@@ -171,23 +172,15 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
       tileSizeSquared);
 
-  displacements = std::make_unique<Buffer<Displacement>>(
+  displacementsAndNormals = std::make_unique<Buffer<glm::vec4>>(
       context,
       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-      tileSizeSquared);
-
-  normals = std::make_unique<Buffer<Normal>>(
-      context,
-      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-      tileSizeSquared);
+      tileSizeSquared * 2);
 
   // Initialize reduction buffers
-  const uint32_t reductionSize0 =
-      tileSizeSquared / 256; // 1024 for tileSize=512
+  const uint32_t reductionSize0 = tileSizeSquared / 256;
   minReductionBuffer0 = std::make_unique<Buffer<float>>(
       context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, reductionSize0);
@@ -195,7 +188,7 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
       context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, reductionSize0);
 
-  const uint32_t reductionSize1 = reductionSize0 / 256; // 4
+  const uint32_t reductionSize1 = reductionSize0 / 256;
   minReductionBuffer1 = std::make_unique<Buffer<float>>(
       context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, reductionSize1);
@@ -270,21 +263,21 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
 
   createDescriptors();
 
-  VkPipelineLayoutCreateInfo layoutInfo{};
-  layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  layoutInfo.setLayoutCount = 1;
-  layoutInfo.pSetLayouts = *preFFTSetLayout;
+  VkPipelineLayoutCreateInfo FFTLayoutInfo{};
+  FFTLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  FFTLayoutInfo.setLayoutCount = 1;
+  FFTLayoutInfo.pSetLayouts = *preFFTSetLayout;
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.size = sizeof(PushConstantData);
   pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-  layoutInfo.pushConstantRangeCount = 1;
-  layoutInfo.pPushConstantRanges = &pushConstantRange;
+  FFTLayoutInfo.pushConstantRangeCount = 1;
+  FFTLayoutInfo.pPushConstantRanges = &pushConstantRange;
   preFFTPipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/water/preFFT.comp.spv", layoutInfo);
+      context, "shaders/water/preFFT.comp.spv", FFTLayoutInfo);
 
-  layoutInfo.pSetLayouts = *postFFTSetLayout;
+  FFTLayoutInfo.pSetLayouts = *postFFTSetLayout;
   postFFTPipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/water/postFFT.comp.spv", layoutInfo);
+      context, "shaders/water/postFFT.comp.spv", FFTLayoutInfo);
 
   // Create reduction pipelines
   VkPushConstantRange reductionPushConstant{};
@@ -323,23 +316,34 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   normalizePipeline = std::make_unique<ComputePipeline>(
       context, "shaders/water/normalize.comp.spv", normalizeLayoutInfo);
 
-  SetWindDirection(defaultWindDir);
-  m_WindSpeed = glm::max(0.0001f, defaultWindSpeed);
-  SetAnimationPeriod(defaultAnimPeriod);
-  SetDamping(defaultPhillipsDamping);
+  VkPipelineLayoutCreateInfo baseWaveHeightFieldLayoutInfo{};
+  baseWaveHeightFieldLayoutInfo.sType =
+      VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  baseWaveHeightFieldLayoutInfo.setLayoutCount = 1;
+  baseWaveHeightFieldLayoutInfo.pSetLayouts = *preFFTSetLayout;
+  ComputePipeline baseWaveHeightFieldPipeline(
+      context, "shaders/water/baseWaveHeightField.comp.spv",
+      baseWaveHeightFieldLayoutInfo);
+
+  // SetWindDirection(defaultWindDir);
+  // m_WindSpeed = glm::max(0.0001f, defaultWindSpeed);
+  // SetAnimationPeriod(200.f);
 
   std::vector<WaveVector> waveVecs;
   computeWaveVectors(waveVecs);
-  std::vector<std::complex<float>> gaussRandomArr = ComputeGaussRandomArray();
-
-  baseWaveHeightField->map();
-  baseWaveHeightField->write(
-      computeBaseWaveHeightField(waveVecs, gaussRandomArr).data());
-  baseWaveHeightField->unmap();
-
   waveVectors->map();
   waveVectors->write(waveVecs.data());
   waveVectors->unmap();
+
+  auto cmd = beginSingleTimeCommands(context);
+  baseWaveHeightFieldPipeline.bind(cmd);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, baseWaveHeightFieldPipeline, 0, 1, &preFFTSet, 0, nullptr);
+  vkCmdDispatch(cmd, tileSize/16, tileSize/16, 1);
+  endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
+
+  // baseWaveHeightField->map();
+  // baseWaveHeightField->write(computeBaseWaveHeightField(waveVecs).data());
+  // baseWaveHeightField->unmap();
 }
 
 WSTessendorf::~WSTessendorf() {
@@ -353,52 +357,41 @@ void WSTessendorf::computeWaveVectors(std::vector<WaveVector> &waveVecs) {
   for (int32_t m = 0; m < tileSize; ++m) {
     for (int32_t n = 0; n < tileSize; ++n) {
       waveVecs.emplace_back(
-          glm::vec2(glm::pi<float>() * (2.0f * n - tileSize) / m_TileLength,
-                    glm::pi<float>() * (2.0f * m - tileSize) / m_TileLength));
+          glm::vec2(glm::pi<float>() * (2.0f * n - tileSize) / tileLength,
+                    glm::pi<float>() * (2.0f * m - tileSize) / tileLength));
     }
   }
 }
 
-std::vector<std::complex<float>> WSTessendorf::ComputeGaussRandomArray() const {
-  std::vector<std::complex<float>> randomArr(tileSizeSquared);
-  for (int m = 0; m < tileSize; ++m)
-    for (int n = 0; n < tileSize; ++n) {
-      randomArr[m * tileSize + n] = std::complex<float>(
-          glm::gaussRand(0.0f, 1.0f), glm::gaussRand(0.0f, 1.0f));
-    }
-  return randomArr;
-}
-
-std::vector<WSTessendorf::BaseWaveHeight>
-WSTessendorf::computeBaseWaveHeightField(
-    const std::vector<WaveVector> waveVectors,
-    const std::vector<std::complex<float>> &gaussRandomArray) const {
-  std::vector<WSTessendorf::BaseWaveHeight> baseWaveHeights(tileSize *
-                                                            tileSize);
-  assert(waveVectors.size() == baseWaveHeights.size());
-  assert(baseWaveHeights.size() == gaussRandomArray.size());
-
-  for (uint32_t m = 0; m < tileSize; ++m) {
-    for (uint32_t n = 0; n < tileSize; ++n) {
-      const uint32_t kIndex = m * tileSize + n;
-      const auto &kWaveVec = waveVectors[kIndex];
-      const float k = glm::length(kWaveVec.vec);
-      auto &h0 = baseWaveHeights[kIndex];
-      if (k > 0.00001f) {
-        const auto gaussRandom = gaussRandomArray[kIndex];
-        h0.heightAmp = BaseWaveHeightFT(gaussRandom, kWaveVec.unit, k);
-        h0.heightAmp_conj =
-            std::conj(BaseWaveHeightFT(gaussRandom, -kWaveVec.unit, k));
-        h0.dispersion = QDispersion(k);
-      } else {
-        h0.heightAmp = std::complex<float>(0);
-        h0.heightAmp_conj = std::conj(std::complex<float>(0));
-        h0.dispersion = 0.0f;
-      }
-    }
-  }
-  return baseWaveHeights;
-}
+// std::vector<WSTessendorf::BaseWaveHeight>
+// WSTessendorf::computeBaseWaveHeightField(
+//     const std::vector<WaveVector> waveVectors) const {
+//   std::vector<WSTessendorf::BaseWaveHeight> baseWaveHeights(tileSize *
+//                                                             tileSize);
+//   assert(waveVectors.size() == baseWaveHeights.size());
+//
+//   for (uint32_t m = 0; m < tileSize; ++m) {
+//     for (uint32_t n = 0; n < tileSize; ++n) {
+//       const uint32_t kIndex = m * tileSize + n;
+//       const auto &kWaveVec = waveVectors[kIndex];
+//       const float k = glm::length(kWaveVec.vec);
+//       auto &h0 = baseWaveHeights[kIndex];
+//       if (k > std::numeric_limits<float>::epsilon()) {
+//         const auto gaussRandom = std::complex<float>(
+//             glm::gaussRand(0.0f, 1.0f), glm::gaussRand(0.0f, 1.0f));
+      // h0.heightAmp = baseWaveHeightFT(gaussRandom, kWaveVec.unit, k);
+      // h0.heightAmp_conj =
+          // std::conj(baseWaveHeightFT(gaussRandom, -kWaveVec.unit, k));
+//       h0.dispersion = QDispersion(k);
+//     } else {
+//       h0.heightAmp = std::complex<float>(0);
+//       h0.heightAmp_conj = std::conj(std::complex<float>(0));
+//       h0.dispersion = 0.0f;
+//     }
+//   }
+//   }
+//   return baseWaveHeights;
+// }
 
 float WSTessendorf::computeWaves(float t) {
   auto cmd = beginSingleTimeCommands(context);
@@ -502,10 +495,6 @@ float WSTessendorf::computeWaves(float t) {
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                           normalizePipeline->getLayout(), 0, 1, &normalizeSet,
                           0, nullptr);
-  uint32_t tileSizeConst = tileSize;
-  vkCmdPushConstants(cmd, normalizePipeline->getLayout(),
-                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t),
-                     &tileSizeConst);
   vkCmdDispatch(cmd, (tileSize + 15) / 16, (tileSize + 15) / 16, 1);
 
   vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -525,14 +514,4 @@ float WSTessendorf::computeWaves(float t) {
   const float A = glm::max(glm::abs(minHeight), glm::abs(maxHeight));
   return A;
 }
-
-void WSTessendorf::SetWindDirection(const glm::vec2 &w) {
-  m_WindDir = glm::normalize(w);
-}
-void WSTessendorf::SetAnimationPeriod(float T) {
-  m_AnimationPeriod = T;
-  m_BaseFreq = 2.0f * glm::pi<float>() / m_AnimationPeriod;
-}
-void WSTessendorf::SetLambda(float lambda) { m_Lambda = lambda; }
-void WSTessendorf::SetDamping(float damping) { m_Damping = damping; }
 } // namespace vkh

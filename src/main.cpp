@@ -1,6 +1,6 @@
 #include "vkh/vulkhan.hpp"
 
-//#include <GameAnalytics/GameAnalytics.h>
+// #include <GameAnalytics/GameAnalytics.h>
 #include <fmt/format.h>
 
 #include <stdexcept>

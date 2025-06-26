@@ -22,15 +22,17 @@ void SolidColorSys::createBuffers() {
   vertexBuffer->map();
 }
 void SolidColorSys::createPipeline() {
-  PipelineCreateInfo pipelineConfig{};
-  GraphicsPipeline::enableAlphaBlending(pipelineConfig);
-  pipelineConfig.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-  pipelineConfig.renderPass = context.vulkan.swapChain->renderPass;
-  pipelineConfig.attributeDescriptions = Vertex::getAttributeDescriptions();
-  pipelineConfig.bindingDescriptions = Vertex::getBindingDescriptions();
+  PipelineCreateInfo pipelineInfo{};
+  GraphicsPipeline::enableAlphaBlending(pipelineInfo);
+  pipelineInfo.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+  pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
+  pipelineInfo.attributeDescriptions = Vertex::getAttributeDescriptions();
+  pipelineInfo.bindingDescriptions = Vertex::getBindingDescriptions();
+  pipelineInfo.vertpath = "shaders/lines.vert.spv";
+  pipelineInfo.fragpath = "shaders/lines.frag.spv";
   pipeline = std::make_unique<GraphicsPipeline>(
-      context, "shaders/lines.vert.spv", "shaders/lines.frag.spv",
-      pipelineConfig);
+      context, 
+      pipelineInfo);
 }
 SolidColorSys::SolidColorSys(EngineContext &context) : System(context) {
   createBuffers();
