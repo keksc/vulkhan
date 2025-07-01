@@ -11,7 +11,6 @@ pkgs.mkShell {
     vulkan-tools
     vulkan-headers
     glfw
-    fmt
     glm
     cmake
     glslang

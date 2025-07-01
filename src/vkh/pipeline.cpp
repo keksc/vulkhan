@@ -1,6 +1,5 @@
 #include "pipeline.hpp"
 
-#include <fmt/core.h>
 #include <vulkan/vulkan_core.h>
 
 #include <stdexcept>

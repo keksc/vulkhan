@@ -1,9 +1,7 @@
 #include "image.hpp"
-#include <fmt/core.h>
 #include <stdexcept>
 #include <vulkan/vulkan_core.h>
 
-#include <fmt/format.h>
 #define STB_IMAGE_IMPLEMENTATION
 #ifdef _WIN32
 #include <stb_image.h>
@@ -257,7 +255,7 @@ Image::Image(EngineContext &context, void *data, size_t dataSize)
   //     reinterpret_cast<ktx_uint8_t *>(data),
   //     reinterpret_cast<ktx_size_t>(dataSize),
   //     KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture);
-  // fmt::println("result = {}", (int)result);
+  // std::println("result = {}", (int)result);
   // assert(result == KTX_SUCCESS);
   // format = ktxTexture_GetVkFormat(texture);
   // w = texture->baseWidth;

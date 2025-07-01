@@ -3,5 +3,5 @@
 #include "engineContext.hpp"
 
 namespace vkh {
-  void cleanupVulkan(EngineContext& context);
+  void cleanup(EngineContext& context);
 }

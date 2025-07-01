@@ -3,5 +3,5 @@
 #include "engineContext.hpp"
 
 namespace vkh {
-  void initVulkan(EngineContext& context);
+  void init(EngineContext& context);
 }

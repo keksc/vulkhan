@@ -1,11 +1,10 @@
-#include "initVulkan.hpp"
+#include "init.hpp"
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-#include <fmt/core.h>
-#include <fmt/format.h>
 #include <vulkan/vulkan_core.h>
 
+#include <print>
 #include <set>
 #include <stdexcept>
 #include <unordered_set>
@@ -50,7 +49,7 @@ debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
               VkDebugUtilsMessageTypeFlagsEXT messageType,
               const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
               void *pUserData) {
-  fmt::println("validation layers: {}", pCallbackData->pMessage);
+  std::println("validation layers: {}", pCallbackData->pMessage);
 
   return VK_FALSE;
 }
@@ -307,24 +306,24 @@ std::string deviceTypeToString(VkPhysicalDeviceType type) {
   }
 }
 void displayInitInfo(EngineContext &context) {
-  fmt::println("{:=<60}", ""); // Table border
+  std::println("{:=<60}", ""); // Table border
 
   // Header row
-  fmt::println("{:<30} {:<25}", "Property", "Value");
-  fmt::println("{:-<60}", ""); // Divider
+  std::println("{:<30} {:<25}", "Property", "Value");
+  std::println("{:-<60}", ""); // Divider
 
   // Device Info
-  fmt::println("{:<30} {:<25}", "Selected GPU",
-             context.vulkan.physicalDeviceProperties.deviceName);
-  fmt::println(
+  std::println("{:<30} {:<25}", "Selected GPU",
+               context.vulkan.physicalDeviceProperties.deviceName);
+  std::println(
       "{:<30} {}.{}.{}", "API Version",
       VK_VERSION_MAJOR(context.vulkan.physicalDeviceProperties.apiVersion),
       VK_VERSION_MINOR(context.vulkan.physicalDeviceProperties.apiVersion),
       VK_VERSION_PATCH(context.vulkan.physicalDeviceProperties.apiVersion));
 
-  fmt::println("Max frames in flight: {}", context.vulkan.maxFramesInFlight);
+  std::println("Max frames in flight: {}", context.vulkan.maxFramesInFlight);
 
-  fmt::println("{:=<60}", ""); // Table border
+  std::println("{:=<60}", ""); // Table border
 }
 void setupGlobResources(EngineContext &context) {
   context.vulkan.globalDescriptorPool =
@@ -360,7 +359,7 @@ void setupGlobResources(EngineContext &context) {
         .build(context.vulkan.globalDescriptorSets[i]);
   }
 }
-void initVulkan(EngineContext &context) {
+void init(EngineContext &context) {
   createInstance(context);
   setupDebugMessenger(context);
   glfwCreateWindowSurface(context.vulkan.instance, context.window, nullptr,
