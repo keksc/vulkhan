@@ -1,6 +1,5 @@
 #include "hud.hpp"
 
-#include <fmt/format.h>
 #include <vulkan/vulkan_core.h>
 
 #include <memory>

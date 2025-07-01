@@ -11,8 +11,6 @@
 #include <glm/gtx/norm.hpp>
 #include <vulkan/vulkan_core.h>
 
-#include <fmt/format.h>
-
 #include <algorithm>
 #include <memory>
 

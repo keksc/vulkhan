@@ -3,7 +3,6 @@
 #include <glm/geometric.hpp>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -80,7 +79,7 @@ private:
   std::vector<VkDescriptorSet> descriptorSets;
   std::vector<std::unique_ptr<Buffer<std::byte>>> uniformBuffers;
   std::unique_ptr<GraphicsPipeline> pipeline;
-  std::unique_ptr<Scene<Vertex>> mesh;
+  std::unique_ptr<Scene<Vertex>> scene;
 
   WSTessendorf modelTess;
   FrameMapData frameMap;

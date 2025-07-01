@@ -1,10 +1,8 @@
 #include "entities.hpp"
-#include <fmt/core.h>
 #include <memory>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <fmt/format.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -96,7 +94,7 @@ void EntitySys::render() {
     auto &scene = entity.mesh;
     scene->bind(context, context.frameInfo.cmd, *pipeline);
 
-    for (auto &mesh : *scene) {
+    for (auto &mesh : scene->meshes) {
       // auto &mesh = *(scene->begin());
       PushConstantData push{};
       push.modelMatrix = entity.transform.mat4() * mesh.transform;

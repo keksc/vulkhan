@@ -3,7 +3,7 @@
 if(WIN32)
   include("$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
 endif()
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(GLFW_INCLUDE_VULKAN)
@@ -12,7 +12,6 @@ project("vulkhan")
 
 find_package(Vulkan REQUIRED)
 find_package(glfw3 3.3 REQUIRED)
-find_package(fmt REQUIRED)
 find_package(OpenAL REQUIRED)
 find_package(CURL REQUIRED)
 find_package(3rdparty/glslang)
@@ -28,7 +27,6 @@ include_directories(3rdparty/include PUBLIC
 link_libraries(
   Vulkan::Vulkan
   glfw
-  fmt::fmt
   OpenAL::OpenAL
   fastgltf::fastgltf
   # GameAnalytics
@@ -102,7 +100,7 @@ file(COPY "${PROJECT_SOURCE_DIR}/textures" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/flamegraph.sh" DESTINATION "${PROJECT_BINARY_DIR}")
 
 install(TARGETS vulkhan DESTINATION bin)
-install(IMPORTED_RUNTIME_ARTIFACTS fmt::fmt glfw DESTINATION bin)
+install(IMPORTED_RUNTIME_ARTIFACTS glfw DESTINATION bin)
 if(WIN32)
   install(FILES ${PROJECT_BINARY_DIR}/OpenAL32.dll DESTINATION bin)
 endif()

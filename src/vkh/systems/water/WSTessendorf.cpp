@@ -1,7 +1,5 @@
 #include "WSTessendorf.hpp"
 
-#include <cstring>
-#include <fmt/format.h>
 #include <vulkan/vulkan_core.h>
 
 #include <algorithm>
@@ -259,7 +257,7 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   VkFFTResult result = initializeVkFFT(&app, config);
   if (result)
     throw std::runtime_error(
-        fmt::format("couldnt init VkFFT, error {}", static_cast<int>(result)));
+        std::format("couldnt init VkFFT, error {}", static_cast<int>(result)));
 
   createDescriptors();
 

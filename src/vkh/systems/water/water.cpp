@@ -262,8 +262,8 @@ void WaterSys::render() {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
                           sets, 0, nullptr);
 
-  mesh->bind(context, context.frameInfo.cmd, *pipeline);
-  mesh->begin()->draw(context.frameInfo.cmd);
+  scene->bind(context, context.frameInfo.cmd, *pipeline);
+  scene->meshes[0].draw(context.frameInfo.cmd);
 }
 
 void WaterSys::createDescriptorSetLayout() {
@@ -294,6 +294,6 @@ void WaterSys::createMesh() {
   std::vector<uint32_t> indices = createGridIndices();
 
   SceneCreateInfo<Vertex> meshInfo{.vertices = vertices, .indices = indices};
-  mesh = std::make_unique<Scene<Vertex>>(context, meshInfo);
+  scene = std::make_unique<Scene<Vertex>>(context, meshInfo);
 }
 } // namespace vkh
