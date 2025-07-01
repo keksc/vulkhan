@@ -2,8 +2,6 @@
 
 #include <GLFW/glfw3.h>
 #include <algorithm>
-#include <fmt/core.h>
-#include <fmt/format.h>
 #include <glm/glm.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/string_cast.hpp>

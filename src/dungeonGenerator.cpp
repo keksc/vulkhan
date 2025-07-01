@@ -1,7 +1,5 @@
 #include "dungeonGenerator.hpp"
 
-#include <fmt/core.h>
-#include <fmt/format.h>
 #include <glm/glm.hpp>
 
 #include <memory>
@@ -49,14 +47,14 @@ void generateDungeon(vkh::EntitySys &entitySys) {
   //       c = 'H';
   //       break;
   //     }
-  //     fmt::print("{}", c);
+  //     std::print("{}", c);
   //   }
-  //   fmt::print("\n");
+  //   std::print("\n");
   // }
 
   auto westWingAssets = entitySys.createScene("models/westwingassets.glb");
   entitySys.entities.push_back(
-      {{.position = {0.f, 100.f, 0.f}, .scale = glm::vec3(.5f)},
+      {{.position = {0.f, 0.f, 0.f}, .scale = glm::vec3(1.f)},
        {},
        westWingAssets});
   // for (int x = 0; x < 10; x++) {

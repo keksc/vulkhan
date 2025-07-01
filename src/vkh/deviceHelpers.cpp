@@ -1,6 +1,5 @@
 #include "deviceHelpers.hpp"
 
-#include <fmt/format.h>
 #include <vulkan/vulkan_core.h>
 
 #include <fstream>

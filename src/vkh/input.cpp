@@ -3,8 +3,6 @@
 
 #include <GLFW/glfw3.h>
 #include <chrono>
-#include <fmt/core.h>
-#include <fmt/format.h>
 #include <glm/ext/vector_common.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/norm.hpp>

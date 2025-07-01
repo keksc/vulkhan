@@ -1,6 +1,5 @@
 #include "window.hpp"
 #include <GLFW/glfw3.h>
-#include <fmt/format.h>
 
 namespace vkh {
 void framebufferResizeCallback(GLFWwindow *window, int width, int height) {

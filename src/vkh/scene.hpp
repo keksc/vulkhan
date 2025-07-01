@@ -1,12 +1,10 @@
 #pragma once
 
-#include <fmt/core.h>
 #include <vulkan/vulkan_core.h>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <fastgltf/core.hpp>
 #include <fastgltf/glm_element_traits.hpp>
-#include <fmt/format.h>
 #include <glm/glm.hpp>
 
 #include "buffer.hpp"
@@ -15,7 +13,9 @@
 #include "image.hpp"
 
 #include <filesystem>
+#include <format>
 #include <memory>
+#include <print>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -92,14 +92,14 @@ public:
     auto gltfFile = fastgltf::GltfDataBuffer::FromPath(path);
     if (gltfFile.error() != fastgltf::Error::None) {
       throw std::runtime_error(
-          fmt::format("failed to load {}: {}", path.string(),
+          std::format("failed to load {}: {}", path.string(),
                       fastgltf::getErrorMessage(gltfFile.error())));
     }
     fastgltf::Parser parser;
     auto asset = parser.loadGltfBinary(gltfFile.get(), path.parent_path(),
                                        fastgltf::Options::None);
     if (asset.error() != fastgltf::Error::None) {
-      throw std::runtime_error(fmt::format(
+      throw std::runtime_error(std::format(
           "Failed to parse GLB: {}", fastgltf::getErrorMessage(asset.error())));
     }
     auto gltf = std::move(asset.get());
@@ -185,7 +185,7 @@ public:
           }
         }
         if (!primitive.materialIndex.has_value())
-          fmt::println("No material index, using default 0");
+          std::println("No material index, using default 0");
         newMesh.materialIndex = primitive.materialIndex.value_or(0);
       }
       uint32_t end = static_cast<uint32_t>(indices.size());
@@ -264,14 +264,9 @@ public:
   size_t getIndicesSize() const { return indexCount; }
   size_t getVerticesSize() const { return vertexCount; }
 
-  auto begin() { return meshes.begin(); }
-  auto end() { return meshes.end(); }
-  auto begin() const { return meshes.begin(); }
-  auto end() const { return meshes.end(); }
-
-private:
   std::vector<Mesh> meshes;
 
+private:
   void createBuffers(const std::vector<VertexType> &vertices,
                      const std::vector<uint32_t> &indices) {
     if (vertices.empty() || indices.empty()) {

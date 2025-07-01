@@ -1,4 +1,4 @@
-#include "cleanupVulkan.hpp"
+#include "cleanup.hpp"
 
 #include <vulkan/vulkan_core.h>
 
@@ -6,7 +6,7 @@
 #include "descriptors.hpp"
 
 namespace vkh {
-void cleanupVulkan(EngineContext &context) {
+void cleanup(EngineContext &context) {
   vkDestroySampler(context.vulkan.device, context.vulkan.defaultSampler,
                    nullptr);
   context.vulkan.sceneDescriptorSetLayout = nullptr;
