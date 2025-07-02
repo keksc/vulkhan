@@ -3,7 +3,9 @@
 #include "../../descriptors.hpp"
 #include "../../image.hpp"
 #include "../system.hpp"
-#include "hudElements.hpp"
+#include "elements/drawInfo.hpp"
+#include "elements/view.hpp"
+#include "elements/element.hpp"
 #include "solidColor.hpp"
 #include "text.hpp"
 
