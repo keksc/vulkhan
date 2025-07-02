@@ -58,7 +58,7 @@ private:
   void createGlyphs();
   void createSampler();
 
-  const int maxCharCount = 160;
+  const int maxCharCount = 1000;
   const int maxVertexCount = 4 * maxCharCount; // 4 vertices = 1 quad = 1 glyph
   const VkDeviceSize maxVertexSize = sizeof(Vertex) * maxVertexCount;
   const int maxIndexCount = maxCharCount * 6;

@@ -8,7 +8,6 @@
 #include "../../buffer.hpp"
 #include "../../pipeline.hpp"
 #include "../../swapChain.hpp"
-#include "hudElements.hpp"
 
 namespace vkh {
 HudSys::HudSys(EngineContext &context)

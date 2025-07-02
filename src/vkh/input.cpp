@@ -54,7 +54,7 @@ void doubleClickCallback(GLFWwindow *window) {
     pair.second();
 }
 void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
-  static std::chrono::system_clock::time_point lastClick{};
+  static std::chrono::high_resolution_clock::time_point lastClick{};
 
   if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
     if (std::chrono::high_resolution_clock::now() - lastClick <=
