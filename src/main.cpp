@@ -53,23 +53,13 @@ void updateParticles(vkh::EngineContext &context,
   }
 
   // Emitters
-  // particles.push_back(
-  //     {{},
-  //      glm::vec3{rand(rng), rand(rng), rand(rng)},
-  //      glm::normalize(glm::vec3{rand(rng), 1.f, rand(rng)} * 2.f - 1.f)
-  //      * 10.f, static_cast<float>(glfwGetTime()) + rand(rng) * 5.f + 2.f});
-
   for (int i = 0; i < 20; i++) {
-    vkh::ParticleSys::Particle newParticle{};
-    newParticle.pos = {0.f, 1.f,
-                       0.f}; //{3.f + rand(rng) * 0.5f, 10.f, rand(rng) * 0.5f};
-    newParticle.col = glm::vec3{.56f, .09f, .03f} + (rand(rng) - .5f) * .3f;
-    newParticle.velocity =
+    particleSys.particles.emplace_back(
+        glm::vec3{0.f, 1.f, 0.f},
+        glm::vec3{.56f, .09f, .03f} + (rand(rng) - .5f) * .3f,
         glm::normalize(glm::vec3{rand(rng) - 0.5f, 1.f, rand(rng) - 0.5f}) *
-        (5.f + rand(rng) * 5.f);
-    newParticle.timeOfDeath = glfwGetTime() + 2.f;
-
-    particleSys.particles.push_back(std::move(newParticle));
+            (5.f + rand(rng) * 5.f),
+        glfwGetTime() + 2.f);
   }
   particleSys.update();
 }
@@ -84,13 +74,6 @@ void run() {
     std::vector<vkh::EntitySys::Entity> entities;
     vkh::EntitySys entitySys(context, entities);
 
-    // auto manorcore = entitySys.createScene("models/manorcore.glb");
-    // entitySys.entities.push_back(
-    //     {{.position = {}, .scale = glm::vec3(1.f)}, {}, manorcore});
-    // auto env = entitySys.createScene("models/env.glb");
-    // entitySys.entities.push_back(
-    //     {{.position = {0.f, -25.f, 0.f}, .scale = glm::vec3(30.f)}, {},
-    //     env});
     generateDungeon(entitySys);
 
     vkh::ParticleSys particleSys(context);
@@ -184,7 +167,7 @@ void run() {
     //   auto rotateLight = glm::rotate(
     //       glm::mat4(1.f), (i * glm::two_pi<float>()) /
     //       lightColors.size(), {0.f, 1.f, 0.f});
-    //   particleSys.particles.push_back(
+    //   particleSys.particles.emplace_back(
     //       {.pos = rotateLight * glm::vec4(-1.f, -1.f, -1.f, 1.f),
     //        .col = glm::vec4(lightColors[i], 1.f),
     //        .velocity = {},

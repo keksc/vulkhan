@@ -17,7 +17,7 @@ std::vector<short> convertTo16Bit(const AudioFile<float> &audioFile) {
   std::vector<short> result;
   const auto &samples = audioFile.samples[0];
   for (float sample : samples) {
-    result.push_back(static_cast<short>(sample * 32767.0f));
+    result.emplace_back(static_cast<short>(sample * 32767.0f));
   }
   return result;
 }

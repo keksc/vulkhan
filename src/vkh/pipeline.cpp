@@ -38,17 +38,13 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
   VkShaderModule vertShaderModule = createShaderModule(context, vertCode);
   VkShaderModule fragShaderModule = createShaderModule(context, fragCode);
 
-  shaderStages.push_back(
-      {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-       .stage = VK_SHADER_STAGE_VERTEX_BIT,
-       .module = vertShaderModule,
-       .pName = "main"});
+  shaderStages.emplace_back(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                            nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT,
+                            vertShaderModule, "main", nullptr);
 
-  shaderStages.push_back(
-      {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-       .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-       .module = fragShaderModule,
-       .pName = "main"});
+  shaderStages.emplace_back(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                            nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT,
+                            fragShaderModule, "main", nullptr);
 
   // Optional tessellation
   VkShaderModule tescModule, teseModule;
@@ -60,17 +56,14 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
     tescModule = createShaderModule(context, tescCode);
     teseModule = createShaderModule(context, teseCode);
 
-    shaderStages.push_back(
-        {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-         .stage = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
-         .module = tescModule,
-         .pName = "main"});
+    shaderStages.emplace_back(
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+        VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, tescModule, "main", nullptr);
 
-    shaderStages.push_back(
-        {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-         .stage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
-         .module = teseModule,
-         .pName = "main"});
+    shaderStages.emplace_back(
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+        VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, teseModule, "main",
+        nullptr);
   }
 
   auto &bindingDescriptions = createInfo.bindingDescriptions;
@@ -121,6 +114,7 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
 
   pipelineInfo.basePipelineIndex = -1;
   pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+  pipelineInfo.flags = 0;
 
   if (vkCreateGraphicsPipelines(context.vulkan.device, VK_NULL_HANDLE, 1,
                                 &pipelineInfo, nullptr,
@@ -157,8 +151,11 @@ ComputePipeline::ComputePipeline(EngineContext &context,
                         .pName = "main"};
   pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
   pipelineInfo.layout = layout;
+
   pipelineInfo.basePipelineIndex = -1;
   pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+  pipelineInfo.flags = 0;
+
   if (vkCreateComputePipelines(context.vulkan.device, VK_NULL_HANDLE, 1,
                                &pipelineInfo, nullptr,
                                &pipeline) != VK_SUCCESS) {

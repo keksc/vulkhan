@@ -22,16 +22,16 @@ public:
     getAttributeDescriptions() {
       std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
 
-      attributeDescriptions.push_back(
-          {0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position)});
-      attributeDescriptions.push_back(
-          {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)});
+      attributeDescriptions.emplace_back(
+          0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position));
+      attributeDescriptions.emplace_back(
+          1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color));
 
       return attributeDescriptions;
     }
   };
 
-  void render(size_t lineVerticesSize, size_t triangleVerticesSize);
+  void render(size_t lineVerticesSize, size_t triangleIndicesSize);
 
   std::unique_ptr<Buffer<Vertex>> linesVertexBuffer;
   std::unique_ptr<Buffer<Vertex>> trianglesVertexBuffer;
@@ -50,6 +50,7 @@ private:
   const int maxTriangleIndexCount = 6 * maxRectCount;
   VkDeviceSize maxTriangleVertexSize = sizeof(Vertex) * maxTriangleVertexCount;
 
-  std::unique_ptr<GraphicsPipeline> pipeline;
+  std::unique_ptr<GraphicsPipeline> trianglePipeline;
+  std::unique_ptr<GraphicsPipeline> linesPipeline;
 };
 } // namespace vkh
