@@ -8,10 +8,14 @@
 #include "vkh/swapChain.hpp"
 #include "vkh/systems/entity/entities.hpp"
 #include "vkh/systems/freezeAnimation.hpp"
-#include "vkh/systems/hud/hud.hpp"
 #include "vkh/systems/particles.hpp"
 #include "vkh/systems/skybox.hpp"
 #include "vkh/window.hpp"
+
+#include "vkh/systems/hud/elements/button.hpp"
+#include "vkh/systems/hud/elements/canvas.hpp"
+#include "vkh/systems/hud/elements/slider.hpp"
+#include "vkh/systems/hud/hud.hpp"
 
 // #include <GameAnalytics/GameAnalytics.h>
 
@@ -88,17 +92,6 @@ void run() {
     auto canvas = canvasView.addElement<vkh::hud::Canvas>(
         glm::vec2{-1.f, -1.f}, glm::vec2{2.f, 2.f},
         glm::vec3{.22f, .05f, .04f});
-    canvas->lineColor = {.72f, .69f, .68f};
-    auto rSlider = canvas->addChild<vkh::hud::Slider>(
-        glm::vec2{}, glm::vec2{.5f}, glm::vec3{}, glm::vec3{.3f},
-        glm::vec2{0.f, 1.f}, canvas->lineColor.r);
-    auto gSlider = canvas->addChild<vkh::hud::Slider>(
-        glm::vec2{0.f, .5f}, glm::vec2{.5f}, glm::vec3{}, glm::vec3{.3f},
-        glm::vec2{0.f, 1.f}, canvas->lineColor.g);
-    auto bSlider = canvas->addChild<vkh::hud::Slider>(
-        glm::vec2{0.f, 1.f}, glm::vec2{.5f}, glm::vec3{}, glm::vec3{.3f},
-        glm::vec2{0.f, 1.f},
-        canvas->lineColor.b); // TODO: make these bitches display on the canvas
     auto rect = hudWorld.addElement<vkh::hud::Rect>(
         glm::vec2{-1.f, -1.f}, glm::vec2{.3f, .3f},
         glm::vec3{.678f, .007f, .388f});
@@ -147,11 +140,14 @@ void run() {
     //   glfwSetWindowShouldClose(context->window, GLFW_TRUE);
     // }
     vkh::hud::EventListener<&vkh::EngineContext::InputCallbackSystem::key>
-        canvasKeyListener(canvasView,
-                          [&](int key, int scancode, int action, int mods) {
-                            if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-                              hudSys.setView(&hudPause);
-                          });
+        canvasKeyListener(
+            canvasView, [&](int key, int scancode, int action, int mods) {
+              if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+                if (canvas->filePicker)
+                  return;
+                hudSys.setView(&hudPause);
+              }
+            });
     go2Canvas->addChild<vkh::hud::Text>(glm::vec2{}, "Go to canvas");
     hudSys.setView(&hudWorld);
 
@@ -188,10 +184,6 @@ void run() {
           std::chrono::duration<float, std::chrono::seconds::period>(
               newTime - currentTime)
               .count();
-
-      canvas->lineColor.r = rSlider->value;
-      canvas->lineColor.g = gSlider->value;
-      canvas->lineColor.b = bSlider->value;
 
       fpstxt->content =
           std::format("FPS: {}", static_cast<int>(1.f / frameTime));
