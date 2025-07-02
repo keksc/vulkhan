@@ -54,14 +54,8 @@ void generateDungeon(vkh::EntitySys &entitySys) {
   // }
 
   auto westWingAssets = entitySys.createScene("models/westwingassets.glb");
-  entitySys.entities.push_back(
-      {{.position = {0.f, 0.f, 0.f}, .scale = glm::vec3(1.f)},
-       {},
-       westWingAssets});
-  // for (int x = 0; x < 10; x++) {
-  //   entitySys.entities.push_back(
-  //       {{.position = {x, 100.f, 0.f}, .scale = glm::vec3(.5f)},
-  //        {},
-  //        westWingAssets});
-  // }
+  entitySys.entities.emplace_back(
+      vkh::EntitySys::Transform{.position = {0.f, 0.f, 0.f},
+                                .scale = glm::vec3(1.f)},
+      vkh::EntitySys::RigidBody{}, westWingAssets);
 }

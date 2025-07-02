@@ -123,21 +123,21 @@ public:
             fastgltf::iterateAccessor<std::uint32_t>(
                 gltf, indexAccessor,
                 [initial_vtx, &indices](std::uint32_t idx) {
-                  indices.push_back(idx + static_cast<uint32_t>(initial_vtx));
+                  indices.emplace_back(idx + static_cast<uint32_t>(initial_vtx));
                 });
           } else if (indexAccessor.componentType ==
                      fastgltf::ComponentType::UnsignedShort) {
             fastgltf::iterateAccessor<std::uint16_t>(
                 gltf, indexAccessor,
                 [initial_vtx, &indices](std::uint16_t idx) {
-                  indices.push_back(static_cast<uint32_t>(idx) +
+                  indices.emplace_back(static_cast<uint32_t>(idx) +
                                     static_cast<uint32_t>(initial_vtx));
                 });
           } else if (indexAccessor.componentType ==
                      fastgltf::ComponentType::UnsignedByte) {
             fastgltf::iterateAccessor<std::uint8_t>(
                 gltf, indexAccessor, [initial_vtx, &indices](std::uint8_t idx) {
-                  indices.push_back(static_cast<uint32_t>(idx) +
+                  indices.emplace_back(static_cast<uint32_t>(idx) +
                                     static_cast<uint32_t>(initial_vtx));
                 });
           } else {
@@ -190,7 +190,7 @@ public:
       }
       uint32_t end = static_cast<uint32_t>(indices.size());
       newMesh.indexCount = end - start;
-      meshes.push_back(newMesh);
+      meshes.emplace_back(newMesh);
     }
 
     fastgltf::iterateSceneNodes(
@@ -236,7 +236,7 @@ public:
                                 *context.vulkan.globalDescriptorPool)
                                 .writeImage(0, &descriptorInfo)
                                 .build(set);
-                            imageDescriptorSets.push_back(set);
+                            imageDescriptorSets.emplace_back(set);
                           }},
                       buffer.data);
                 },
@@ -250,7 +250,7 @@ public:
           auto &tex = gltf.textures[texInfo.textureIndex];
           mat.baseColorTextureIndex = tex.imageIndex.value_or(0);
         }
-        materials.push_back(mat);
+        materials.emplace_back(mat);
       }
     }
 
@@ -311,7 +311,7 @@ private:
     vkCmdCopyBuffer(cmd, stagingBuffer, *vertexBuffer, 1, &copyRegion);
     endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 
-    meshes.push_back({0, indexCount});
+    meshes.emplace_back(0, indexCount);
   }
 
   EngineContext &context;

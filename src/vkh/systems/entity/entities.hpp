@@ -25,12 +25,12 @@ public:
     getAttributeDescriptions() {
       std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
 
-      attributeDescriptions.push_back(
-          {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos)});
-      attributeDescriptions.push_back(
-          {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)});
-      attributeDescriptions.push_back(
-          {2, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv)});
+      attributeDescriptions.emplace_back(0, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                                         offsetof(Vertex, pos));
+      attributeDescriptions.emplace_back(1, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                                         offsetof(Vertex, normal));
+      attributeDescriptions.emplace_back(2, 0, VK_FORMAT_R32G32_SFLOAT,
+                                         offsetof(Vertex, uv));
 
       return attributeDescriptions;
     }

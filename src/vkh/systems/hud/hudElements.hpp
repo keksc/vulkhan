@@ -29,7 +29,7 @@ public:
   std::shared_ptr<T> addElement(Args &&...args) {
     auto element =
         std::make_shared<T>(*this, nullptr, std::forward<Args>(args)...);
-    elements.push_back(element);
+    elements.emplace_back(element);
     return element;
   }
 
@@ -56,7 +56,7 @@ struct DrawInfo {
   std::vector<TextSys::Vertex> textVertices;
   std::vector<uint32_t> textIndices;
   std::vector<SolidColorSys::Vertex> solidColorLineVertices;
-  std::vector<SolidColorSys::Vertex> solidColorVertices;
+  std::vector<SolidColorSys::Vertex> solidColorTriangleVertices;
   std::vector<uint32_t> solidColorTriangleIndices;
 };
 class Element {
@@ -75,7 +75,7 @@ public:
   template <typename T, typename... Args>
   std::shared_ptr<T> addChild(Args &&...args) {
     auto element = std::make_shared<T>(view, this, std::forward<Args>(args)...);
-    children.push_back(element);
+    children.emplace_back(element);
     return element;
   }
 
@@ -105,18 +105,18 @@ protected:
     float y1 = y0 + size.y;
 
     uint32_t baseIndex =
-        static_cast<uint32_t>(drawInfo.solidColorVertices.size());
-    drawInfo.solidColorVertices.push_back({{x0, y0}, color});
-    drawInfo.solidColorVertices.push_back({{x1, y0}, color});
-    drawInfo.solidColorVertices.push_back({{x1, y1}, color});
-    drawInfo.solidColorVertices.push_back({{x0, y1}, color});
+        static_cast<uint32_t>(drawInfo.solidColorTriangleVertices.size());
+    drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{x0, y0}, color);
+    drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{x1, y0}, color);
+    drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{x1, y1}, color);
+    drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{x0, y1}, color);
 
-    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 0);
-    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 1);
-    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 2);
-    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 0);
-    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 2);
-    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 3);
+    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 0);
+    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 1);
+    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 2);
+    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 0);
+    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 2);
+    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 3);
   };
 };
 class Line : public Element {
@@ -130,9 +130,10 @@ protected:
   void addToDrawInfo(DrawInfo &drawInfo) override {
     // TODO: this might be optimizable when nothing changes, maybe add a
     // "changed" flag
-    drawInfo.solidColorLineVertices.push_back({{position.x, position.y}, color});
-    drawInfo.solidColorLineVertices.push_back(
-        {{position.x + size.x, position.y + size.y}, color});
+    drawInfo.solidColorLineVertices.emplace_back(
+        glm::vec2{position.x, position.y}, color);
+    drawInfo.solidColorLineVertices.emplace_back(
+        glm::vec2{position.x + size.x, position.y + size.y}, color);
   };
 };
 template <auto CallbackListPtr> class EventListener {
@@ -209,23 +210,25 @@ protected:
       float y1 = y0 + ch.size.y;
 
       // Add four vertices for this character
-      drawInfo.textVertices.push_back(
-          {{x0, y0}, {ch.uvOffset.x, ch.uvOffset.y}});
-      drawInfo.textVertices.push_back(
-          {{x1, y0}, {ch.uvOffset.x + ch.uvExtent.x, ch.uvOffset.y}});
-      drawInfo.textVertices.push_back(
-          {{x1, y1},
-           {ch.uvOffset.x + ch.uvExtent.x, ch.uvOffset.y + ch.uvExtent.y}});
-      drawInfo.textVertices.push_back(
-          {{x0, y1}, {ch.uvOffset.x, ch.uvOffset.y + ch.uvExtent.y}});
+      drawInfo.textVertices.emplace_back(
+          glm::vec2{x0, y0}, glm::vec2{ch.uvOffset.x, ch.uvOffset.y});
+      drawInfo.textVertices.emplace_back(
+          glm::vec2{x1, y0},
+          glm::vec2{ch.uvOffset.x + ch.uvExtent.x, ch.uvOffset.y});
+      drawInfo.textVertices.emplace_back(
+          glm::vec2{x1, y1}, glm::vec2{ch.uvOffset.x + ch.uvExtent.x,
+                                       ch.uvOffset.y + ch.uvExtent.y});
+      drawInfo.textVertices.emplace_back(
+          glm::vec2{x0, y1},
+          glm::vec2{ch.uvOffset.x, ch.uvOffset.y + ch.uvExtent.y});
 
       // Add indices for this character's quad
-      drawInfo.textIndices.push_back(baseIndex + 0);
-      drawInfo.textIndices.push_back(baseIndex + 1);
-      drawInfo.textIndices.push_back(baseIndex + 2);
-      drawInfo.textIndices.push_back(baseIndex + 0);
-      drawInfo.textIndices.push_back(baseIndex + 2);
-      drawInfo.textIndices.push_back(baseIndex + 3);
+      drawInfo.textIndices.emplace_back(baseIndex + 0);
+      drawInfo.textIndices.emplace_back(baseIndex + 1);
+      drawInfo.textIndices.emplace_back(baseIndex + 2);
+      drawInfo.textIndices.emplace_back(baseIndex + 0);
+      drawInfo.textIndices.emplace_back(baseIndex + 2);
+      drawInfo.textIndices.emplace_back(baseIndex + 3);
 
       // Move cursor to next character position
       cursor.x += ch.advance;
@@ -266,7 +269,7 @@ private:
     if (!selected)
       return;
     char c = static_cast<char>(codepoint);
-    content.push_back(c);
+    content += c;
   }
   void mouseButtonCallback(int button, int action, int mods) {
     const auto &cursorPos = view.context.input.cursorPos;
@@ -317,18 +320,18 @@ protected:
     float y1 = y0 + 2.f * normalizedBoxHalfSize;
 
     uint32_t baseIndex =
-        static_cast<uint32_t>(drawInfo.solidColorVertices.size());
-    drawInfo.solidColorVertices.push_back({{x0, y0}, color});
-    drawInfo.solidColorVertices.push_back({{x1, y0}, color});
-    drawInfo.solidColorVertices.push_back({{x1, y1}, color});
-    drawInfo.solidColorVertices.push_back({{x0, y1}, color});
+        static_cast<uint32_t>(drawInfo.solidColorTriangleVertices.size());
+    drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{x0, y0}, color);
+    drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{x1, y0}, color);
+    drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{x1, y1}, color);
+    drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{x0, y1}, color);
 
-    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 0);
-    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 1);
-    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 2);
-    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 0);
-    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 2);
-    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 3);
+    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 0);
+    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 1);
+    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 2);
+    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 0);
+    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 2);
+    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 3);
 
     boxPosition = {x0, y0};
     boxSize = glm::vec2{x1, y1} - boxPosition;
