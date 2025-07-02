@@ -52,16 +52,12 @@ private:
   friend class Element;
   template <auto CallbackListPtr> friend class EventListener;
 };
-struct SolidColorVertex {
-  glm::vec2 position{};
-  glm::vec3 color{};
-};
 struct DrawInfo {
-  std::vector<SolidColorVertex> solidColorVertices;
-  std::vector<uint32_t> solidColorIndices;
   std::vector<TextSys::Vertex> textVertices;
   std::vector<uint32_t> textIndices;
-  std::vector<SolidColorSys::Vertex> lineVertices;
+  std::vector<SolidColorSys::Vertex> solidColorLineVertices;
+  std::vector<SolidColorSys::Vertex> solidColorVertices;
+  std::vector<uint32_t> solidColorTriangleIndices;
 };
 class Element {
 public:
@@ -115,12 +111,12 @@ protected:
     drawInfo.solidColorVertices.push_back({{x1, y1}, color});
     drawInfo.solidColorVertices.push_back({{x0, y1}, color});
 
-    drawInfo.solidColorIndices.push_back(baseIndex + 0);
-    drawInfo.solidColorIndices.push_back(baseIndex + 1);
-    drawInfo.solidColorIndices.push_back(baseIndex + 2);
-    drawInfo.solidColorIndices.push_back(baseIndex + 0);
-    drawInfo.solidColorIndices.push_back(baseIndex + 2);
-    drawInfo.solidColorIndices.push_back(baseIndex + 3);
+    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 0);
+    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 1);
+    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 2);
+    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 0);
+    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 2);
+    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 3);
   };
 };
 class Line : public Element {
@@ -134,8 +130,8 @@ protected:
   void addToDrawInfo(DrawInfo &drawInfo) override {
     // TODO: this might be optimizable when nothing changes, maybe add a
     // "changed" flag
-    drawInfo.lineVertices.push_back({{position.x, position.y}, color});
-    drawInfo.lineVertices.push_back(
+    drawInfo.solidColorLineVertices.push_back({{position.x, position.y}, color});
+    drawInfo.solidColorLineVertices.push_back(
         {{position.x + size.x, position.y + size.y}, color});
   };
 };
@@ -327,12 +323,12 @@ protected:
     drawInfo.solidColorVertices.push_back({{x1, y1}, color});
     drawInfo.solidColorVertices.push_back({{x0, y1}, color});
 
-    drawInfo.solidColorIndices.push_back(baseIndex + 0);
-    drawInfo.solidColorIndices.push_back(baseIndex + 1);
-    drawInfo.solidColorIndices.push_back(baseIndex + 2);
-    drawInfo.solidColorIndices.push_back(baseIndex + 0);
-    drawInfo.solidColorIndices.push_back(baseIndex + 2);
-    drawInfo.solidColorIndices.push_back(baseIndex + 3);
+    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 0);
+    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 1);
+    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 2);
+    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 0);
+    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 2);
+    drawInfo.solidColorTriangleIndices.push_back(baseIndex + 3);
 
     boxPosition = {x0, y0};
     boxSize = glm::vec2{x1, y1} - boxPosition;
