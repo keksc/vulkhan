@@ -11,6 +11,7 @@
 enum class CellType { Empty, Room, Hallway };
 
 void generateDungeon(vkh::EntitySys &entitySys) {
+  std::mt19937 rng{std::random_device{}()};
   // glm::ivec2 maxRoomSize{10, 10};
   // int maxRooms = 10;
   // glm::ivec2 gridSize{50, 50};

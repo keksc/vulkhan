@@ -36,7 +36,8 @@ Sound::Sound(const std::filesystem::path &file) {
   alGenSources(1, &source);
   alSourcei(source, AL_BUFFER, buffer);
 };
-void Sound::play(ALint spacialized, ALint loop) {
+void Sound::play(ALint spacialized, ALint loop, float pitch) {
+  alSourcef(source, AL_PITCH, pitch);
   alSourcei(source, AL_LOOPING, loop);
   if (spacialized == AL_TRUE) {
     alSourcei(source, AL_SOURCE_RELATIVE, AL_FALSE);

@@ -90,6 +90,12 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
       .sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO,
       .patchControlPoints = 4};
 
+  VkPipelineDynamicStateCreateInfo dynamicStateInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+      .dynamicStateCount =
+          static_cast<uint32_t>(createInfo.dynamicStateEnables.size()),
+      .pDynamicStates = createInfo.dynamicStateEnables.data()};
+
   VkGraphicsPipelineCreateInfo pipelineInfo{};
   pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
   pipelineInfo.stageCount = static_cast<uint32_t>(shaderStages.size());
@@ -101,7 +107,7 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
   pipelineInfo.pMultisampleState = &createInfo.multisampleInfo;
   pipelineInfo.pColorBlendState = &createInfo.colorBlendInfo;
   pipelineInfo.pDepthStencilState = &createInfo.depthStencilInfo;
-  pipelineInfo.pDynamicState = &createInfo.dynamicStateInfo;
+  pipelineInfo.pDynamicState = &dynamicStateInfo;
   pipelineInfo.pTessellationState =
       useTessellation ? &tessellationInfo : nullptr;
 

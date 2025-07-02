@@ -31,17 +31,24 @@ public:
     }
   };
 
-  void render(size_t verticesSize);
+  void render(size_t lineVerticesSize, size_t triangleVerticesSize);
 
-  std::unique_ptr<Buffer<Vertex>> vertexBuffer;
+  std::unique_ptr<Buffer<Vertex>> linesVertexBuffer;
+  std::unique_ptr<Buffer<Vertex>> trianglesVertexBuffer;
+  std::unique_ptr<Buffer<uint32_t>> trianglesIndexBuffer;
 
 private:
   void createBuffers();
   void createPipeline();
 
   const int maxLineCount = 160;
-  const int maxVertexCount = 2 * maxLineCount; // 4 vertices = 1 quad = 1 glyph
-  const VkDeviceSize maxVertexSize = sizeof(Vertex) * maxVertexCount;
+  const int maxLineVertexCount = 2 * maxLineCount; // 4 vertices = 1 quad = 1 glyph
+  const VkDeviceSize maxLineVertexSize = sizeof(Vertex) * maxLineVertexCount;
+
+  const int maxRectCount = 1000;
+  const int maxTriangleVertexCount = 4 * maxRectCount; // 4 vertices = 1 quad
+  const int maxTriangleIndexCount = 6 * maxRectCount;
+  VkDeviceSize maxTriangleVertexSize = sizeof(Vertex) * maxTriangleVertexCount;
 
   std::unique_ptr<GraphicsPipeline> pipeline;
 };
