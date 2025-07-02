@@ -15,6 +15,8 @@
 
 // #include <GameAnalytics/GameAnalytics.h>
 
+std::mt19937 rng{std::random_device{}()};
+
 #include "dungeonGenerator.hpp"
 
 #include <print>
@@ -32,6 +34,45 @@
       "99cf79ca1f6f9a87f9438ac39067640b",
       "7974f4f0c8f62b2f947aa5bf6a67aa81bbec784e");
 }*/
+
+void updateParticles(vkh::EngineContext &context,
+                     vkh::ParticleSys &particleSys) {
+  std::uniform_real_distribution<float> rand;
+
+  auto it = particleSys.particles.begin();
+  while (it != particleSys.particles.end()) {
+    if (glfwGetTime() > it->timeOfDeath) {
+      // erase returns the next valid iterator
+      it = particleSys.particles.erase(it);
+    } else {
+      it->velocity.y -= 9.81f * context.frameInfo.dt;
+      it->velocity *= 0.98f;
+      it->pos += it->velocity * context.frameInfo.dt;
+      ++it;
+    }
+  }
+
+  // Emitters
+  // particles.push_back(
+  //     {{},
+  //      glm::vec3{rand(rng), rand(rng), rand(rng)},
+  //      glm::normalize(glm::vec3{rand(rng), 1.f, rand(rng)} * 2.f - 1.f)
+  //      * 10.f, static_cast<float>(glfwGetTime()) + rand(rng) * 5.f + 2.f});
+
+  for (int i = 0; i < 20; i++) {
+    vkh::ParticleSys::Particle newParticle{};
+    newParticle.pos = {0.f, 1.f,
+                       0.f}; //{3.f + rand(rng) * 0.5f, 10.f, rand(rng) * 0.5f};
+    newParticle.col = glm::vec3{.56f, .09f, .03f} + (rand(rng) - .5f) * .3f;
+    newParticle.velocity =
+        glm::normalize(glm::vec3{rand(rng) - 0.5f, 1.f, rand(rng) - 0.5f}) *
+        (5.f + rand(rng) * 5.f);
+    newParticle.timeOfDeath = glfwGetTime() + 2.f;
+
+    particleSys.particles.push_back(std::move(newParticle));
+  }
+  particleSys.update();
+}
 
 void run() {
   vkh::EngineContext context{};
@@ -88,7 +129,8 @@ void run() {
         glm::vec2{.8f, -1.f}, glm::vec2{.2f, .2f}, glm::vec3{0.f, 0.f, .5f},
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            paperSound.play();
+            static std::uniform_real_distribution<float> dis(.7f, 1.3f);
+            paperSound.play(AL_FALSE, AL_FALSE, dis(rng));
             hudSys.setView(&canvasView);
           }
         });
@@ -181,8 +223,9 @@ void run() {
 
       vkh::audio::update(context);
 
-      context.camera.projectionMatrix = glm::perspective(
-          1.919'862'177f /*220deg*/, context.window.aspectRatio, .1f, 1000.f);
+      context.camera.projectionMatrix =
+          glm::perspective(1.919'862'177f /*human FOV*/,
+                           context.window.aspectRatio, .1f, 1000.f);
       context.camera.projectionMatrix[1][1] *= -1; // Flip Y for Vulkan
       context.camera.projectionMatrix[0][0] *= -1; // Flip X for rotation
       vkh::camera::calcViewYXZ(context);
@@ -204,7 +247,7 @@ void run() {
         ubo.inverseView = context.camera.inverseViewMatrix;
         ubo.aspectRatio = context.window.aspectRatio;
         ubo.time = glfwGetTime();
-        particleSys.update();
+        updateParticles(context, particleSys);
         // waterSys.update();
         context.vulkan.globalUBOs[frameIndex]->write(&ubo);
         context.vulkan.globalUBOs[frameIndex]->flush();

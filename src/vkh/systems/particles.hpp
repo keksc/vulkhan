@@ -1,7 +1,5 @@
 #pragma once
 
-#include <random>
-
 #include "../buffer.hpp"
 #include "system.hpp"
 
@@ -37,20 +35,16 @@ public:
     }
   };
 
-  std::random_device rd;
-  std::mt19937 rng;
-  std::uniform_real_distribution<float> rand;
-
   struct Particle {
     glm::vec3 pos{};
     glm::vec3 col{};
     glm::vec3 velocity;
     float timeOfDeath{1.f};
-    std::function<void(Particle&)> onDeath;
   };
-  std::vector<Particle> particles;
 
+  std::vector<Particle> particles;
 private:
+
   void createPipeline();
   void createBuffer();
 

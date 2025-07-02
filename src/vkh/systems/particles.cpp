@@ -52,67 +52,12 @@ void ParticleSys::createPipeline() {
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
 }
 ParticleSys::ParticleSys(EngineContext &context)
-    : System(context), rng(rd()), rand(0.f, 1.f) {
+    : System(context) {
   createPipeline();
   createBuffer();
 }
 
 void ParticleSys::update() {
-  std::vector<Particle> newborns;
-  newborns.reserve(64);
-
-  auto it = particles.begin();
-  while (it != particles.end()) {
-    if (glfwGetTime() > it->timeOfDeath) {
-      if (it->onDeath)
-        it->onDeath(*it);
-      // erase returns the next valid iterator
-      it = particles.erase(it);
-    } else {
-      it->velocity.y -= 9.81f * context.frameInfo.dt;
-      it->velocity *= 0.98f;
-      it->pos += it->velocity * context.frameInfo.dt;
-      ++it;
-    }
-  }
-
-  // Emitters
-  // particles.push_back(
-  //     {{},
-  //      glm::vec3{rand(rng), rand(rng), rand(rng)},
-  //      glm::normalize(glm::vec3{rand(rng), 1.f, rand(rng)} * 2.f - 1.f)
-  //      * 10.f, static_cast<float>(glfwGetTime()) + rand(rng) * 5.f + 2.f});
-
-  for (int i = 0; i < 20; i++) {
-    Particle newParticle{};
-    newParticle.pos = {3.f + rand(rng) * 0.5f, 100.f, rand(rng) * 0.5f};
-    newParticle.col = glm::vec3{.56f, .09f, .03f} + (rand(rng) - .5f) * .3f;
-    newParticle.velocity =
-        glm::normalize(glm::vec3{rand(rng) - 0.5f, 1.f, rand(rng) - 0.5f}) *
-        (5.f + rand(rng) * 5.f);
-    newParticle.timeOfDeath = glfwGetTime() + 2.f;
-
-    newParticle.onDeath = [&](Particle &parent) {
-      for (int j = 0; j < 6; j++) {
-        Particle spark{};
-        spark.pos = parent.pos;
-        spark.velocity = glm::normalize(glm::vec3{rand(rng) - 0.5f, rand(rng),
-                                                  rand(rng) - 0.5f}) *
-                         (2.f + rand(rng) * 2.f);
-        spark.col = glm::vec3{.54f, .33f, .5f} + (rand(rng) - .5f) * .3f;
-        spark.timeOfDeath = glfwGetTime() + 0.3f + rand(rng) * 0.2f;
-        newborns.push_back(spark);
-      }
-    };
-
-    particles.push_back(std::move(newParticle));
-  }
-
-  if (!newborns.empty()) {
-    particles.insert(particles.end(), std::make_move_iterator(newborns.begin()),
-                     std::make_move_iterator(newborns.end()));
-  }
-
   std::vector<Vertex> vertices(particles.size());
   for (int i = 0; i < vertices.size(); i++) {
     vertices[i].pos = particles[i].pos;
