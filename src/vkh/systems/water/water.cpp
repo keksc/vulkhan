@@ -168,10 +168,10 @@ std::vector<uint32_t> WaterSys::createGridIndices() {
       uint32_t v1 = y * vertexCount + (x + 1);
       uint32_t v2 = (y + 1) * vertexCount + (x + 1);
       uint32_t v3 = (y + 1) * vertexCount + x;
-      indices.push_back(v0);
-      indices.push_back(v1);
-      indices.push_back(v2);
-      indices.push_back(v3);
+      indices.emplace_back(v0);
+      indices.emplace_back(v1);
+      indices.emplace_back(v2);
+      indices.emplace_back(v3);
     }
   }
   return indices;

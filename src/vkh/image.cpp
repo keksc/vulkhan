@@ -318,8 +318,7 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     memAllocInfo.memoryTypeIndex = findMemoryType(
         context, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    vkAllocateMemory(context.vulkan.device, &memAllocInfo, nullptr,
-                     &memory);
+    vkAllocateMemory(context.vulkan.device, &memAllocInfo, nullptr, &memory);
     vkBindImageMemory(context.vulkan.device, img, memory, 0);
     layout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -337,17 +336,15 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
         KTX_error_code ret =
             ktxTexture_GetImageOffset(texture, level, 0, face, &offset);
         assert(ret == KTX_SUCCESS);
-        VkBufferImageCopy bufferCopyRegion = {};
-        bufferCopyRegion.imageSubresource.aspectMask =
-            VK_IMAGE_ASPECT_COLOR_BIT;
-        bufferCopyRegion.imageSubresource.mipLevel = level;
-        bufferCopyRegion.imageSubresource.baseArrayLayer = face;
-        bufferCopyRegion.imageSubresource.layerCount = 1;
-        bufferCopyRegion.imageExtent.width = texture->baseWidth >> level;
-        bufferCopyRegion.imageExtent.height = texture->baseHeight >> level;
-        bufferCopyRegion.imageExtent.depth = 1;
-        bufferCopyRegion.bufferOffset = offset;
-        bufferCopyRegions.push_back(bufferCopyRegion);
+        bufferCopyRegions.emplace_back(
+            offset, 0, 0,
+            VkImageSubresourceLayers{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                     .mipLevel = level,
+                                     .baseArrayLayer = face,
+                                     .layerCount = 1},
+            VkOffset3D{},
+            VkExtent3D{texture->baseWidth >> level,
+                       texture->baseHeight >> level, 1});
       }
     }
 

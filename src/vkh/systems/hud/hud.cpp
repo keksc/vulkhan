@@ -29,7 +29,7 @@ void HudSys::setView(hud::View *newView) {
 hud::View *HudSys::getView() { return view; }
 
 void HudSys::update() {
-  drawInfo.solidColorVertices.clear();
+  drawInfo.solidColorTriangleVertices.clear();
   drawInfo.solidColorTriangleIndices.clear();
   drawInfo.textVertices.clear();
   drawInfo.textIndices.clear();
@@ -46,8 +46,8 @@ void HudSys::update() {
       drawInfo.solidColorLineVertices.data(),
       drawInfo.solidColorLineVertices.size() * sizeof(SolidColorSys::Vertex));
   solidColorSys.trianglesVertexBuffer->write(
-      drawInfo.solidColorVertices.data(),
-      drawInfo.solidColorVertices.size() * sizeof(SolidColorSys::Vertex));
+      drawInfo.solidColorTriangleVertices.data(),
+      drawInfo.solidColorTriangleVertices.size() * sizeof(SolidColorSys::Vertex));
   solidColorSys.trianglesIndexBuffer->write(
       drawInfo.solidColorTriangleIndices.data(),
       drawInfo.solidColorTriangleIndices.size() * sizeof(uint32_t));
