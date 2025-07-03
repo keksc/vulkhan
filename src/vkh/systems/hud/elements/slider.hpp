@@ -6,11 +6,13 @@
 
 namespace vkh {
 namespace hud {
+
 class Slider
     : public Element,
       public EventListener<&EngineContext::InputCallbackSystem::mouseButton>,
       public EventListener<
           &EngineContext::InputCallbackSystem::cursorPosition> {
+
 public:
   Slider(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
          glm::vec3 color, glm::vec3 bgColor, glm::vec2 bounds, float value = {})
@@ -24,46 +26,34 @@ public:
             view, [this](double xpos,
                          double ypos) { cursorPositionCallback(xpos, ypos); }),
         color{color}, bounds{bounds}, value{value} {
-    float p = value / (bounds.y - bounds.x);
-    centerX = glm::mix(position.x, position.x + size.x, p);
+
+    orientation =
+        (size.y > size.x) ? Orientation::Vertical : Orientation::Horizontal;
+
+    float p = (value - bounds.x) / (bounds.y - bounds.x);
+    if (orientation == Orientation::Vertical)
+      p = 1.f - p;
+    box = addChild<Rect>(glm::vec2{.4f}, glm::vec2{.2f}, color);
     addChild<Rect>(glm::vec2{}, glm::vec2{1.f}, bgColor);
+
+    updateBoxPosition(p);
   }
+
   glm::vec3 color;
   glm::vec2 bounds;
   float value{};
 
-protected:
-  void addToDrawInfo(DrawInfo &drawInfo) override {
-
-    float normalizedBoxHalfSize = 10.f / view.context.window.size.x;
-    float x0 = centerX - normalizedBoxHalfSize;
-    float x1 = x0 + 2.f * normalizedBoxHalfSize;
-    float y0 = position.y + .5f * size.y - normalizedBoxHalfSize;
-    float y1 = y0 + 2.f * normalizedBoxHalfSize;
-
-    uint32_t baseIndex =
-        static_cast<uint32_t>(drawInfo.solidColorTriangleVertices.size());
-    drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{x0, y0}, color);
-    drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{x1, y0}, color);
-    drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{x1, y1}, color);
-    drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{x0, y1}, color);
-
-    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 0);
-    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 1);
-    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 2);
-    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 0);
-    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 2);
-    drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 3);
-
-    boxPosition = {x0, y0};
-    boxSize = glm::vec2{x1, y1} - boxPosition;
-  };
-
 private:
+  enum class Orientation { Horizontal, Vertical };
+  Orientation orientation;
+
+  std::shared_ptr<Rect> box;
+  bool selected{};
+
   void mouseButtonCallback(int button, int action, int mods) {
     const auto &cursorPos = view.context.input.cursorPos;
-    const glm::vec2 min = glm::min(boxPosition, boxPosition + boxSize);
-    const glm::vec2 max = glm::max(boxPosition, boxPosition + boxSize);
+    const glm::vec2 min = glm::min(box->position, box->position + box->size);
+    const glm::vec2 max = glm::max(box->position, box->position + box->size);
 
     selected = false;
 
@@ -76,21 +66,39 @@ private:
       return;
     selected = true;
   }
+
   void cursorPositionCallback(double xpos, double ypos) {
     if (!selected)
       return;
 
-    float normalizedXPos =
-        static_cast<float>(xpos) / view.context.window.size.x * 2.f - 1.f;
-    float p = (normalizedXPos - position.x) / size.x;
+    const auto &winSize = view.context.window.size;
+    float p;
+
+    if (orientation == Orientation::Horizontal) {
+      float normalizedX = static_cast<float>(xpos) / winSize.x * 2.f - 1.f;
+      p = (normalizedX - position.x) / size.x;
+    } else {
+      float normalizedY = static_cast<float>(ypos) / winSize.y * 2.f - 1.f;
+      p = (normalizedY - position.y) / size.y;
+    }
+
     p = glm::clamp(p, 0.f, 1.f);
-    centerX = glm::mix(position.x, position.x + size.x, p);
+    updateBoxPosition(p);
+    if (orientation == Orientation::Vertical)
+      p = 1.f - p;
     value = glm::mix(bounds.x, bounds.y, p);
   }
-  glm::vec2 boxPosition{};
-  glm::vec2 boxSize{};
-  float centerX{};
-  bool selected{};
+
+  void updateBoxPosition(float p) {
+    if (orientation == Orientation::Horizontal) {
+      box->position.x =
+          glm::mix(position.x, position.x + size.x, p) - box->size.x / 2.f;
+    } else {
+      box->position.y =
+          glm::mix(position.y, position.y + size.y, p) - box->size.y / 2.f;
+    }
+  }
 };
+
 } // namespace hud
 } // namespace vkh
