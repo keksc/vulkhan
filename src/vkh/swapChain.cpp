@@ -86,19 +86,17 @@ VkResult SwapChain::submitCommandBuffers(const VkCommandBuffer *buffers,
   VkSubmitInfo submitInfo = {};
   submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-  VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
   VkPipelineStageFlags waitStages[] = {
       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
   submitInfo.waitSemaphoreCount = 1;
-  submitInfo.pWaitSemaphores = waitSemaphores;
+  submitInfo.pWaitSemaphores = &imageAvailableSemaphores[currentFrame];
   submitInfo.pWaitDstStageMask = waitStages;
 
   submitInfo.commandBufferCount = 1;
   submitInfo.pCommandBuffers = buffers;
 
-  VkSemaphore signalSemaphores[] = {renderFinishedSemaphores[currentFrame]};
   submitInfo.signalSemaphoreCount = 1;
-  submitInfo.pSignalSemaphores = signalSemaphores;
+  submitInfo.pSignalSemaphores = &renderFinishedSemaphores[currentFrame];
 
   vkResetFences(context.vulkan.device, 1, &inFlightFences[currentFrame]);
   if (vkQueueSubmit(context.vulkan.graphicsQueue, 1, &submitInfo,
@@ -110,11 +108,10 @@ VkResult SwapChain::submitCommandBuffers(const VkCommandBuffer *buffers,
   presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
   presentInfo.waitSemaphoreCount = 1;
-  presentInfo.pWaitSemaphores = signalSemaphores;
+  presentInfo.pWaitSemaphores = &renderFinishedSemaphores[currentFrame];
 
-  VkSwapchainKHR swapChains[] = {swapChain};
   presentInfo.swapchainCount = 1;
-  presentInfo.pSwapchains = swapChains;
+  presentInfo.pSwapchains = &swapChain;
 
   presentInfo.pImageIndices = imageIndex;
 
@@ -177,7 +174,8 @@ void SwapChain::createSwapChain() {
   // then resize the container and finally call it again to retrieve the
   // handles.
   swapChainImages.resize(context.vulkan.maxFramesInFlight);
-  vkGetSwapchainImagesKHR(context.vulkan.device, swapChain, &context.vulkan.maxFramesInFlight,
+  vkGetSwapchainImagesKHR(context.vulkan.device, swapChain,
+                          &context.vulkan.maxFramesInFlight,
                           swapChainImages.data());
 
   swapChainImageFormat = surfaceFormat.format;

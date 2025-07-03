@@ -12,6 +12,28 @@ public:
   std::string content;
 
 protected:
+  void flushSize() {
+    glm::vec2 cursor = position;
+    float maxX = cursor.x;
+
+    float maxSizeY = TextSys::glyphRange.maxSizeY;
+    for (auto &c : content) {
+      if (c == '\n') {
+        cursor.x = position.x;
+        cursor.y += maxSizeY;
+        continue;
+      }
+      if (!TextSys::glyphRange.glyphs.count(c))
+        continue;
+      auto &ch = TextSys::glyphRange.glyphs[c];
+
+      // Move cursor to next character position
+      cursor.x += ch.advance;
+      maxX = glm::max(cursor.x, maxX);
+    }
+    size = glm::vec2{maxX, cursor.y + maxSizeY} - position;
+  }
+
   void addToDrawInfo(DrawInfo &drawInfo) override {
     glm::vec2 cursor = position;
     float maxX = cursor.x;

@@ -232,7 +232,8 @@ void createLogicalDevice(EngineContext &context) {
 
   float queuePriority = 1.0f;
   for (uint32_t queueFamily : uniqueQueueFamilies) {
-    queueCreateInfos.emplace_back(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, nullptr, 0, queueFamily, 1, &queuePriority);
+    queueCreateInfos.emplace_back(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+                                  nullptr, 0, queueFamily, 1, &queuePriority);
   }
 
   VkPhysicalDeviceFeatures deviceFeatures = {.tessellationShader = VK_TRUE,
@@ -363,11 +364,12 @@ void init(EngineContext &context) {
   createLogicalDevice(context);
 
   auto swapChainSupport = getSwapChainSupport(context);
-  uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
-  if (swapChainSupport.capabilities.maxImageCount > 0 &&
-      imageCount > swapChainSupport.capabilities.maxImageCount) {
+  uint32_t imageCount = (swapChainSupport.capabilities.minImageCount <= 2)
+                            ? 2
+                            : swapChainSupport.capabilities.minImageCount + 1;
+  if (imageCount > swapChainSupport.capabilities.maxImageCount)
     imageCount = swapChainSupport.capabilities.maxImageCount;
-  }
+
   context.vulkan.maxFramesInFlight = imageCount;
 
   context.vulkan.sceneDescriptorSetLayout =

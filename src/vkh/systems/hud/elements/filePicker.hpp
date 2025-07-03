@@ -42,8 +42,9 @@ private:
   void flush() {
     list->content.clear();
     for (const auto &entry : std::filesystem::directory_iterator(".")) {
-      if (entry.path().string().starts_with(path->content))
-        list->content += entry.path().string() + '\n';
+      auto pathStr = std::filesystem::relative(entry.path()).string();
+      if (pathStr.starts_with(path->content))
+        list->content += pathStr + '\n';
     }
   }
   void characterCallback(unsigned int codepoint) {
@@ -51,12 +52,13 @@ private:
     flush();
   }
   void keyCallback(int key, int scancode, int action, int mods) {
-    if (key == GLFW_KEY_BACKSPACE && action == GLFW_PRESS) {
-      if (path->content.empty())
-        return;
-      path->content.pop_back();
-      flush();
-    }
+    if (!(key == GLFW_KEY_BACKSPACE &&
+          (action == GLFW_PRESS || action == GLFW_REPEAT)))
+      return;
+    if (path->content.empty())
+      return;
+    path->content.pop_back();
+    flush();
   }
 };
 } // namespace hud
