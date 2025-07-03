@@ -111,5 +111,6 @@ struct EngineContext {
   struct {
     glm::vec2 cursorPos;
   } input;
+  float time;
 };
 } // namespace vkh

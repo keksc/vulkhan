@@ -24,7 +24,6 @@ std::mt19937 rng{std::random_device{}()};
 #include "dungeonGenerator.hpp"
 
 #include <print>
-#include <stdexcept>
 
 /*void setupAnalytics() {
   gameanalytics::GameAnalytics::setEnabledInfoLog(false);
@@ -102,7 +101,7 @@ void run() {
     vkh::audio::Sound uiSound("sounds/ui.wav");
     vkh::audio::Sound paperSound("sounds/568962__efrane__ripping-paper-10.wav");
     auto go2Canvas = hudPause.addElement<vkh::hud::Button>(
-        glm::vec2{.8f, -1.f}, glm::vec2{.2f, .2f}, glm::vec3{0.f, 0.f, .5f},
+        glm::vec2{.8f, -1.f}, glm::vec2{.2f, .2f}, glm::vec3{.5f, 0.f, .5f},
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
             static std::uniform_real_distribution<float> dis(.7f, 1.3f);
@@ -176,6 +175,7 @@ void run() {
     context.camera.yaw = 1.5f * glm::pi<float>();
 
     auto currentTime = std::chrono::high_resolution_clock::now();
+    auto initTime = currentTime;
     while (!glfwWindowShouldClose(context.window)) {
       glfwPollEvents();
 
@@ -184,6 +184,7 @@ void run() {
           std::chrono::duration<float, std::chrono::seconds::period>(
               newTime - currentTime)
               .count();
+      context.time = std::chrono::duration<float>(newTime - initTime).count();
 
       fpstxt->content =
           std::format("FPS: {}", static_cast<int>(1.f / frameTime));
