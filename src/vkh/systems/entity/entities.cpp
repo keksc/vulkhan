@@ -90,41 +90,31 @@ void EntitySys::render() {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
 
+  std::shared_ptr<Scene<Vertex>> currentScene = nullptr;
+
   for (auto &entity : entities) {
-    auto &scene = entity.mesh;
-    scene->bind(context, context.frameInfo.cmd, *pipeline);
-
-    for (auto &mesh : scene->meshes) {
-      // auto &mesh = *(scene->begin());
-      PushConstantData push{};
-      push.modelMatrix = entity.transform.mat4() * mesh.transform;
-      push.normalMatrix = entity.transform.normalMatrix();
-
-      vkCmdBindDescriptorSets(
-          context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1,
-          1,
-          &scene->imageDescriptorSets[scene->materials[mesh.materialIndex]
-                                          .baseColorTextureIndex],
-          0, nullptr);
-
-      vkCmdPushConstants(context.frameInfo.cmd, *pipeline,
-                         VK_SHADER_STAGE_VERTEX_BIT |
-                             VK_SHADER_STAGE_FRAGMENT_BIT,
-                         0, sizeof(PushConstantData), &push);
-      mesh.draw(context.frameInfo.cmd);
+    auto& scene = entity.scene;
+    if (scene != currentScene) {
+      currentScene = scene;
+      currentScene->bind(context, context.frameInfo.cmd, *pipeline);
     }
+
+    auto &mesh = scene->meshes[entity.meshIndex];
+    PushConstantData push{};
+    push.modelMatrix = entity.transform.mat4() * mesh.transform;
+    push.normalMatrix = entity.transform.normalMatrix();
+
+    vkCmdBindDescriptorSets(
+        context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1, 1,
+        &scene->imageDescriptorSets[scene->materials[mesh.materialIndex]
+                                        .baseColorTextureIndex],
+        0, nullptr);
+
+    vkCmdPushConstants(context.frameInfo.cmd, *pipeline,
+                       VK_SHADER_STAGE_VERTEX_BIT |
+                           VK_SHADER_STAGE_FRAGMENT_BIT,
+                       0, sizeof(PushConstantData), &push);
+    mesh.draw(context.frameInfo.cmd);
   }
 }
-
-void EntitySys::addEntity(Transform transform,
-                          const std::filesystem::path &path,
-                          RigidBody rigidBody) {
-  entities.emplace_back(transform, rigidBody, createScene(path));
-}
-
-std::shared_ptr<Scene<EntitySys::Vertex>>
-EntitySys::createScene(const std::filesystem::path &path) {
-  return std::make_shared<Scene<Vertex>>(context, path);
-}
-
 } // namespace vkh

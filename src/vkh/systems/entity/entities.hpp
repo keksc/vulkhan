@@ -40,7 +40,7 @@ public:
     glm::vec3 scale{1.f, 1.f, 1.f};
     glm::quat orientation{};
 
-    glm::mat4 mat4();
+    glm::mat4 mat4() const;
     glm::mat3 normalMatrix();
   };
   struct RigidBody {
@@ -51,14 +51,12 @@ public:
   struct Entity {
     Transform transform;
     RigidBody rigidBody;
-    std::shared_ptr<Scene<Vertex>> mesh;
+    std::shared_ptr<Scene<Vertex>> scene;
+    size_t meshIndex;
   };
   EntitySys(EngineContext &context, std::vector<Entity> &entities);
   ~EntitySys();
   void render();
-  void addEntity(Transform transform, const std::filesystem::path &path,
-                 RigidBody rigidBody);
-  std::shared_ptr<Scene<Vertex>> createScene(const std::filesystem::path &path);
   std::vector<Entity> &entities;
 
 private:

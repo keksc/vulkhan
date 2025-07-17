@@ -6,9 +6,6 @@ layout (location = 0) out vec4 outColor;
 
 #include "globalUbo.glsl"
 
-const float PI = 3.141592653589793;
-const int SIDES = 3;
-
 void main() {
   vec2 coord = gl_PointCoord - vec2(0.5);
 

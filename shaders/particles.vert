@@ -9,6 +9,6 @@ layout(location = 0) out vec3 fragColor;
 
 void main() {
   gl_Position = ubo.projView * vec4(position, 1.0);
-  gl_PointSize = 40.0 / gl_Position.w;
+  gl_PointSize = 120.0 / gl_Position.w;
   fragColor = color;
 }
