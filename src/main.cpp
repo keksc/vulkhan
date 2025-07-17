@@ -10,12 +10,14 @@
 #include "vkh/systems/freezeAnimation.hpp"
 #include "vkh/systems/particles.hpp"
 #include "vkh/systems/skybox.hpp"
+#include "vkh/systems/water/water.hpp"
 #include "vkh/window.hpp"
 
 #include "vkh/systems/hud/elements/button.hpp"
 #include "vkh/systems/hud/elements/canvas.hpp"
 #include "vkh/systems/hud/elements/slider.hpp"
 #include "vkh/systems/hud/hud.hpp"
+#include <glm/geometric.hpp>
 
 // #include <GameAnalytics/GameAnalytics.h>
 
@@ -40,30 +42,22 @@ std::mt19937 rng{std::random_device{}()};
 
 void updateParticles(vkh::EngineContext &context,
                      vkh::ParticleSys &particleSys) {
-  std::uniform_real_distribution<float> rand;
 
   auto it = particleSys.particles.begin();
   while (it != particleSys.particles.end()) {
-    if (glfwGetTime() > it->timeOfDeath) {
-      // erase returns the next valid iterator
-      it = particleSys.particles.erase(it);
-    } else {
-      it->velocity.y -= 9.81f * context.frameInfo.dt;
-      it->velocity *= 0.98f;
-      it->pos += it->velocity * context.frameInfo.dt;
-      ++it;
+    float fakeMass = 5000.0f; // same as in emitter
+    glm::vec3 direction = -it->pos;
+    float distance = glm::length(direction);
+    if (distance > 0.0001f) {
+      constexpr float speed = .5f;
+      glm::vec3 acceleration =
+          (fakeMass / (distance * distance)) * glm::normalize(direction);
+      it->velocity += acceleration * context.frameInfo.dt * speed;
+      it->pos += it->velocity * context.frameInfo.dt * speed;
     }
+    ++it;
   }
 
-  // Emitters
-  for (int i = 0; i < 20; i++) {
-    particleSys.particles.emplace_back(
-        glm::vec3{0.f, 1.f, 0.f},
-        glm::vec3{.56f, .09f, .03f} + (rand(rng) - .5f) * .3f,
-        glm::normalize(glm::vec3{rand(rng) - 0.5f, 1.f, rand(rng) - 0.5f}) *
-            (5.f + rand(rng) * 5.f),
-        glfwGetTime() + 2.f);
-  }
   particleSys.update();
 }
 
@@ -77,12 +71,41 @@ void run() {
     std::vector<vkh::EntitySys::Entity> entities;
     vkh::EntitySys entitySys(context, entities);
 
-    generateDungeon(entitySys);
+    generateDungeon(context, entitySys);
 
-    vkh::ParticleSys particleSys(context);
+    // vkh::ParticleSys particleSys(context);
+    /*
+    // Emitters
+    for (int i = 0; i < 4000; i++) {
+      std::uniform_real_distribution<float> rand;
+      // Position within a sphere of radius ~10
+      glm::vec3 pos =
+          glm::normalize(glm::vec3(rand(rng) - 0.5f, rand(rng) - 0.5f,
+                                   rand(rng) - 0.5f)) *
+          (8.f + rand(rng) * 4.f); // 8 to 12 radius
+
+      // Define radial and tangential direction
+      glm::vec3 radial = glm::normalize(pos);
+      glm::vec3 up = glm::vec3(0.f, 1.f, 0.f);
+      if (glm::abs(glm::dot(radial, up)) > 0.95f)
+        up = glm::vec3(1.f, 0.f, 0.f); // avoid colinearity
+
+      glm::vec3 tangential = glm::normalize(glm::cross(up, radial));
+
+      // Scaled gravity: use higher "fake mass" to speed up orbital motion at
+      // larger radius
+      float fakeMass = 5000.0f; // Tunable constant — tweak as needed
+      float r = glm::length(pos);
+      float speed = std::sqrt(fakeMass / r);
+
+      glm::vec3 vel = tangential * speed;
+
+      particleSys.particles.emplace_back(
+          pos, glm::vec3{0.56f, 0.09f, 0.03f} + (rand(rng) - 0.5f) * 0.3f, vel);
+    }*/
     vkh::FreezeAnimationSys freezeAnimationSys(context);
     vkh::SkyboxSys skyboxSys(context);
-    // WaterSys waterSys(context, skyboxSys);
+    // vkh::WaterSys waterSys(context, skyboxSys);
     vkh::HudSys hudSys(context);
 
     vkh::hud::View hudWorld(context);
@@ -195,7 +218,7 @@ void run() {
           "Yaw: {}\nPitch:{}", context.camera.yaw, context.camera.pitch);
       currentTime = newTime;
 
-      vkh::input::moveInPlaneXZ(context);
+      vkh::input::update(context, entitySys);
 
       vkh::audio::update(context);
 
@@ -223,7 +246,7 @@ void run() {
         ubo.inverseView = context.camera.inverseViewMatrix;
         ubo.aspectRatio = context.window.aspectRatio;
         ubo.time = glfwGetTime();
-        updateParticles(context, particleSys);
+        // updateParticles(context, particleSys);
         // waterSys.update();
         context.vulkan.globalUBOs[frameIndex]->write(&ubo);
         context.vulkan.globalUBOs[frameIndex]->flush();
@@ -236,7 +259,7 @@ void run() {
           skyboxSys.render();
           // waterSys.render();
           entitySys.render();
-          particleSys.render();
+          // particleSys.render();
 
           // if (glm::length2(entities[1].transform.position -
           //                  context.camera.position) < 25.f)

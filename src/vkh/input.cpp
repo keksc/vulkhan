@@ -5,14 +5,50 @@
 #include <chrono>
 #include <glm/ext/vector_common.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/norm.hpp>
 
 #include <limits>
+
+#include "AxisAlignedBoundingBox.hpp"
+#include "systems/entity/entities.hpp"
 
 namespace vkh {
 namespace input {
 float moveSpeed{5.f};
 float lookSpeed{1.5f};
+
+AABB getEntityAABB(const EntitySys::Entity &entity) {
+  // Get mesh's model-space AABB
+  const auto &mesh = entity.scene->meshes[entity.meshIndex];
+  glm::vec3 modelMin = mesh.aabb.min;
+  glm::vec3 modelMax = mesh.aabb.max;
+
+  // Use full transform: entity.transform.mat4() * mesh.transform
+  glm::mat4 fullTransform = entity.transform.mat4() * mesh.transform;
+
+  // Transform AABB to world space
+  glm::vec3 corners[8] = {{modelMin.x, modelMin.y, modelMin.z},
+                          {modelMax.x, modelMin.y, modelMin.z},
+                          {modelMin.x, modelMax.y, modelMin.z},
+                          {modelMax.x, modelMax.y, modelMin.z},
+                          {modelMin.x, modelMin.y, modelMax.z},
+                          {modelMax.x, modelMin.y, modelMax.z},
+                          {modelMin.x, modelMax.y, modelMax.z},
+                          {modelMax.x, modelMax.y, modelMax.z}};
+
+  glm::vec3 worldMin{std::numeric_limits<float>::max()};
+  glm::vec3 worldMax{-std::numeric_limits<float>::max()};
+
+  for (const auto &corner : corners) {
+    glm::vec4 worldCorner = fullTransform * glm::vec4(corner, 1.0f);
+    worldMin = glm::min(worldMin, glm::vec3(worldCorner));
+    worldMax = glm::max(worldMax, glm::vec3(worldCorner));
+  }
+
+  return {worldMin, worldMax};
+}
+
 void keyCallback(GLFWwindow *window, int key, int scancode, int action,
                  int mods) {
   auto context =
@@ -24,6 +60,7 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
            .key)
     pair.second(key, scancode, action, mods);
 }
+
 void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
@@ -38,10 +75,12 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos) {
            .cursorPosition)
     pair.second(xpos, ypos);
 }
+
 int scroll{};
 void scrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
   scroll += static_cast<int>(yoffset);
 }
+
 const int doubleClickDelay = 300;
 void doubleClickCallback(GLFWwindow *window) {
   auto context =
@@ -53,6 +92,7 @@ void doubleClickCallback(GLFWwindow *window) {
            .doubleClick)
     pair.second();
 }
+
 void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
   static std::chrono::high_resolution_clock::time_point lastClick{};
 
@@ -72,6 +112,7 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
            .mouseButton)
     pair.second(button, action, mods);
 }
+
 void charCallback(GLFWwindow *window, unsigned int codepoint) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
@@ -82,6 +123,7 @@ void charCallback(GLFWwindow *window, unsigned int codepoint) {
            .character)
     pair.second(codepoint);
 }
+
 void init(EngineContext &context) {
   glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
   glfwSetInputMode(context.window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
@@ -91,8 +133,9 @@ void init(EngineContext &context) {
   glfwSetScrollCallback(context.window, scrollCallback);
   glfwSetMouseButtonCallback(context.window, mouseButtonCallback);
 }
+
 glm::dvec2 lastPos;
-void moveInPlaneXZ(EngineContext &context) {
+void update(EngineContext &context, EntitySys &entitySys) {
   glm::dvec2 currentPos;
   glfwGetCursorPos(context.window, &currentPos.x, &currentPos.y);
 
@@ -139,8 +182,57 @@ void moveInPlaneXZ(EngineContext &context) {
     float sprint =
         (glfwGetKey(context.window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) ? 30.0f
                                                                         : 2.0f;
-    context.camera.position +=
+    glm::vec3 velocity =
         glm::normalize(moveDir) * sprint * moveSpeed * context.frameInfo.dt;
+    glm::vec3 newPosition = context.camera.position + velocity;
+
+    // Camera AABB (small box around camera position)
+    const float cameraSize = 0.2f;
+    AABB cameraAABB{newPosition - glm::vec3(cameraSize / 2.0f),
+                    newPosition + glm::vec3(cameraSize / 2.0f)};
+
+    // Check collisions with all entities
+    bool collision = false;
+    for (const auto &entity : entitySys.entities) {
+      AABB entityAABB = getEntityAABB(entity);
+      if (cameraAABB.intersects(entityAABB)) {
+        collision = true;
+        break;
+      }
+    }
+
+    // Only update position if no collision
+    if (!collision) {
+      context.camera.position = newPosition;
+    } else {
+      // Try sliding along each axis
+      glm::vec3 testPosition = context.camera.position;
+      glm::vec3 axisVelocity[3] = {
+          velocity * glm::vec3(1.f, 0.f, 0.f), // X component
+          velocity * glm::vec3(0.f, 1.f, 0.f), // Y component
+          velocity * glm::vec3(0.f, 0.f, 1.f)  // Z component
+      };
+
+      for (const auto &axisVel : axisVelocity) {
+        if (glm::length2(axisVel) > std::numeric_limits<float>::epsilon()) {
+          glm::vec3 axisTestPosition = testPosition + axisVel;
+          AABB axisCameraAABB{axisTestPosition - glm::vec3(cameraSize / 2.0f),
+                              axisTestPosition + glm::vec3(cameraSize / 2.0f)};
+          bool axisCollision = false;
+          for (const auto &entity : entitySys.entities) {
+            AABB entityAABB = getEntityAABB(entity);
+            if (axisCameraAABB.intersects(entityAABB)) {
+              axisCollision = true;
+              break;
+            }
+          }
+          if (!axisCollision) {
+            testPosition = axisTestPosition;
+          }
+        }
+      }
+      context.camera.position = testPosition;
+    }
   }
 }
 } // namespace input

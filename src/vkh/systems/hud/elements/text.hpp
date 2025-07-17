@@ -11,29 +11,26 @@ public:
       : Element(view, parent, position, {}), content{content} {}
   std::string content;
 
-protected:
   void flushSize() {
-    glm::vec2 cursor = position;
-    float maxX = cursor.x;
-
     float maxSizeY = TextSys::glyphRange.maxSizeY;
+    size = glm::vec2{0.f, maxSizeY};
+    float maxX = 0.f;
+
     for (auto &c : content) {
       if (c == '\n') {
-        cursor.x = position.x;
-        cursor.y += maxSizeY;
+        size.x = glm::max(size.x, maxX);
+        size.y += maxSizeY;
         continue;
       }
       if (!TextSys::glyphRange.glyphs.count(c))
         continue;
       auto &ch = TextSys::glyphRange.glyphs[c];
 
-      // Move cursor to next character position
-      cursor.x += ch.advance;
-      maxX = glm::max(cursor.x, maxX);
+      size.x += ch.advance;
     }
-    size = glm::vec2{maxX, cursor.y + maxSizeY} - position;
   }
 
+protected:
   void addToDrawInfo(DrawInfo &drawInfo) override {
     glm::vec2 cursor = position;
     float maxX = cursor.x;

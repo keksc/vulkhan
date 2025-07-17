@@ -7,6 +7,7 @@
 #include <fastgltf/glm_element_traits.hpp>
 #include <glm/glm.hpp>
 
+#include "AxisAlignedBoundingBox.hpp"
 #include "buffer.hpp"
 #include "descriptors.hpp"
 #include "engineContext.hpp"
@@ -22,21 +23,18 @@
 
 namespace vkh {
 
-// Trait to check if VertexType has a 'pos' member
 template <typename T, typename = void> struct has_pos : std::false_type {};
 
 template <typename T>
 struct has_pos<T, std::void_t<decltype(std::declval<T>().pos)>>
     : std::true_type {};
 
-// Trait to check if VertexType has a 'normal' member
 template <typename T, typename = void> struct has_normal : std::false_type {};
 
 template <typename T>
 struct has_normal<T, std::void_t<decltype(std::declval<T>().normal)>>
     : std::true_type {};
 
-// Trait to check if VertexType has a 'uv' member
 template <typename T, typename = void> struct has_uv : std::false_type {};
 
 template <typename T>
@@ -48,7 +46,6 @@ template <typename VertexType> struct SceneCreateInfo {
   std::vector<uint32_t> &indices;
 };
 
-// TODO: improve img support
 template <typename VertexType> class Scene {
 public:
   struct Mesh {
@@ -56,6 +53,7 @@ public:
     uint32_t indexCount{};
     glm::mat4 transform;
     size_t materialIndex;
+    AABB aabb{};
     void draw(VkCommandBuffer commandBuffer) {
       vkCmdDrawIndexed(commandBuffer, indexCount, 1, indexOffset, 0, 0);
     }
@@ -73,6 +71,26 @@ public:
   }
   Scene(EngineContext &context, const SceneCreateInfo<VertexType> &createInfo)
       : context{context}, disableMaterial{true} {
+    ImageCreateInfo imageInfo{};
+    imageInfo.w = imageInfo.h = 1;
+    imageInfo.color = 0x0;
+    imageInfo.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.usage =
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    images.emplace_back(context, imageInfo);
+
+    VkDescriptorSet set;
+    auto descriptorInfo =
+        images[0].getDescriptorInfo(context.vulkan.defaultSampler);
+    DescriptorWriter(*context.vulkan.sceneDescriptorSetLayout,
+                     *context.vulkan.globalDescriptorPool)
+        .writeImage(0, &descriptorInfo)
+        .build(set);
+    imageDescriptorSets.emplace_back(set);
+
+    Material defaultMat{0};
+    materials.emplace_back(defaultMat);
+
     createBuffers(createInfo.vertices, createInfo.indices);
   }
 
@@ -123,7 +141,8 @@ public:
             fastgltf::iterateAccessor<std::uint32_t>(
                 gltf, indexAccessor,
                 [initial_vtx, &indices](std::uint32_t idx) {
-                  indices.emplace_back(idx + static_cast<uint32_t>(initial_vtx));
+                  indices.emplace_back(idx +
+                                       static_cast<uint32_t>(initial_vtx));
                 });
           } else if (indexAccessor.componentType ==
                      fastgltf::ComponentType::UnsignedShort) {
@@ -131,14 +150,14 @@ public:
                 gltf, indexAccessor,
                 [initial_vtx, &indices](std::uint16_t idx) {
                   indices.emplace_back(static_cast<uint32_t>(idx) +
-                                    static_cast<uint32_t>(initial_vtx));
+                                       static_cast<uint32_t>(initial_vtx));
                 });
           } else if (indexAccessor.componentType ==
                      fastgltf::ComponentType::UnsignedByte) {
             fastgltf::iterateAccessor<std::uint8_t>(
                 gltf, indexAccessor, [initial_vtx, &indices](std::uint8_t idx) {
                   indices.emplace_back(static_cast<uint32_t>(idx) +
-                                    static_cast<uint32_t>(initial_vtx));
+                                       static_cast<uint32_t>(initial_vtx));
                 });
           } else {
             throw std::runtime_error("Unsupported index component type");
@@ -154,8 +173,10 @@ public:
           vertices.resize(vertices.size() + count);
           fastgltf::iterateAccessorWithIndex<glm::vec3>(
               gltf, posAccessor,
-              [initial_vtx, &vertices](glm::vec3 v, size_t index) {
+              [initial_vtx, &vertices, &newMesh](glm::vec3 v, size_t index) {
                 vertices[initial_vtx + index].pos = v;
+                newMesh.aabb.min = glm::min(newMesh.aabb.min, v);
+                newMesh.aabb.max = glm::max(newMesh.aabb.max, v);
               });
         }
 
@@ -184,8 +205,6 @@ public:
                 });
           }
         }
-        if (!primitive.materialIndex.has_value())
-          std::println("No material index, using default 0");
         newMesh.materialIndex = primitive.materialIndex.value_or(0);
       }
       uint32_t end = static_cast<uint32_t>(indices.size());
@@ -202,8 +221,7 @@ public:
           }
         });
 
-    if (disableMaterial) {
-    } else if (gltf.images.empty()) {
+    if (disableMaterial || gltf.images.empty()) {
       ImageCreateInfo imageInfo{};
       imageInfo.w = imageInfo.h = 1;
       imageInfo.color = 0x0;
@@ -211,6 +229,22 @@ public:
       imageInfo.usage =
           VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
       images.emplace_back(context, imageInfo);
+
+      VkDescriptorSet set;
+      auto descriptorInfo =
+          images[0].getDescriptorInfo(context.vulkan.defaultSampler);
+      DescriptorWriter(*context.vulkan.sceneDescriptorSetLayout,
+                       *context.vulkan.globalDescriptorPool)
+          .writeImage(0, &descriptorInfo)
+          .build(set);
+      imageDescriptorSets.emplace_back(set);
+
+      Material defaultMat{0};
+      materials.emplace_back(defaultMat);
+
+      for (auto &mesh : meshes) {
+        mesh.materialIndex = 0;
+      }
     } else {
       for (auto &image : gltf.images) {
         std::visit(
@@ -311,7 +345,9 @@ private:
     vkCmdCopyBuffer(cmd, stagingBuffer, *vertexBuffer, 1, &copyRegion);
     endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 
-    meshes.emplace_back(0, indexCount);
+    if (meshes.empty()) {
+      meshes.emplace_back(0, indexCount);
+    }
   }
 
   EngineContext &context;
