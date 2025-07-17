@@ -2,7 +2,7 @@
 
 namespace vkh {
 
-glm::mat4 EntitySys::Transform::mat4() {
+glm::mat4 EntitySys::Transform::mat4() const {
   /*const float c1 = glm::cos(rotation.y);
   const float c2 = glm::cos(rotation.x);
   const float c3 = glm::cos(rotation.z);

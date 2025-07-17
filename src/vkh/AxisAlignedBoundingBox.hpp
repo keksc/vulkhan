@@ -2,11 +2,16 @@
 
 #include <glm/glm.hpp>
 
+#include <limits>
+
 namespace vkh {
-template <typename T> struct AABB {
-  T a, b;
-  float w() { return glm::abs(a.x - b.x); }
-  float h() { return glm::abs(a.y - b.y); }
-  glm::vec2 size() { return glm::abs(a - b); }
+struct AABB {
+  glm::vec3 min{-std::numeric_limits<float>::max()};
+  glm::vec3 max{std::numeric_limits<float>::max()};
+  bool intersects(const AABB &other) const {
+    return (min.x <= other.max.x && max.x >= other.min.x) &&
+           (min.y <= other.max.y && max.y >= other.min.y) &&
+           (min.z <= other.max.z && max.z >= other.min.z);
+  }
 };
 } // namespace vkh

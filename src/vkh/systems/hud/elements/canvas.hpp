@@ -50,6 +50,9 @@ public:
               keyCallback(key, scancode, action, mods);
             }) {
     bg = addChild<hud::Rect>(glm::vec2{}, glm::vec2{1.f}, bgColor);
+    modeText = addChild<hud::Text>(glm::vec2{}, "mode: Select");
+    modeBg =
+        addChild<hud::Rect>(glm::vec2{1.f, 0.f}, glm::vec2{}, glm::vec3{.3f});
   }
 
   std::string serializeContent() {
@@ -231,14 +234,30 @@ private:
       filePicker = nullptr;
       return;
     }
-    if (key == GLFW_KEY_ESCAPE)
+    if (key == GLFW_KEY_ESCAPE) {
       mode = Mode::Select;
-    if (key == GLFW_KEY_T)
+      modeText->content = "mode: Select";
+      modeText->flushSize();
+      modeBg->size = modeText->size;
+    }
+    if (key == GLFW_KEY_T) {
       mode = Mode::Text;
-    if (key == GLFW_KEY_R)
+      modeText->content = "mode: Text";
+      modeText->flushSize();
+      modeBg->size = modeText->size;
+    }
+    if (key == GLFW_KEY_R) {
       mode = Mode::Rect;
-    if (key == GLFW_KEY_L)
+      modeText->content = "mode: Rect";
+      modeText->flushSize();
+      modeBg->size = modeText->size;
+    }
+    if (key == GLFW_KEY_L) {
       mode = Mode::Line;
+      modeText->content = "mode: Line";
+      modeText->flushSize();
+      modeBg->size = modeText->size;
+    }
   }
   void mouseButtonCallback(int button, int action, int mods) {
     const auto &cursorPos = view.context.input.cursorPos;
@@ -286,6 +305,8 @@ private:
   }
   std::shared_ptr<Element> elementBeingAdded;
   std::shared_ptr<hud::Rect> bg;
+  std::shared_ptr<hud::Text> modeText;
+  std::shared_ptr<hud::Rect> modeBg;
   enum Mode { Select, Text, Rect, Line } mode{Mode::Select};
 };
 } // namespace hud

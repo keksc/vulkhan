@@ -38,17 +38,16 @@ public:
   struct Particle {
     glm::vec3 pos{};
     glm::vec3 col{};
-    glm::vec3 velocity;
-    float timeOfDeath{1.f};
+    glm::vec3 velocity{};
   };
 
   std::vector<Particle> particles;
+
+  static const int maxParticles = 10000;
 private:
 
   void createPipeline();
   void createBuffer();
-
-  const int maxParticles = 10000;
 
   std::unique_ptr<GraphicsPipeline> pipeline;
   std::unique_ptr<Buffer<Vertex>> vertexBuffer;
