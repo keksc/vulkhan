@@ -7,28 +7,35 @@
 namespace vkh {
 namespace hud {
 class TextInput
-    : public Text,
+    : public Rect,
       public EventListener<&EngineContext::InputCallbackSystem::character>,
       public EventListener<&EngineContext::InputCallbackSystem::mouseButton>,
-      public EventListener<&EngineContext::InputCallbackSystem::key> {
+      public EventListener<&EngineContext::InputCallbackSystem::key>,
+      public EventListener<
+          &EngineContext::InputCallbackSystem::cursorPosition> {
 public:
   TextInput(View &view, Element *parent, glm::vec2 position,
             const std::string &content = "", const glm::vec3 &bgColor = {})
-      : Text(view, parent, position, content),
+      : Rect(view, parent, position, glm::vec2{}, 1),
         EventListener<&EngineContext::InputCallbackSystem::character>(
-            view,
-            [this](unsigned int codepoint) { characterCallback(codepoint); }),
+            view, std::bind(&TextInput::characterCallback, this,
+                            std::placeholders::_1)),
         EventListener<&EngineContext::InputCallbackSystem::mouseButton>(
-            view,
-            [this](int button, int action, int mods) {
-              mouseButtonCallback(button, action, mods);
-            }),
+            view, std::bind(&TextInput::mouseButtonCallback, this,
+                            std::placeholders::_1, std::placeholders::_2,
+                            std::placeholders::_3)),
         EventListener<&EngineContext::InputCallbackSystem::key>(
-            view, [this](int key, int scancode, int action, int mods) {
-              keyCallback(key, scancode, action, mods);
-            }) {
-    bg = addChild<Rect>(position, size, bgColor);
+            view, std::bind(&TextInput::keyCallback, this,
+                            std::placeholders::_1, std::placeholders::_3,
+                            std::placeholders::_3, std::placeholders::_4)),
+        EventListener<&EngineContext::InputCallbackSystem::cursorPosition>(
+            view, std::bind(&TextInput::cursorPositionCallback, this,
+                            std::placeholders::_1, std::placeholders::_2)) {
+    text = addChild<Text>(position, content);
+    size = text->size;
   }
+
+  auto &getContent() const { return text->content; }
 
 private:
   void characterCallback(unsigned int codepoint) {
@@ -36,45 +43,66 @@ private:
     //   return;
     if (!selected)
       return;
-    content += static_cast<char>(codepoint);
-    flushSize();
-    bg->size = size;
+    text->content += static_cast<char>(codepoint);
+    size = text->size;
   }
   void keyCallback(int key, int scancode, int action, int mods) {
+    if (key == GLFW_KEY_V && mods == GLFW_MOD_CONTROL &&
+        (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+      if (!selected)
+        return;
+      if (text->content.empty())
+        return;
+      const char *clipboard = glfwGetClipboardString(NULL);
+      if (!clipboard)
+        return;
+      text->content += clipboard;
+      size = text->size;
+      return;
+    }
+    if (key == GLFW_KEY_C && mods == GLFW_MOD_CONTROL &&
+        (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+      if (!selected)
+        return;
+      if (text->content.empty())
+        return;
+      glfwSetClipboardString(NULL, text->content.c_str());
+      size = text->size;
+      return;
+    }
     if (key == GLFW_KEY_BACKSPACE &&
         (action == GLFW_PRESS || action == GLFW_REPEAT)) {
       if (!selected)
         return;
-      if (content.empty())
+      if (text->content.empty())
         return;
-      content.pop_back();
-      flushSize();
-      bg->size = size;
+      text->content.pop_back();
+      size = text->size;
       return;
     }
     if (key == GLFW_KEY_ENTER &&
         (action == GLFW_PRESS || action == GLFW_REPEAT)) {
       if (!selected)
         return;
-      content.push_back('\n');
+      text->content.push_back('\n');
+      size = text->size;
       return;
     }
     if (key == GLFW_KEY_ESCAPE)
       selected = false;
   }
   void mouseButtonCallback(int button, int action, int mods) {
-    const auto &cursorPos = view.context.input.cursorPos;
-    const glm::vec2 min = glm::min(position, position + size);
-    const glm::vec2 max = glm::max(position, position + size);
-    if (glm::all(glm::greaterThanEqual(cursorPos, min)) &&
-        glm::all(glm::lessThanEqual(cursorPos, max)))
-      selected = true;
-    else
-      selected = false;
+    selected = isCursorInside();
+  }
+
+  void cursorPositionCallback(double xpos, double ypos) {
+    glfwSetCursor(view.context.window, isCursorInside()
+                                           ? view.context.window.cursors.ibeam
+                                           : view.context.window.cursors.arrow);
   }
 
   bool selected{false};
-  std::shared_ptr<Rect> bg;
+  std::shared_ptr<Text> text;
 };
 } // namespace hud
 } // namespace vkh

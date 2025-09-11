@@ -10,8 +10,8 @@ namespace hud {
 struct DrawInfo {
   std::vector<TextSys::Vertex> textVertices;
   std::vector<uint32_t> textIndices;
-  std::vector<SolidColorSys::Vertex> solidColorLineVertices;
-  std::vector<SolidColorSys::Vertex> solidColorTriangleVertices;
+  std::vector<SolidColorSys::LineVertex> solidColorLineVertices;
+  std::vector<SolidColorSys::TriangleVertex> solidColorTriangleVertices;
   std::vector<uint32_t> solidColorTriangleIndices;
 };
 } // namespace hud

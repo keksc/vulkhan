@@ -30,8 +30,6 @@ public:
   void update();
 
 private:
-  void createSampler();
-
   SkyboxSys &skyboxSys;
   VkSampler sampler;
   struct Vertex {
@@ -156,7 +154,7 @@ private:
   void createPipeline();
   void createUniformBuffers(const uint32_t bufferCount);
   void createDescriptorSets(const uint32_t count);
-  void createFrameMaps(VkCommandBuffer cmd);
+  void recordCreateFrameMaps(VkCommandBuffer cmd);
   void recordUpdateFrameMaps(VkCommandBuffer cmd, FrameMapData &frame);
   std::vector<Vertex> createGridVertices();
   std::vector<uint32_t> createGridIndices();

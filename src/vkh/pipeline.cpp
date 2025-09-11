@@ -49,6 +49,12 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
   // Optional tessellation
   VkShaderModule tescModule, teseModule;
   bool useTessellation = false;
+  if (createInfo.tescpath.empty() != createInfo.tesepath.empty()) {
+    throw std::runtime_error(std::format(
+        "One but not both tesselation control and eval shader have been "
+        "provided to the pipeline ({}, {}). Provide both or none.",
+        createInfo.tescpath.string(), createInfo.tesepath.string()));
+  }
   if (!createInfo.tescpath.empty() && !createInfo.tesepath.empty()) {
     useTessellation = true;
     auto tescCode = readFile(createInfo.tescpath);

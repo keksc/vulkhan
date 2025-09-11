@@ -1,4 +1,5 @@
 #include "entities.hpp"
+#include <limits>
 #include <memory>
 
 #define GLM_FORCE_RADIANS
@@ -8,6 +9,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <vulkan/vulkan_core.h>
 
+#include <print>
 #include <vector>
 
 #include "../../descriptors.hpp"
@@ -20,41 +22,17 @@ namespace vkh {
 struct PushConstantData {
   glm::mat4 modelMatrix{1.f};
   glm::mat3 normalMatrix{1.f};
+  alignas(16) glm::vec4 color;
+  alignas(1) bool useColorTexture;
+  alignas(1) bool useMetallicRoughnessTexture;
+  alignas(4) float metallic;
+  alignas(4) float roughness;
 };
+EntitySys::~EntitySys() {}
 
-void EntitySys::createSampler() {
-  VkPhysicalDeviceProperties properties{};
-  vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice, &properties);
-
-  VkSamplerCreateInfo samplerInfo{};
-  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-  samplerInfo.magFilter = VK_FILTER_LINEAR;
-  samplerInfo.minFilter = VK_FILTER_LINEAR;
-  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.anisotropyEnable = VK_TRUE;
-  samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-  samplerInfo.unnormalizedCoordinates = VK_FALSE;
-  samplerInfo.compareEnable = VK_FALSE;
-  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-
-  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr, &sampler) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("Failed to create texture sampler!");
-  }
-}
-
-EntitySys::~EntitySys() {
-  vkDestroySampler(context.vulkan.device, sampler, nullptr);
-}
-
-EntitySys::EntitySys(EngineContext &context, std::vector<Entity> &entities)
-    : System(context), entities{entities} {
-  createSampler();
-
+EntitySys::EntitySys(EngineContext &context, std::vector<Entity> &entities,
+                     SkyboxSys &skyboxSys)
+    : System(context), entities{entities}, skyboxSys{skyboxSys} {
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags =
       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -63,7 +41,7 @@ EntitySys::EntitySys(EngineContext &context, std::vector<Entity> &entities)
 
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
       *context.vulkan.globalDescriptorSetLayout,
-      *context.vulkan.sceneDescriptorSetLayout};
+      *context.vulkan.sceneDescriptorSetLayout, *skyboxSys.setLayout};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -83,38 +61,66 @@ EntitySys::EntitySys(EngineContext &context, std::vector<Entity> &entities)
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
 }
 
+void EntitySys::compactDraws() {
+  batches.clear();
+  batches.emplace_back(&entities[0], 1);
+  for (std::size_t i = 1; i < entities.size(); i++) {
+    if ((batches.end() - 1)->entity->scene == entities[i].scene)
+      (batches.end() - 1)->count++;
+    else
+      batches.emplace_back(&entities[i], 1);
+  }
+}
+
 void EntitySys::render() {
   pipeline->bind(context.frameInfo.cmd);
 
   vkCmdBindDescriptorSets(context.frameInfo.cmd,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
                           &context.frameInfo.globalDescriptorSet, 0, nullptr);
+  vkCmdBindDescriptorSets(context.frameInfo.cmd,
+                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 2, 1,
+                          &skyboxSys.set, 0, nullptr);
+
+  compactDraws();
+
+  std::println("batches: {}", batches.size());
+  std::println("entities: {}", entities.size());
 
   std::shared_ptr<Scene<Vertex>> currentScene = nullptr;
-
   for (auto &entity : entities) {
-    auto& scene = entity.scene;
+    auto &scene = entity.scene;
     if (scene != currentScene) {
       currentScene = scene;
       currentScene->bind(context, context.frameInfo.cmd, *pipeline);
     }
 
-    auto &mesh = scene->meshes[entity.meshIndex];
     PushConstantData push{};
-    push.modelMatrix = entity.transform.mat4() * mesh.transform;
+    auto *mesh = &entity.getMesh();
+    push.modelMatrix = entity.transform.mat4() * mesh->transform;
     push.normalMatrix = entity.transform.normalMatrix();
-
-    vkCmdBindDescriptorSets(
-        context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1, 1,
-        &scene->imageDescriptorSets[scene->materials[mesh.materialIndex]
-                                        .baseColorTextureIndex],
-        0, nullptr);
-
-    vkCmdPushConstants(context.frameInfo.cmd, *pipeline,
-                       VK_SHADER_STAGE_VERTEX_BIT |
-                           VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, sizeof(PushConstantData), &push);
-    mesh.draw(context.frameInfo.cmd);
+    Scene<Vertex>::Material *currentMaterial = nullptr;
+    for (auto &primitive : mesh->primitives) {
+      auto &mat = scene->materials[primitive.materialIndex];
+      if (&mat != currentMaterial) {
+        if (mat.baseColorTextureIndex.has_value()) {
+          push.useColorTexture = true;
+          vkCmdBindDescriptorSets(
+              context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline,
+              1, 1,
+              &scene->imageDescriptorSets[mat.baseColorTextureIndex.value()], 0,
+              nullptr);
+        } else {
+          push.useColorTexture = false;
+          push.color = mat.baseColorFactor;
+        }
+        vkCmdPushConstants(context.frameInfo.cmd, *pipeline,
+                           VK_SHADER_STAGE_VERTEX_BIT |
+                               VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(PushConstantData), &push);
+      }
+      primitive.draw(context.frameInfo.cmd);
+    }
   }
 }
 } // namespace vkh

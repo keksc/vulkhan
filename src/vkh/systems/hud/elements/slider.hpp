@@ -51,18 +51,10 @@ private:
   bool selected{};
 
   void mouseButtonCallback(int button, int action, int mods) {
-    const auto &cursorPos = view.context.input.cursorPos;
-    const glm::vec2 min = glm::min(box->position, box->position + box->size);
-    const glm::vec2 max = glm::max(box->position, box->position + box->size);
-
+    if (action != GLFW_PRESS || button != GLFW_MOUSE_BUTTON_LEFT)
+      return;
     selected = false;
-
-    if (!(glm::all(glm::greaterThanEqual(cursorPos, min)) &&
-          glm::all(glm::lessThanEqual(cursorPos, max))))
-      return;
-    if (button != GLFW_MOUSE_BUTTON_LEFT)
-      return;
-    if (action != GLFW_PRESS)
+    if (!isCursorInside())
       return;
     selected = true;
   }
