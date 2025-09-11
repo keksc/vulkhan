@@ -3,22 +3,15 @@
 #include <vulkan/vulkan_core.h>
 
 #include <memory>
+#include <print>
 #include <vector>
 
 #include "../../buffer.hpp"
-#include "../../pipeline.hpp"
 #include "../../swapChain.hpp"
 
 namespace vkh {
 HudSys::HudSys(EngineContext &context)
     : System(context), textSys(context), solidColorSys(context) {}
-
-void HudSys::addToDraw(std::shared_ptr<hud::Element> element) {
-  for (auto &child : element->children) {
-    addToDraw(child);
-  }
-  element->addToDrawInfo(drawInfo);
-}
 
 void HudSys::setView(hud::View *newView) {
   view = newView;
@@ -27,15 +20,24 @@ void HudSys::setView(hud::View *newView) {
 
 hud::View *HudSys::getView() { return view; }
 
+void HudSys::addToDraw(std::vector<std::shared_ptr<hud::Element>> elements,
+                       unsigned int &recursionIndex, float oneOverViewSize) {
+  for (auto &element : elements) {
+    addToDraw(element->children, recursionIndex, oneOverViewSize);
+    element->addToDrawInfo(drawInfo, recursionIndex * oneOverViewSize);
+    recursionIndex++;
+  }
+}
+
 void HudSys::update() {
   drawInfo.solidColorTriangleVertices.clear();
   drawInfo.solidColorTriangleIndices.clear();
   drawInfo.textVertices.clear();
   drawInfo.textIndices.clear();
   drawInfo.solidColorLineVertices.clear();
-  for (const auto &element : *view) {
-    addToDraw(element);
-  }
+  float oneOverViewSize = 1.f / view->elementCount;
+  unsigned int recursionIndex = 0;
+  addToDraw(view->elements, recursionIndex, oneOverViewSize);
   textSys.vertexBuffer->write(drawInfo.textVertices.data(),
                               drawInfo.textVertices.size() *
                                   sizeof(TextSys::Vertex));
@@ -43,10 +45,12 @@ void HudSys::update() {
                              drawInfo.textIndices.size() * sizeof(uint32_t));
   solidColorSys.linesVertexBuffer->write(
       drawInfo.solidColorLineVertices.data(),
-      drawInfo.solidColorLineVertices.size() * sizeof(SolidColorSys::Vertex));
+      drawInfo.solidColorLineVertices.size() *
+          sizeof(SolidColorSys::LineVertex));
   solidColorSys.trianglesVertexBuffer->write(
       drawInfo.solidColorTriangleVertices.data(),
-      drawInfo.solidColorTriangleVertices.size() * sizeof(SolidColorSys::Vertex));
+      drawInfo.solidColorTriangleVertices.size() *
+          sizeof(SolidColorSys::TriangleVertex));
   solidColorSys.trianglesIndexBuffer->write(
       drawInfo.solidColorTriangleIndices.data(),
       drawInfo.solidColorTriangleIndices.size() * sizeof(uint32_t));
@@ -55,7 +59,22 @@ void HudSys::update() {
 void HudSys::render() {
   if (!view)
     return;
+  if (view->empty())
+    return;
   update();
+
+  VkClearAttachment clearAttachment = {};
+  clearAttachment.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+  clearAttachment.clearValue.depthStencil = {1.0f, 0};
+
+  // clear depth buffer
+  VkClearRect clearRect = {};
+  clearRect.rect.offset = {0, 0};
+  clearRect.rect.extent = context.vulkan.swapChain->swapChainExtent;
+  clearRect.layerCount = 1;
+
+  vkCmdClearAttachments(context.frameInfo.cmd, 1, &clearAttachment, 1,
+                        &clearRect);
 
   solidColorSys.render(drawInfo.solidColorLineVertices.size(),
                        drawInfo.solidColorTriangleIndices.size());

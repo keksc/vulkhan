@@ -12,13 +12,13 @@ public:
   glm::vec3 color{};
 
 protected:
-  void addToDrawInfo(DrawInfo &drawInfo) override {
+  void addToDrawInfo(DrawInfo &drawInfo, float depth) override {
     // TODO: this might be optimizable when nothing changes, maybe add a
     // "changed" flag
     drawInfo.solidColorLineVertices.emplace_back(
-        glm::vec2{position.x, position.y}, color);
+        glm::vec3{position.x, position.y, depth}, color);
     drawInfo.solidColorLineVertices.emplace_back(
-        glm::vec2{position.x + size.x, position.y + size.y}, color);
+        glm::vec3{position.x + size.x, position.y + size.y, depth}, color);
   };
 };
 } // namespace hud

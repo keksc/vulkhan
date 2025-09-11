@@ -1,11 +1,9 @@
 #pragma once
 
-#include "../../descriptors.hpp"
-#include "../../image.hpp"
 #include "../system.hpp"
 #include "elements/drawInfo.hpp"
-#include "elements/view.hpp"
 #include "elements/element.hpp"
+#include "elements/view.hpp"
 #include "solidColor.hpp"
 #include "text.hpp"
 
@@ -19,7 +17,8 @@ public:
 
 private:
   void createPipeline();
-  void addToDraw(std::shared_ptr<hud::Element> element);
+  void addToDraw(std::vector<std::shared_ptr<hud::Element>> elements,
+                 unsigned int &recursionIndex, float oneOverViewSize);
   void update();
 
   std::unique_ptr<GraphicsPipeline> pipeline;

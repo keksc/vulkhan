@@ -335,8 +335,10 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
 
   auto cmd = beginSingleTimeCommands(context);
   baseWaveHeightFieldPipeline.bind(cmd);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, baseWaveHeightFieldPipeline, 0, 1, &preFFTSet, 0, nullptr);
-  vkCmdDispatch(cmd, tileSize/16, tileSize/16, 1);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          baseWaveHeightFieldPipeline, 0, 1, &preFFTSet, 0,
+                          nullptr);
+  vkCmdDispatch(cmd, tileSize / 16, tileSize / 16, 1);
   endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
 
   // baseWaveHeightField->map();
@@ -377,9 +379,9 @@ void WSTessendorf::computeWaveVectors(std::vector<WaveVector> &waveVecs) {
 //       if (k > std::numeric_limits<float>::epsilon()) {
 //         const auto gaussRandom = std::complex<float>(
 //             glm::gaussRand(0.0f, 1.0f), glm::gaussRand(0.0f, 1.0f));
-      // h0.heightAmp = baseWaveHeightFT(gaussRandom, kWaveVec.unit, k);
-      // h0.heightAmp_conj =
-          // std::conj(baseWaveHeightFT(gaussRandom, -kWaveVec.unit, k));
+// h0.heightAmp = baseWaveHeightFT(gaussRandom, kWaveVec.unit, k);
+// h0.heightAmp_conj =
+// std::conj(baseWaveHeightFT(gaussRandom, -kWaveVec.unit, k));
 //       h0.dispersion = QDispersion(k);
 //     } else {
 //       h0.heightAmp = std::complex<float>(0);
@@ -391,9 +393,7 @@ void WSTessendorf::computeWaveVectors(std::vector<WaveVector> &waveVecs) {
 //   return baseWaveHeights;
 // }
 
-float WSTessendorf::computeWaves(float t) {
-  auto cmd = beginSingleTimeCommands(context);
-
+float WSTessendorf::recordComputeWaves(VkCommandBuffer &cmd, float t) {
   PushConstantData data{t};
   vkCmdPushConstants(cmd, preFFTPipeline->getLayout(),
                      VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstantData),
@@ -498,8 +498,6 @@ float WSTessendorf::computeWaves(float t) {
   vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
                        &memoryBarrier, 0, nullptr, 0, nullptr);
-
-  endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
 
   maxReductionBuffer2->map();
   float maxHeight;

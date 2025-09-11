@@ -27,6 +27,7 @@ struct GlobalUbo {
   alignas(16) glm::mat4 view{1.f};
   alignas(16) glm::mat4 projView{1.f};
   alignas(16) glm::mat4 inverseView{1.f};
+  alignas(8) glm::vec2 resolution{};
   alignas(4) float aspectRatio;
   alignas(4) float time;
 };
@@ -56,6 +57,10 @@ struct EngineContext {
     float aspectRatio = static_cast<float>(size.x) / static_cast<float>(size.y);
     operator GLFWwindow *() { return glfwWindow; }
     GLFWwindow *glfwWindow;
+    struct {
+      GLFWcursor *arrow;
+      GLFWcursor *ibeam;
+    } cursors;
   } window;
   struct {
     VkInstance instance;
@@ -98,13 +103,19 @@ struct EngineContext {
     glm::mat4 inverseViewMatrix{1.f};
   } camera;
   struct InputCallbackSystem {
-    std::unordered_map<void *, std::function<void(int button, int action, int mods)>> mouseButton;
+    std::unordered_map<void *,
+                       std::function<void(int button, int action, int mods)>>
+        mouseButton;
     std::unordered_map<void *, std::function<void(double xpos, double ypos)>>
         cursorPosition;
-    std::unordered_map<void *, std::function<void(unsigned int codepoint)>> character;
-    std::unordered_map<void *, std::function<void(int key, int scancode, int action,
-                 int mods)>> key;
+    std::unordered_map<void *, std::function<void(unsigned int codepoint)>>
+        character;
+    std::unordered_map<void *, std::function<void(int key, int scancode,
+                                                  int action, int mods)>>
+        key;
     std::unordered_map<void *, std::function<void()>> doubleClick;
+    std::unordered_map<void *,
+                       std::function<void(int count, const char **paths)>> drop;
   };
   std::unordered_map<void *, InputCallbackSystem> inputCallbackSystems;
   void *currentInputCallbackSystemKey;

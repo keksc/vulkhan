@@ -15,6 +15,7 @@
 
 namespace vkh {
 namespace input {
+std::unordered_map<Action, unsigned int> keybinds;
 float moveSpeed{5.f};
 float lookSpeed{1.5f};
 
@@ -55,10 +56,10 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &pair :
+  for (auto &[ptr, callback] :
        context->inputCallbackSystems[context->currentInputCallbackSystemKey]
            .key)
-    pair.second(key, scancode, action, mods);
+    callback(key, scancode, action, mods);
 }
 
 void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos) {
@@ -70,10 +71,10 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos) {
                              1.f;
   if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &pair :
+  for (auto &[ptr, callback] :
        context->inputCallbackSystems[context->currentInputCallbackSystemKey]
            .cursorPosition)
-    pair.second(xpos, ypos);
+    callback(xpos, ypos);
 }
 
 int scroll{};
@@ -87,10 +88,10 @@ void doubleClickCallback(GLFWwindow *window) {
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &pair :
+  for (auto &[ptr, callback] :
        context->inputCallbackSystems[context->currentInputCallbackSystemKey]
            .doubleClick)
-    pair.second();
+    callback();
 }
 
 void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
@@ -107,10 +108,10 @@ void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &pair :
+  for (auto &[ptr, callback] :
        context->inputCallbackSystems[context->currentInputCallbackSystemKey]
            .mouseButton)
-    pair.second(button, action, mods);
+    callback(button, action, mods);
 }
 
 void charCallback(GLFWwindow *window, unsigned int codepoint) {
@@ -118,10 +119,21 @@ void charCallback(GLFWwindow *window, unsigned int codepoint) {
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &pair :
+  for (auto &[ptr, callback] :
        context->inputCallbackSystems[context->currentInputCallbackSystemKey]
            .character)
-    pair.second(codepoint);
+    callback(codepoint);
+}
+
+void dropCallback(GLFWwindow *window, int count, const char **paths) {
+  auto context =
+      reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
+  if (!context->currentInputCallbackSystemKey)
+    return;
+  for (auto &[ptr, callback] :
+       context->inputCallbackSystems[context->currentInputCallbackSystemKey]
+           .drop)
+    callback(count, paths);
 }
 
 void init(EngineContext &context) {
@@ -132,6 +144,15 @@ void init(EngineContext &context) {
   glfwSetCursorPosCallback(context.window, cursorPositionCallback);
   glfwSetScrollCallback(context.window, scrollCallback);
   glfwSetMouseButtonCallback(context.window, mouseButtonCallback);
+  glfwSetDropCallback(context.window, dropCallback);
+
+  keybinds[MoveForward] = GLFW_KEY_W;
+  keybinds[MoveBackward] = GLFW_KEY_S;
+  keybinds[MoveLeft] = GLFW_KEY_A;
+  keybinds[MoveRight] = GLFW_KEY_D;
+  keybinds[PlaceRect] = GLFW_KEY_R;
+  keybinds[PlaceText] = GLFW_KEY_T;
+  keybinds[PlaceLine] = GLFW_KEY_L;
 }
 
 glm::dvec2 lastPos;
@@ -165,13 +186,13 @@ void update(EngineContext &context, EntitySys &entitySys) {
   glm::vec3 up = glm::vec3(0.f, 1.f, 0.f);
   glm::vec3 moveDir{};
 
-  if (glfwGetKey(context.window, GLFW_KEY_W) == GLFW_PRESS)
+  if (glfwGetKey(context.window, keybinds[MoveForward]) == GLFW_PRESS)
     moveDir += forward;
-  if (glfwGetKey(context.window, GLFW_KEY_S) == GLFW_PRESS)
+  if (glfwGetKey(context.window, keybinds[MoveBackward]) == GLFW_PRESS)
     moveDir -= forward;
-  if (glfwGetKey(context.window, GLFW_KEY_D) == GLFW_PRESS)
+  if (glfwGetKey(context.window, keybinds[MoveRight]) == GLFW_PRESS)
     moveDir += rightDir;
-  if (glfwGetKey(context.window, GLFW_KEY_A) == GLFW_PRESS)
+  if (glfwGetKey(context.window, keybinds[MoveLeft]) == GLFW_PRESS)
     moveDir -= rightDir;
   if (glfwGetKey(context.window, GLFW_KEY_SPACE) == GLFW_PRESS)
     moveDir += up;
@@ -200,6 +221,7 @@ void update(EngineContext &context, EntitySys &entitySys) {
         break;
       }
     }
+    collision = false;
 
     // Only update position if no collision
     if (!collision) {

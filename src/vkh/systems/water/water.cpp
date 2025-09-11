@@ -12,36 +12,10 @@ namespace vkh {
 WaterSys::~WaterSys() {
   vkDestroySampler(context.vulkan.device, sampler, nullptr);
 }
-void WaterSys::createSampler() {
-  VkPhysicalDeviceProperties properties{};
-  vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice, &properties);
-
-  VkSamplerCreateInfo samplerInfo{};
-  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-  samplerInfo.magFilter = VK_FILTER_LINEAR;
-  samplerInfo.minFilter = VK_FILTER_LINEAR;
-  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.anisotropyEnable = VK_TRUE;
-  samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-  samplerInfo.unnormalizedCoordinates = VK_FALSE;
-  samplerInfo.compareEnable = VK_FALSE;
-  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-
-  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr, &sampler) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("failed to create texture sampler!");
-  }
-}
 WaterSys::WaterSys(EngineContext &context, SkyboxSys &skyboxSys)
     : System{context}, modelTess{context},
       oceanSound{"sounds/76007__noisecollector__capemay_delawarebay_loop.wav"},
       skyboxSys{skyboxSys} {
-  createSampler();
-
   createDescriptorSetLayout();
 
   createPipeline();
@@ -106,7 +80,7 @@ std::unique_ptr<Image> createMap(EngineContext &context,
                                      VK_IMAGE_USAGE_SAMPLED_BIT,
                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 }
-void WaterSys::createFrameMaps(VkCommandBuffer cmdBuffer) {
+void WaterSys::recordCreateFrameMaps(VkCommandBuffer cmdBuffer) {
   frameMap.displacementMap =
       createMap(context, cmdBuffer, modelTess.tileSize, mapFormat);
   frameMap.normalMap =
@@ -191,10 +165,10 @@ void WaterSys::updateDescriptorSet(VkDescriptorSet set) {
   assert(frameMap.normalMap != nullptr);
 
   VkDescriptorImageInfo imageInfos[2] = {};
-  imageInfos[0] = frameMap.displacementMap->getDescriptorInfo(sampler);
+  imageInfos[0] = frameMap.displacementMap->getDescriptorInfo(context.vulkan.defaultSampler);
   // TODO force future image layout
   imageInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  imageInfos[1] = frameMap.normalMap->getDescriptorInfo(sampler);
+  imageInfos[1] = frameMap.normalMap->getDescriptorInfo(context.vulkan.defaultSampler);
   // TODO force future image layout
   imageInfos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -220,11 +194,11 @@ void WaterSys::updateUniformBuffer() {
 }
 void WaterSys::prepare() {
   auto cmd = beginSingleTimeCommands(context);
-  createFrameMaps(cmd);
+  recordCreateFrameMaps(cmd);
 
   // Do one pass to initialize the maps
   vertexUBO.WSHeightAmp =
-      modelTess.computeWaves(static_cast<float>(glfwGetTime()) * animSpeed);
+      modelTess.recordComputeWaves(cmd, static_cast<float>(glfwGetTime()) * animSpeed);
 
   recordUpdateFrameMaps(cmd, frameMap);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
@@ -248,7 +222,7 @@ void WaterSys::update() {
     // vkCmdDispatch(cmd, 16, 16, 1);
     // endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
     vertexUBO.WSHeightAmp =
-        modelTess.computeWaves(static_cast<float>(glfwGetTime()) * animSpeed);
+        modelTess.recordComputeWaves(context.frameInfo.cmd, static_cast<float>(glfwGetTime()) * animSpeed);
   }
 }
 
@@ -263,7 +237,7 @@ void WaterSys::render() {
                           sets, 0, nullptr);
 
   scene->bind(context, context.frameInfo.cmd, *pipeline);
-  scene->meshes[0].draw(context.frameInfo.cmd);
+  scene->meshes.begin()->primitives.begin()->draw(context.frameInfo.cmd);
 }
 
 void WaterSys::createDescriptorSetLayout() {

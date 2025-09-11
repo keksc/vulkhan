@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../scene.hpp"
+#include "../skybox.hpp"
 #include "../system.hpp"
 #include <algorithm>
 #include <memory>
@@ -52,17 +53,33 @@ public:
     Transform transform;
     RigidBody rigidBody;
     std::shared_ptr<Scene<Vertex>> scene;
-    size_t meshIndex;
+    std::size_t meshIndex;
+    inline Scene<Vertex>::Mesh &getMesh() { return scene->meshes[meshIndex]; }
+    inline Scene<Vertex>::Mesh::Primitive &getPrimitive(std::size_t index) {
+      return getMesh().primitives[index];
+    }
+    inline Scene<Vertex>::Material &
+    getPrimitiveMaterial(std::size_t primitiveIndex) {
+      return scene->materials[getPrimitive(primitiveIndex).materialIndex];
+    }
   };
-  EntitySys(EngineContext &context, std::vector<Entity> &entities);
+
+  struct Batch {
+    Entity *entity;
+    uint32_t count;
+  };
+
+  void compactDraws();
+
+  EntitySys(EngineContext &context, std::vector<Entity> &entities,
+            SkyboxSys &skyboxSys);
   ~EntitySys();
   void render();
   std::vector<Entity> &entities;
+  std::vector<Batch> batches;
 
 private:
-  void createSampler();
-
   std::unique_ptr<GraphicsPipeline> pipeline;
-  VkSampler sampler;
+  SkyboxSys &skyboxSys;
 };
 } // namespace vkh

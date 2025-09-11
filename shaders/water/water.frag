@@ -5,7 +5,7 @@ layout(location = 1) in vec3 inNormal;
 
 layout(location = 0) out vec4 outColor;
 
-layout(set = 0, binding = 1) uniform WateruboUBO
+layout(set = 0, binding = 1) uniform WaterUBO
 {
   vec3 camPos;
 } ubo;
@@ -20,5 +20,5 @@ void main()
     vec3 R = reflect(-V, N);
     vec3 envColor = texture(skybox, R).rgb;
 
-    outColor = vec4(envColor, 1.0);
+    outColor = vec4(vec3(0.0)/*envColor*/, 1.0);
 }

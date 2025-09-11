@@ -9,19 +9,23 @@
 namespace vkh {
 
 class SwapChain {
- public:
-  SwapChain(EngineContext& context);
-  SwapChain(
-      EngineContext& context, std::shared_ptr<SwapChain> previous);
+public:
+  SwapChain(EngineContext &context);
+  SwapChain(EngineContext &context, std::shared_ptr<SwapChain> previous);
 
   ~SwapChain();
 
   SwapChain(const SwapChain &) = delete;
   SwapChain &operator=(const SwapChain &) = delete;
 
-  VkFramebuffer getFrameBuffer(int index) { return swapChainFramebuffers[index]; }
+  VkFramebuffer getFrameBuffer(int index) {
+    return swapChainFramebuffers[index];
+  }
   VkRenderPass getRenderPass() { return renderPass; }
-  VkImageView getImageView(int index) { return swapChainImageViews[index]; }
+  VkImageView getImageView(size_t index) { return swapChainImageViews[index]; }
+  VkImageView getDepthImageView(size_t index) { return depthImageViews[index]; }
+  VkImage getImage(size_t index) const { return swapChainImages[index]; }
+  VkImage getDepthImage(size_t index) { return depthImages[index]; }
   size_t imageCount() { return swapChainImages.size(); }
   VkFormat getSwapChainImageFormat() { return swapChainImageFormat; }
   VkExtent2D getSwapChainExtent() { return swapChainExtent; }
@@ -29,12 +33,14 @@ class SwapChain {
   uint32_t height() { return swapChainExtent.height; }
 
   float extentAspectRatio() {
-    return static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.height);
+    return static_cast<float>(swapChainExtent.width) /
+           static_cast<float>(swapChainExtent.height);
   }
   VkFormat findDepthFormat();
 
   VkResult acquireNextImage(uint32_t *imageIndex);
-  VkResult submitCommandBuffers(const VkCommandBuffer *buffers, uint32_t *imageIndex);
+  VkResult submitCommandBuffers(const VkCommandBuffer *buffers,
+                                uint32_t *imageIndex);
 
   bool compareSwapFormats(const SwapChain &swapChain) const {
     return swapChain.swapChainDepthFormat == swapChainDepthFormat &&
@@ -44,7 +50,7 @@ class SwapChain {
   VkRenderPass renderPass;
   VkExtent2D swapChainExtent;
 
- private:
+private:
   void init();
   void createSwapChain();
   void createImageViews();
@@ -54,6 +60,8 @@ class SwapChain {
   void createSyncObjects();
 
   // Helper functions
+  bool isFormatSupported(VkPhysicalDevice physicalDevice, VkFormat format,
+                         VkImageTiling tiling, VkImageUsageFlags usage);
   VkSurfaceFormatKHR chooseSwapSurfaceFormat(
       const std::vector<VkSurfaceFormatKHR> &availableFormats);
   VkPresentModeKHR chooseSwapPresentMode(
@@ -83,4 +91,4 @@ class SwapChain {
   size_t currentFrame = 0;
 };
 
-}  // namespace lve
+} // namespace vkh

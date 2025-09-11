@@ -94,34 +94,23 @@ private:
   bool selected = false;
 
   void mouseButtonCallback(int button, int action, int) {
-
-    const auto &cursorPos = view.context.input.cursorPos;
-    const glm::vec2 min = glm::min(position, position + size);
-    const glm::vec2 max = glm::max(position, position + size);
-
     selected = false;
-    if (button != GLFW_MOUSE_BUTTON_LEFT)
-      return;
-    if (action != GLFW_PRESS)
-      return;
-    if (!(glm::all(glm::greaterThanEqual(cursorPos, min)) &&
-          glm::all(glm::lessThanEqual(cursorPos, max))))
+    if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS || !isCursorInside())
       return;
     selected = true;
 
-    updateColor(cursorPos);
+    updateColor();
   }
 
   void cursorPositionCallback(double xpos, double ypos) {
     if (!selected)
       return;
 
-    const auto &cursorPos = view.context.input.cursorPos;
-    updateColor(cursorPos);
+    updateColor();
   }
 
-  void updateColor(glm::vec2 cursorPos) {
-    glm::vec2 uv = (cursorPos - position) / size;
+  void updateColor() {
+    glm::vec2 uv = (view.context.input.cursorPos - position) / size;
     uv = glm::clamp(uv, glm::vec2(0.0f), glm::vec2(1.0f));
     selectedColor = getColorAtUV(uv.x, uv.y);
   }

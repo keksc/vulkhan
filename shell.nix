@@ -16,12 +16,13 @@ pkgs.mkShell {
     glslang
     openal
     clang-tools
-    cmake-language-server
+    # cmake-language-server
     stb
     simdjson
     curl
     gcc
     ktx-tools
+    magic-enum
   ];
 
   shellHook = ''

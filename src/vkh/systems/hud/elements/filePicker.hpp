@@ -28,9 +28,9 @@ public:
             view, [this](int key, int scancode, int action, int mods) {
               keyCallback(key, scancode, action, mods);
             }) {
-    addChild<Rect>(glm::vec2{}, glm::vec2{1.f}, glm::vec3{.1f});
     path = addChild<Text>(glm::vec2{});
     list = addChild<Text>(glm::vec2{0.f, TextSys::glyphRange.maxSizeY});
+    addChild<Rect>(glm::vec2{}, glm::vec2{1.f}, 0);
     flush();
   }
 

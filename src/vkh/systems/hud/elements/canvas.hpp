@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../input.hpp"
 #include "element.hpp"
 #include "eventListener.hpp"
 #include "filePicker.hpp"
@@ -32,30 +33,32 @@ class Canvas
     : public Element,
       public EventListener<&EngineContext::InputCallbackSystem::mouseButton>,
       public EventListener<&EngineContext::InputCallbackSystem::cursorPosition>,
-      public EventListener<&EngineContext::InputCallbackSystem::key> {
+      public EventListener<&EngineContext::InputCallbackSystem::key>,
+      public EventListener<&EngineContext::InputCallbackSystem::drop> {
 public:
   Canvas(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
-         glm::vec3 bgColor)
+         decltype(Rect::imageIndex) bgImageIndex)
       : Element(view, parent, position, size),
         EventListener<&EngineContext::InputCallbackSystem::mouseButton>(
             view,
-            [this](int button, int action, int mods) {
-              mouseButtonCallback(button, action, mods);
-            }),
+            bind(&Canvas::mouseButtonCallback, this, std::placeholders::_1,
+                 std::placeholders::_2, std::placeholders::_3)),
         EventListener<&EngineContext::InputCallbackSystem::cursorPosition>(
-            view, [this](double xpos,
-                         double ypos) { cursorPositionCallback(xpos, ypos); }),
+            view, bind(&Canvas::cursorPositionCallback, this,
+                       std::placeholders::_1, std::placeholders::_2)),
         EventListener<&EngineContext::InputCallbackSystem::key>(
-            view, [this](int key, int scancode, int action, int mods) {
-              keyCallback(key, scancode, action, mods);
-            }) {
-    bg = addChild<hud::Rect>(glm::vec2{}, glm::vec2{1.f}, bgColor);
+            view, bind(&Canvas::keyCallback, this, std::placeholders::_1,
+                       std::placeholders::_2, std::placeholders::_3,
+                       std::placeholders::_4)),
+        EventListener<&EngineContext::InputCallbackSystem::drop>(
+            view, std::bind(&Canvas::dropCallback, this, std::placeholders::_1,
+                            std::placeholders::_2)) {
     modeText = addChild<hud::Text>(glm::vec2{}, "mode: Select");
-    modeBg =
-        addChild<hud::Rect>(glm::vec2{1.f, 0.f}, glm::vec2{}, glm::vec3{.3f});
+    modeBg = addChild<hud::Rect>(glm::vec2{}, glm::vec2{1.f}, 0);
+    bg = addChild<hud::Rect>(glm::vec2{}, glm::vec2{1.f}, 0);
   }
 
-  std::string serializeContent() {
+  void saveToFile(const std::filesystem::path &path) {
     std::string content;
 
     auto writeBinary = [&content](auto value) {
@@ -89,12 +92,12 @@ public:
               std::dynamic_pointer_cast<vkh::hud::TextInput>(child)) {
         content.push_back('T');
         writeVec2(localPos);
-        writeString(textInput->content);
+        writeString(textInput->getContent());
       } else if (auto rect = std::dynamic_pointer_cast<vkh::hud::Rect>(child)) {
         content.push_back('R');
         writeVec2(localPos);
         writeVec2(localSize);
-        writeVec3(rect->color);
+        writeBinary(rect->imageIndex);
       } else if (auto line = std::dynamic_pointer_cast<vkh::hud::Line>(child)) {
         content.push_back('L');
         writeVec2(localPos);
@@ -103,12 +106,21 @@ public:
       }
     }
 
-    return content;
+    std::ofstream out(path, std::ofstream::out | std::ofstream::trunc |
+                                std::ios::binary);
+    out << content;
+    out.close();
   }
 
   void reset() { children.erase(children.begin(), children.end() - 1); }
 
-  void deserializeContent(const std::string &data) {
+  void loadFromFile(const std::filesystem::path &path) {
+    if (!std::filesystem::exists(path))
+      throw std::runtime_error("path does not exist");
+    std::ifstream in(path, std::ios::binary);
+    std::string data((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+    in.close();
     size_t offset = 0;
 
     auto readBinary = [&]<typename T>() -> T {
@@ -160,8 +172,9 @@ public:
       case 'R': {
         glm::vec2 pos = readVec2();
         glm::vec2 size = readVec2();
-        glm::vec3 color = readVec3();
-        addChild<hud::Rect>(pos, size, color);
+        using ImageIndexType = decltype(Rect::imageIndex);
+        ImageIndexType imageIndex = readBinary.operator()<ImageIndexType>();
+        addChild<hud::Rect>(pos, size, imageIndex);
         break;
       }
       case 'L': {
@@ -183,8 +196,27 @@ private:
   void keyCallback(int key, int scancode, int action, int mods) {
     if (action != GLFW_PRESS)
       return;
+    if (key == GLFW_KEY_ENTER) {
+      if (!filePicker)
+        return;
+      std::filesystem::path path = filePicker->path->content;
+      if (filePicker->mode == FilePicker::Mode::Save) {
+        saveToFile(path);
+      } else {
+        loadFromFile(path);
+      }
+      children.erase(children.begin());
+      filePicker = nullptr;
+      return;
+    }
+    if (key == GLFW_KEY_ESCAPE) {
+      if (!filePicker)
+        return;
+      children.erase(children.begin());
+      filePicker = nullptr;
+      return;
+    }
     if (mods == GLFW_MOD_CONTROL && key == GLFW_KEY_O) {
-      // std::println("{}", serializeContent());
       if (!filePicker) {
         filePicker =
             insertChild<FilePicker>(children.begin(), glm::vec2{.1f},
@@ -193,7 +225,6 @@ private:
       return;
     }
     if (mods == GLFW_MOD_CONTROL && key == GLFW_KEY_S) {
-      // std::println("{}", serializeContent());
       if (filePicker)
         return;
       filePicker =
@@ -204,77 +235,31 @@ private:
     if (mods == GLFW_MOD_CONTROL && key == GLFW_KEY_R) {
       reset();
     }
-    // TODO: make the canvas unusable when the file picker is open
-    if (key == GLFW_KEY_ENTER) {
-      if (!filePicker)
-        return;
-      std::filesystem::path path = filePicker->path->content;
-      if (filePicker->mode == FilePicker::Mode::Save) {
-        std::ofstream out(path, std::ofstream::out | std::ofstream::trunc |
-                                    std::ios::binary);
-        out << serializeContent();
-        out.close();
-      } else {
-        if (!std::filesystem::exists(path))
-          throw std::runtime_error("path does not exist");
-        std::ifstream in(path, std::ios::binary);
-        std::string buffer((std::istreambuf_iterator<char>(in)),
-                           std::istreambuf_iterator<char>());
-        deserializeContent(buffer);
-        in.close();
-      }
-      children.erase(children.begin());
-      filePicker = nullptr;
-      return;
-    }
-    if (key == GLFW_KEY_ESCAPE) {
-      if (!filePicker)
-        return;
-      children.erase(children.begin());
-      filePicker = nullptr;
-      return;
-    }
     if (key == GLFW_KEY_ESCAPE) {
       mode = Mode::Select;
       modeText->content = "mode: Select";
-      modeText->flushSize();
       modeBg->size = modeText->size;
     }
-    if (key == GLFW_KEY_T) {
+    if (key == input::keybinds[input::PlaceText]) {
       mode = Mode::Text;
       modeText->content = "mode: Text";
-      modeText->flushSize();
       modeBg->size = modeText->size;
     }
-    if (key == GLFW_KEY_R) {
+    if (key == input::keybinds[input::PlaceRect]) {
       mode = Mode::Rect;
       modeText->content = "mode: Rect";
-      modeText->flushSize();
       modeBg->size = modeText->size;
     }
-    if (key == GLFW_KEY_L) {
+    if (key == input::keybinds[input::PlaceLine]) {
       mode = Mode::Line;
       modeText->content = "mode: Line";
-      modeText->flushSize();
       modeBg->size = modeText->size;
     }
   }
   void mouseButtonCallback(int button, int action, int mods) {
     const auto &cursorPos = view.context.input.cursorPos;
-    const glm::vec2 min = glm::min(position, position + size);
-    const glm::vec2 max = glm::max(position, position + size);
-
-    if (button != GLFW_MOUSE_BUTTON_LEFT)
-      return;
-    if (action == GLFW_RELEASE) {
-      elementBeingAdded = nullptr;
-      return;
-    }
-    if (action != GLFW_PRESS)
-      return;
-
-    if (!(glm::all(glm::greaterThanEqual(cursorPos, min)) &&
-          glm::all(glm::lessThanEqual(cursorPos, max))))
+    if (action != GLFW_PRESS || button != GLFW_MOUSE_BUTTON_LEFT ||
+        filePicker || !isCursorInside())
       return;
 
     switch (mode) {
@@ -285,9 +270,8 @@ private:
           children.begin(), (cursorPos - position) / size);
       break;
     case Mode::Rect:
-      elementBeingAdded = insertChild<hud::Rect>(children.begin(),
-                                                 (cursorPos - position) / size,
-                                                 glm::vec2{}, glm::vec3{1.f});
+      elementBeingAdded = insertChild<hud::Rect>(
+          children.begin(), (cursorPos - position) / size, glm::vec2{}, 0);
       break;
     case Mode::Line:
       elementBeingAdded = insertChild<hud::Line>(children.begin(),
@@ -300,9 +284,16 @@ private:
     if (!elementBeingAdded)
       return;
     const auto &cursorPos = view.context.input.cursorPos;
-
-    elementBeingAdded->size = cursorPos - elementBeingAdded->position;
+    if (!std::dynamic_pointer_cast<vkh::hud::Text>(elementBeingAdded))
+      elementBeingAdded->size = cursorPos - elementBeingAdded->position;
   }
+  void dropCallback(int count, const char **paths) {
+    // int i;
+    // for (i = 0;  i < count;  i++)
+    //     handleDTroppedFile(paths[i]);
+    loadFromFile(paths[1]);
+  }
+
   std::shared_ptr<Element> elementBeingAdded;
   std::shared_ptr<hud::Rect> bg;
   std::shared_ptr<hud::Text> modeText;

@@ -3,6 +3,7 @@
 #include <vulkan/vulkan_core.h>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_ENABLE_EXPERIMENTAL
 #include <fastgltf/core.hpp>
 #include <fastgltf/glm_element_traits.hpp>
 #include <glm/glm.hpp>
@@ -16,7 +17,6 @@
 #include <filesystem>
 #include <format>
 #include <memory>
-#include <print>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -49,17 +49,25 @@ template <typename VertexType> struct SceneCreateInfo {
 template <typename VertexType> class Scene {
 public:
   struct Mesh {
-    uint32_t indexOffset{};
-    uint32_t indexCount{};
-    glm::mat4 transform;
-    size_t materialIndex;
     AABB aabb{};
-    void draw(VkCommandBuffer commandBuffer) {
-      vkCmdDrawIndexed(commandBuffer, indexCount, 1, indexOffset, 0, 0);
-    }
+    glm::mat4 transform;
+    struct Primitive {
+      uint32_t indexOffset{};
+      uint32_t indexCount{};
+      size_t materialIndex;
+      void draw(VkCommandBuffer commandBuffer) {
+        vkCmdDrawIndexed(commandBuffer, indexCount, 1, indexOffset, 0, 0);
+      }
+    };
+    std::vector<Primitive> primitives;
   };
   struct Material {
-    size_t baseColorTextureIndex;
+    std::optional<std::size_t> baseColorTextureIndex;
+    glm::vec4 baseColorFactor{};
+    std::optional<std::size_t> metallicRoughnessTextureIndex;
+    float roughnessFactor{};
+    glm::vec4 metallicFactor{};
+    std::optional<std::size_t> normalTextureIndex;
   };
   static_assert(has_pos<VertexType>::value,
                 "VertexType must have a pos member");
@@ -73,10 +81,19 @@ public:
       : context{context}, disableMaterial{true} {
     ImageCreateInfo imageInfo{};
     imageInfo.w = imageInfo.h = 1;
-    imageInfo.color = 0x0;
+    glm::vec4 color = {1.0f, 1.0f, 1.0f, 1.0f}; // White
+    color.r = std::pow(color.r, 1.0f / 2.2f);
+    color.g = std::pow(color.g, 1.0f / 2.2f);
+    color.b = std::pow(color.b, 1.0f / 2.2f);
+    uint8_t r = static_cast<uint8_t>(color.r * 255.0f + 0.5f);
+    uint8_t g = static_cast<uint8_t>(color.g * 255.0f + 0.5f);
+    uint8_t b = static_cast<uint8_t>(color.b * 255.0f + 0.5f);
+    uint8_t a = static_cast<uint8_t>(color.a * 255.0f + 0.5f);
+    imageInfo.color = (a << 24) | (b << 16) | (g << 8) | r;
     imageInfo.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     imageInfo.usage =
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
     images.emplace_back(context, imageInfo);
 
     VkDescriptorSet set;
@@ -88,8 +105,7 @@ public:
         .build(set);
     imageDescriptorSets.emplace_back(set);
 
-    Material defaultMat{0};
-    materials.emplace_back(defaultMat);
+    materials.emplace_back();
 
     createBuffers(createInfo.vertices, createInfo.indices);
   }
@@ -102,7 +118,6 @@ public:
     VkBuffer buffers[] = {*vertexBuffer};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, buffers, offsets);
-
     vkCmdBindIndexBuffer(commandBuffer, *indexBuffer, 0, VK_INDEX_TYPE_UINT32);
   }
 
@@ -110,12 +125,12 @@ public:
     auto gltfFile = fastgltf::GltfDataBuffer::FromPath(path);
     if (gltfFile.error() != fastgltf::Error::None) {
       throw std::runtime_error(
-          std::format("failed to load {}: {}", path.string(),
+          std::format("Failed to load {}: {}", path.string(),
                       fastgltf::getErrorMessage(gltfFile.error())));
     }
     fastgltf::Parser parser;
     auto asset = parser.loadGltfBinary(gltfFile.get(), path.parent_path(),
-                                       fastgltf::Options::None);
+                                       fastgltf::Options::LoadExternalBuffers);
     if (asset.error() != fastgltf::Error::None) {
       throw std::runtime_error(std::format(
           "Failed to parse GLB: {}", fastgltf::getErrorMessage(asset.error())));
@@ -126,10 +141,13 @@ public:
     std::vector<uint32_t> indices;
 
     for (const auto &mesh : gltf.meshes) {
-      Mesh newMesh{};
+      auto &newMesh = meshes.emplace_back();
       uint32_t start = static_cast<uint32_t>(indices.size());
-      newMesh.indexOffset = start;
       for (const auto &primitive : mesh.primitives) {
+        auto &newPrimitive = newMesh.primitives.emplace_back();
+        newPrimitive.indexOffset = start;
+        newPrimitive.materialIndex =
+            primitive.materialIndex.value_or(0); // Set material index always
         size_t initial_vtx = vertices.size();
 
         if (primitive.indicesAccessor.has_value()) {
@@ -162,11 +180,13 @@ public:
           } else {
             throw std::runtime_error("Unsupported index component type");
           }
+          uint32_t end = static_cast<uint32_t>(indices.size());
+          newPrimitive.indexCount = end - start;
           indexCount += indexAccessor.count;
         }
 
         auto posAttribute = primitive.findAttribute("POSITION");
-        {
+        if (posAttribute != primitive.attributes.end()) {
           fastgltf::Accessor &posAccessor =
               gltf.accessors[posAttribute->accessorIndex];
           size_t count = posAccessor.count;
@@ -205,47 +225,18 @@ public:
                 });
           }
         }
-        newMesh.materialIndex = primitive.materialIndex.value_or(0);
       }
-      uint32_t end = static_cast<uint32_t>(indices.size());
-      newMesh.indexCount = end - start;
-      meshes.emplace_back(newMesh);
     }
 
     fastgltf::iterateSceneNodes(
         gltf, 0, fastgltf::math::fmat4x4(),
         [&](fastgltf::Node &node, fastgltf::math::fmat4x4 matrix) {
           if (node.meshIndex.has_value()) {
-            std::memcpy(&meshes[*node.meshIndex].transform, &matrix,
-                        sizeof(glm::mat4));
+            meshes[*node.meshIndex].transform = glm::make_mat4(matrix.data());
           }
         });
 
-    if (disableMaterial || gltf.images.empty()) {
-      ImageCreateInfo imageInfo{};
-      imageInfo.w = imageInfo.h = 1;
-      imageInfo.color = 0x0;
-      imageInfo.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      imageInfo.usage =
-          VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-      images.emplace_back(context, imageInfo);
-
-      VkDescriptorSet set;
-      auto descriptorInfo =
-          images[0].getDescriptorInfo(context.vulkan.defaultSampler);
-      DescriptorWriter(*context.vulkan.sceneDescriptorSetLayout,
-                       *context.vulkan.globalDescriptorPool)
-          .writeImage(0, &descriptorInfo)
-          .build(set);
-      imageDescriptorSets.emplace_back(set);
-
-      Material defaultMat{0};
-      materials.emplace_back(defaultMat);
-
-      for (auto &mesh : meshes) {
-        mesh.materialIndex = 0;
-      }
-    } else {
+    if (!disableMaterial) {
       for (auto &image : gltf.images) {
         std::visit(
             fastgltf::visitor{
@@ -279,10 +270,23 @@ public:
       }
       for (auto &material : gltf.materials) {
         Material mat{};
-        if (material.pbrData.baseColorTexture.has_value()) {
-          auto &texInfo = material.pbrData.baseColorTexture.value();
-          auto &tex = gltf.textures[texInfo.textureIndex];
-          mat.baseColorTextureIndex = tex.imageIndex.value_or(0);
+        mat.baseColorFactor =
+            glm::make_vec4(material.pbrData.baseColorFactor.data());
+        mat.roughnessFactor = material.pbrData.roughnessFactor;
+        auto &baseColorTexture = material.pbrData.baseColorTexture;
+        auto &roughnessTexture = material.pbrData.metallicRoughnessTexture;
+        if (baseColorTexture.has_value()) {
+          auto &tex = gltf.textures[baseColorTexture.value().textureIndex];
+          mat.baseColorTextureIndex = tex.imageIndex;
+        }
+        if (roughnessTexture.has_value()) {
+          auto &tex = gltf.textures[roughnessTexture.value().textureIndex];
+          mat.metallicRoughnessTextureIndex = tex.imageIndex;
+        }
+        auto &normalTexture = material.normalTexture;
+        if (normalTexture.has_value()) {
+          auto &tex = gltf.textures[normalTexture.value().textureIndex];
+          mat.normalTextureIndex = tex.imageIndex;
         }
         materials.emplace_back(mat);
       }
@@ -346,18 +350,19 @@ private:
     endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 
     if (meshes.empty()) {
-      meshes.emplace_back(0, indexCount);
+      auto &newMesh = meshes.emplace_back();
+      auto &newPrimitive = newMesh.primitives.emplace_back();
+      newPrimitive.indexOffset = 0;
+      newPrimitive.indexCount = indexCount;
+      newPrimitive.materialIndex = 0;
     }
   }
 
   EngineContext &context;
-
   std::unique_ptr<Buffer<VertexType>> vertexBuffer;
   uint32_t vertexCount;
-
   std::unique_ptr<Buffer<uint32_t>> indexBuffer;
   uint32_t indexCount;
-
   bool disableMaterial{};
 };
 

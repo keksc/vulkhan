@@ -9,6 +9,8 @@
 
 #include "vkh/systems/entity/entities.hpp"
 
+#include "rng.hpp"
+
 enum CellType { Empty, Room, Corridor };
 enum RoomModel {
   Bottom = 5,
@@ -20,46 +22,37 @@ enum RoomModel {
 };
 
 void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys) {
-  // Initialize random number generator
-  std::mt19937 rng{std::random_device{}()};
 
-  // Load assets
   auto westWingAssets = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
       context, "models/westwingassets.glb");
 
-  // Grid and room parameters
   glm::ivec2 maxRoomSize{10, 10};
   int maxRooms = 10;
   glm::ivec2 gridSize{50, 50};
   std::vector<std::vector<CellType>> grid(
       gridSize.x, std::vector<CellType>(gridSize.y, CellType::Empty));
 
-  // Random distributions for room placement
   std::uniform_int_distribution<> roomPosX(0, gridSize.x - 2);
   std::uniform_int_distribution<> roomPosY(0, gridSize.y - 2);
   std::uniform_int_distribution<> roomSizeX(3, maxRoomSize.x);
   std::uniform_int_distribution<> roomSizeY(3, maxRoomSize.y);
 
-  // Store rooms for corridor generation
   struct Room {
     glm::ivec2 topLeft;
     glm::ivec2 size;
   };
   std::vector<Room> rooms;
 
-  // Generate non-overlapping rooms
   for (int i = 0; i < maxRooms; i++) {
     bool placed = false;
     for (int attempts = 10; attempts > 0; attempts--) {
       glm::ivec2 pos{roomPosX(rng), roomPosY(rng)};
       glm::ivec2 size{roomSizeX(rng), roomSizeY(rng)};
 
-      // Ensure room fits within grid
       if (pos.x + size.x >= gridSize.x || pos.y + size.y >= gridSize.y) {
         continue;
       }
 
-      // Check for overlap with existing rooms
       bool overlap = false;
       for (const auto &room : rooms) {
         if (!(pos.x + size.x < room.topLeft.x ||
@@ -98,7 +91,7 @@ void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys) {
     glm::ivec2 p1 = room1.topLeft + room1.size / 2;
     glm::ivec2 p2 = room2.topLeft + room2.size / 2;
 
-    // Draw corridor (horizontal then vertical)
+    // Add corridor (horizontal then vertical)
     int x = p1.x;
     int y = p1.y;
     while (x != p2.x) {
