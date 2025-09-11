@@ -20,7 +20,7 @@ public:
   WSTessendorf(EngineContext &context);
   ~WSTessendorf();
 
-  float computeWaves(float time);
+  float recordComputeWaves(VkCommandBuffer &cmd, float time);
 
   // has to be a power of 2
   const unsigned int tileSize = 512;

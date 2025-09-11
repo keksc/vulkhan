@@ -11,6 +11,17 @@ public:
     context.inputCallbackSystems[this] = {};
   }
 
+  View(const View &) = delete;
+  View &operator=(const View &) = delete;
+
+  View(View &&other) noexcept
+      : context(other.context), elements(std::move(other.elements)),
+        elementCount(other.elementCount) {
+    context.inputCallbackSystems[this] =
+        std::move(context.inputCallbackSystems[&other]);
+    context.inputCallbackSystems.erase(&other);
+  }
+
   template <typename T, typename... Args>
   std::shared_ptr<T> addElement(Args &&...args) {
     auto element =
@@ -23,6 +34,8 @@ public:
   auto end() { return elements.end(); }
   auto begin() const { return elements.begin(); }
   auto end() const { return elements.end(); }
+  auto size() const { return elements.size(); }
+  auto empty() const { return elements.empty(); }
 
   ~View() {
     context.inputCallbackSystems.erase(this);
@@ -32,9 +45,11 @@ public:
   void setCurrent() { context.currentInputCallbackSystemKey = this; }
 
   EngineContext &context;
+  std::vector<std::shared_ptr<Element>> elements;
+
+  size_t elementCount = 0;
 
 private:
-  std::vector<std::shared_ptr<Element>> elements;
   friend class Element;
   template <auto CallbackListPtr> friend class EventListener;
 };

@@ -1,4 +1,5 @@
 #include "entities.hpp"
+#include <glm/gtc/quaternion.hpp>
 
 namespace vkh {
 
@@ -55,35 +56,13 @@ glm::mat4 EntitySys::Transform::mat4() const {
 }
 
 glm::mat3 EntitySys::Transform::normalMatrix() {
-  /*const float c1 = glm::cos(rotation.y);
-  const float c2 = glm::cos(rotation.x);
-  const float c3 = glm::cos(rotation.z);
-  const float s1 = glm::sin(rotation.y);
-  const float s2 = glm::sin(rotation.x);
-  const float s3 = glm::sin(rotation.z);
-  const glm::vec3 invScale = 1.0f / scale;
+  glm::mat3 R = glm::mat3_cast(orientation);
 
-  return glm::mat3{
-      {
-          invScale.x * (c1 * c3 + s1 * s2 * s3),
-          invScale.x * (c2 * s3),
-          invScale.x * (c1 * s2 * s3 - c3 * s1),
-      },
-      {
-          invScale.y * (c3 * s1 * s2 - c1 * s3),
-          invScale.y * (c2 * c3),
-          invScale.y * (c1 * c3 * s2 + s1 * s3),
-      },
-      {
-          invScale.z * (c2 * s1),
-          invScale.z * (-s2),
-          invScale.z * (c1 * c2),
-      },
-  };*/
-  glm::mat3 rotationMatrix = glm::mat3(orientation);
-  glm::mat3 scaleMatrix =
-      glm::mat3(1.0f / scale.x, 0.0f, 0.0f, 0.0f, 1.0f / scale.y, 0.0f, 0.0f,
-                0.0f, 1.0f / scale.z);
-  return rotationMatrix * scaleMatrix;
+  glm::mat3 S = glm::mat3(1.0f);
+  S[0][0] = 1.0f / scale.x;
+  S[1][1] = 1.0f / scale.y;
+  S[2][2] = 1.0f / scale.z;
+
+  return R * S;
 }
 } // namespace vkh

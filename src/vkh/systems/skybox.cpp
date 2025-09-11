@@ -78,6 +78,6 @@ void SkyboxSys::render() {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
                           sets, 0, nullptr);
   cubeScene->bind(context, context.frameInfo.cmd, *pipeline);
-  cubeScene->meshes[0].draw(context.frameInfo.cmd);
+  cubeScene->meshes.begin()->primitives.begin()->draw(context.frameInfo.cmd);
 }
 } // namespace vkh

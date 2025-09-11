@@ -13,10 +13,15 @@ public:
       this->position = parent->position + position * parent->size;
       this->size = parent->size * size;
     }
+    view.elementCount++;
   }
   Element(const Element &) = delete;
   Element &operator=(const Element &) = delete;
-  ~Element() { children.clear(); }
+
+  ~Element() {
+    children.clear();
+    view.elementCount--;
+  }
 
   template <typename T, typename... Args>
   std::shared_ptr<T> addChild(Args &&...args) {
@@ -34,7 +39,19 @@ public:
     return element;
   }
 
-  virtual void addToDrawInfo(DrawInfo &drawInfo) {};
+  bool isPositionInside(const glm::vec2 &pos) {
+    const glm::vec2 min = glm::min(position, position + size);
+    const glm::vec2 max = glm::max(position, position + size);
+    if (glm::all(glm::greaterThanEqual(pos, min)) &&
+        glm::all(glm::lessThanEqual(pos, max)))
+      return true;
+    return false;
+  }
+  inline bool isCursorInside() {
+    return isPositionInside(view.context.input.cursorPos);
+  }
+
+  virtual void addToDrawInfo(DrawInfo &drawInfo, float depth) {};
   std::vector<std::shared_ptr<Element>> children;
 
   glm::vec2 position{};

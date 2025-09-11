@@ -6,10 +6,12 @@ namespace vkh {
 namespace hud {
 template <auto CallbackListPtr> class EventListener {
 public:
+  using CallbackType = typename std::decay_t<
+      decltype(std::declval<View>().context.inputCallbackSystems[nullptr].*
+               CallbackListPtr)>::mapped_type;
   EventListener(
       View &view,
-      std::decay_t<decltype(View::context.inputCallbackSystems[&view].*
-                            CallbackListPtr)>::mapped_type callback)
+      CallbackType callback)
       : parentView{view} {
     auto &callbackList =
         parentView.context.inputCallbackSystems[&parentView].*CallbackListPtr;

@@ -102,16 +102,15 @@ void createInstance(EngineContext &context) {
     throw std::runtime_error("validation layers requested, but not available!");
   }
 
-  VkApplicationInfo appInfo = {};
-  appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+  VkApplicationInfo appInfo = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO};
   appInfo.pApplicationName = "Vulkhan";
   appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
   appInfo.pEngineName = "No Engine";
   appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
   appInfo.apiVersion = VK_API_VERSION_1_3;
 
-  VkInstanceCreateInfo createInfo = {};
-  createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+  VkInstanceCreateInfo createInfo = {
+      .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
   createInfo.pApplicationInfo = &appInfo;
 
   auto extensions = getRequiredExtensions(context);
@@ -240,8 +239,8 @@ void createLogicalDevice(EngineContext &context) {
                                              .fillModeNonSolid = VK_TRUE,
                                              .samplerAnisotropy = VK_TRUE};
 
-  VkDeviceCreateInfo createInfo = {};
-  createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+  VkDeviceCreateInfo createInfo = {.sType =
+                                       VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 
   createInfo.queueCreateInfoCount =
       static_cast<uint32_t>(queueCreateInfos.size());
@@ -276,8 +275,8 @@ void createCommandPool(EngineContext &context) {
   QueueFamilyIndices queueFamilyIndices =
       findQueueFamilies(context, context.vulkan.physicalDevice);
 
-  VkCommandPoolCreateInfo poolInfo = {};
-  poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  VkCommandPoolCreateInfo poolInfo = {
+      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
   poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily;
   poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
                    VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -343,7 +342,9 @@ void setupGlobResources(EngineContext &context) {
   context.vulkan.globalDescriptorSetLayout =
       DescriptorSetLayout::Builder(context)
           .addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+                      VK_SHADER_STAGE_VERTEX_BIT |
+                          VK_SHADER_STAGE_FRAGMENT_BIT |
+                          VK_SHADER_STAGE_COMPUTE_BIT)
           .build();
 
   context.vulkan.globalDescriptorSets.resize(context.vulkan.maxFramesInFlight);
@@ -367,7 +368,8 @@ void init(EngineContext &context) {
   uint32_t imageCount = (swapChainSupport.capabilities.minImageCount <= 2)
                             ? 2
                             : swapChainSupport.capabilities.minImageCount + 1;
-  if (imageCount > swapChainSupport.capabilities.maxImageCount)
+  // maxImageCount 0 means infinite
+  if (swapChainSupport.capabilities.maxImageCount != 0 && imageCount > swapChainSupport.capabilities.maxImageCount)
     imageCount = swapChainSupport.capabilities.maxImageCount;
 
   context.vulkan.maxFramesInFlight = imageCount;
@@ -375,6 +377,8 @@ void init(EngineContext &context) {
   context.vulkan.sceneDescriptorSetLayout =
       DescriptorSetLayout::Builder(context)
           .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                      VK_SHADER_STAGE_FRAGMENT_BIT)
+          .addBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                       VK_SHADER_STAGE_FRAGMENT_BIT)
           .build();
 
@@ -384,8 +388,8 @@ void init(EngineContext &context) {
   VkPhysicalDeviceProperties properties{};
   vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice, &properties);
 
-  VkSamplerCreateInfo samplerInfo{};
-  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  VkSamplerCreateInfo samplerInfo{.sType =
+                                      VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
   samplerInfo.magFilter = VK_FILTER_LINEAR;
   samplerInfo.minFilter = VK_FILTER_LINEAR;
   samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
