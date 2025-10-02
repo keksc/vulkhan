@@ -84,8 +84,8 @@ void EntitySys::render() {
 
   compactDraws();
 
-  std::println("batches: {}", batches.size());
-  std::println("entities: {}", entities.size());
+  // std::println("batches: {}", batches.size());
+  // std::println("entities: {}", entities.size());
 
   std::shared_ptr<Scene<Vertex>> currentScene = nullptr;
   for (auto &entity : entities) {

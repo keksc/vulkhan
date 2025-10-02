@@ -121,20 +121,15 @@ void run() {
 
     glm::dvec2 worldCursorPos{};
     glm::vec2 worldYawAndPitch{};
-    vkh::hud::EventListener<&vkh::EngineContext::InputCallbackSystem::key>
-        settingsKeyListener(settingsView, [&](int key, int scancode, int action,
-                                              int mods) {
+    auto settingsViewEventManager = settingsView.addElement<vkh::hud::Element>(
+        glm::vec2{0.0}, glm::vec2{1.0});
+    settingsViewEventManager->addEventHandler<vkh::input::EventType::Key>(
+        [&](int key, int scancode, int action, int mods) {
           if (action != GLFW_PRESS)
-            return;
+            return false;
           if (key == GLFW_KEY_ESCAPE) {
-            vkh::input::lastPos = worldCursorPos;
-            glfwSetCursorPos(context.window, worldCursorPos.x,
-                             worldCursorPos.y);
-            context.camera.yaw = worldYawAndPitch.x;
-            context.camera.pitch = worldYawAndPitch.y;
-            glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            hudSys.setView(&hudWorld);
-            return;
+            hudSys.setView(&hudPause);
+            return true;
           }
           if (selectedButton) {
             selectedButton->label->content =
@@ -144,22 +139,21 @@ void run() {
             vkh::input::keybinds[selectedButton->action] = key;
             selectedButton = nullptr;
           }
+          return false;
         });
-    vkh::hud::EventListener<&vkh::EngineContext::InputCallbackSystem::key>
-        pauseKeyListener(hudPause, [&](int key, int scancode, int action,
-                                       int mods) {
-          if (action != GLFW_PRESS)
-            return;
-          if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-            vkh::input::lastPos = worldCursorPos;
-            glfwSetCursorPos(context.window, worldCursorPos.x,
-                             worldCursorPos.y);
-            context.camera.yaw = worldYawAndPitch.x;
-            context.camera.pitch = worldYawAndPitch.y;
-            glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-            hudSys.setView(&hudWorld);
-            return;
-          }
+    auto pauseViewEventManager =
+        hudPause.addElement<vkh::hud::Element>(glm::vec2{0.0}, glm::vec2{1.0});
+    pauseViewEventManager->addEventHandler<vkh::input::EventType::Key>(
+        [&](int key, int scancode, int action, int mods) {
+          if (!(action == GLFW_PRESS && key == GLFW_KEY_ESCAPE))
+            return false;
+          vkh::input::lastPos = worldCursorPos;
+          glfwSetCursorPos(context.window, worldCursorPos.x, worldCursorPos.y);
+          context.camera.yaw = worldYawAndPitch.x;
+          context.camera.pitch = worldYawAndPitch.y;
+          glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+          hudSys.setView(&hudWorld);
+          return true;
         });
 
     unsigned short i = 0;
@@ -180,27 +174,30 @@ void run() {
       i++;
     }
 
-    vkh::hud::EventListener<&vkh::EngineContext::InputCallbackSystem::key>
-        worldKeyListener(hudWorld, [&](int key, int scancode, int action,
-                                       int mods) {
-          if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-            glfwGetCursorPos(context.window, &worldCursorPos.x,
-                             &worldCursorPos.y);
-            vkh::input::lastPos = worldCursorPos;
-            worldYawAndPitch = {context.camera.yaw, context.camera.pitch};
-            glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-            hudSys.setView(&hudPause);
-          }
+    auto worldViewEventManager =
+        hudWorld.addElement<vkh::hud::Element>(glm::vec2{0.0}, glm::vec2{1.0});
+    worldViewEventManager->addEventHandler<vkh::input::EventType::Key>(
+        [&](int key, int scancode, int action, int mods) {
+          if (!(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS))
+            return false;
+          glfwGetCursorPos(context.window, &worldCursorPos.x,
+                           &worldCursorPos.y);
+          vkh::input::lastPos = worldCursorPos;
+          worldYawAndPitch = {context.camera.yaw, context.camera.pitch};
+          glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+          hudSys.setView(&hudPause);
+          return true;
         });
-    vkh::hud::EventListener<&vkh::EngineContext::InputCallbackSystem::key>
-        canvasKeyListener(
-            canvasView, [&](int key, int scancode, int action, int mods) {
-              if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-                if (canvas->filePicker)
-                  return;
-                hudSys.setView(&hudPause);
-              }
-            });
+
+    auto canvasViewEventManager = canvasView.addElement<vkh::hud::Element>(
+        glm::vec2{0.0}, glm::vec2{1.0});
+    canvasViewEventManager->addEventHandler<vkh::input::EventType::Key>(
+        [&](int key, int scancode, int action, int mods) {
+          if (!(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS))
+            return false;
+          hudSys.setView(&hudPause);
+          return true;
+        });
     hudSys.setView(&hudWorld);
 
     auto rect = hudWorld.addElement<vkh::hud::Rect>(glm::vec2{-1.f, -1.f},

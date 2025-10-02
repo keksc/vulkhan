@@ -10,23 +10,10 @@
 namespace vkh {
 namespace hud {
 
-class ColorPicker
-    : public Element,
-      public EventListener<&EngineContext::InputCallbackSystem::mouseButton>,
-      public EventListener<
-          &EngineContext::InputCallbackSystem::cursorPosition> {
+class ColorPicker : public Element {
 public:
   ColorPicker(View &view, Element *parent, glm::vec2 position, glm::vec2 size)
-      : Element(view, parent, position, size),
-        EventListener<&EngineContext::InputCallbackSystem::mouseButton>(
-            view,
-            [this](int button, int action, int mods) {
-              mouseButtonCallback(button, action, mods);
-            }),
-        EventListener<&EngineContext::InputCallbackSystem::cursorPosition>(
-            view, [this](double xpos, double ypos) {
-              cursorPositionCallback(xpos, ypos);
-            }) {
+      : Element(view, parent, position, size) {
     saturationSlider = addChild<Slider>(
         glm::vec2{1.f, 0.f}, glm::vec2{.2f, 1.f}, glm::vec3{1.f},
         glm::vec3{.3f}, glm::vec2{0.f, 1.f}, 1.f);
@@ -37,7 +24,7 @@ public:
   glm::vec3 getSelectedColor() const { return selectedColor; }
 
 protected:
-  void addToDrawInfo(DrawInfo &drawInfo) override {
+  void addToDrawInfo(DrawInfo &drawInfo, float depth) override {
     const float x0 = position.x;
     const float y0 = position.y;
     const float width = size.x;
@@ -67,14 +54,14 @@ protected:
 
         uint32_t i =
             static_cast<uint32_t>(drawInfo.solidColorTriangleVertices.size());
-        drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{px, py},
-                                                         colorA);
-        drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{px + dx, py},
-                                                         colorB);
         drawInfo.solidColorTriangleVertices.emplace_back(
-            glm::vec2{px + dx, py + dy}, colorC);
-        drawInfo.solidColorTriangleVertices.emplace_back(glm::vec2{px, py + dy},
-                                                         colorD);
+            glm::vec3{px, py, depth}, colorA);
+        drawInfo.solidColorTriangleVertices.emplace_back(
+            glm::vec3{px + dx, py, depth}, colorB);
+        drawInfo.solidColorTriangleVertices.emplace_back(
+            glm::vec3{px + dx, py + dy, depth}, colorC);
+        drawInfo.solidColorTriangleVertices.emplace_back(
+            glm::vec3{px, py + dy, depth}, colorD);
 
         // Two triangles per quad
         drawInfo.solidColorTriangleIndices.emplace_back(i);
@@ -93,16 +80,18 @@ protected:
 private:
   bool selected = false;
 
-  void mouseButtonCallback(int button, int action, int) {
+  bool handleMouseButton(int button, int action, int) override {
     selected = false;
-    if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS || !isCursorInside())
-      return;
+    if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS ||
+        !isCursorInside())
+      return false;
     selected = true;
 
     updateColor();
+    return true;
   }
 
-  void cursorPositionCallback(double xpos, double ypos) {
+  void cursorPosition(double xpos, double ypos) {
     if (!selected)
       return;
 

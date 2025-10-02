@@ -7,19 +7,11 @@ namespace hud {
 class Line : public Element {
 public:
   Line(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
-       glm::vec3 color)
-      : Element(view, parent, position, size), color{color} {};
+       glm::vec3 color);
   glm::vec3 color{};
 
 protected:
-  void addToDrawInfo(DrawInfo &drawInfo, float depth) override {
-    // TODO: this might be optimizable when nothing changes, maybe add a
-    // "changed" flag
-    drawInfo.solidColorLineVertices.emplace_back(
-        glm::vec3{position.x, position.y, depth}, color);
-    drawInfo.solidColorLineVertices.emplace_back(
-        glm::vec3{position.x + size.x, position.y + size.y, depth}, color);
-  };
+  void addToDrawInfo(DrawInfo &drawInfo, float depth) override;
 };
 } // namespace hud
 } // namespace vkh
