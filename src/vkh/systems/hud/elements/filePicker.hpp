@@ -1,7 +1,6 @@
 #pragma once
 
 #include "element.hpp"
-#include "eventListener.hpp"
 #include "rect.hpp"
 #include "text.hpp"
 
@@ -11,23 +10,13 @@
 
 namespace vkh {
 namespace hud {
-class FilePicker
-    : public Element,
-      public EventListener<&EngineContext::InputCallbackSystem::character>,
-      public EventListener<&EngineContext::InputCallbackSystem::key> {
+class FilePicker : public Element {
 public:
   enum Mode { Save, Open };
 
   FilePicker(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
              Mode mode)
-      : mode{mode}, Element(view, parent, position, size),
-        EventListener<&EngineContext::InputCallbackSystem::character>(
-            view,
-            [this](unsigned int codepoint) { characterCallback(codepoint); }),
-        EventListener<&EngineContext::InputCallbackSystem::key>(
-            view, [this](int key, int scancode, int action, int mods) {
-              keyCallback(key, scancode, action, mods);
-            }) {
+      : mode{mode}, Element(view, parent, position, size) {
     path = addChild<Text>(glm::vec2{});
     list = addChild<Text>(glm::vec2{0.f, TextSys::glyphRange.maxSizeY});
     addChild<Rect>(glm::vec2{}, glm::vec2{1.f}, 0);
@@ -47,18 +36,20 @@ private:
         list->content += pathStr + '\n';
     }
   }
-  void characterCallback(unsigned int codepoint) {
+  bool handleCharacter(unsigned int codepoint) override {
     path->content += static_cast<char>(codepoint);
     flush();
+    return true;
   }
-  void keyCallback(int key, int scancode, int action, int mods) {
+  bool handleKey(int key, int scancode, int action, int mods) override {
     if (!(key == GLFW_KEY_BACKSPACE &&
           (action == GLFW_PRESS || action == GLFW_REPEAT)))
-      return;
+      return true;
     if (path->content.empty())
-      return;
+      return true;
     path->content.pop_back();
     flush();
+    return true;
   }
 };
 } // namespace hud

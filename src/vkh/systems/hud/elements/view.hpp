@@ -1,26 +1,18 @@
 #pragma once
 
 #include "../../../engineContext.hpp"
+#include "../../../input.hpp"
 
 namespace vkh {
 namespace hud {
 class Element;
 class View {
 public:
-  View(EngineContext &context) : context{context} {
-    context.inputCallbackSystems[this] = {};
-  }
-
+  View(EngineContext &context);
   View(const View &) = delete;
   View &operator=(const View &) = delete;
 
-  View(View &&other) noexcept
-      : context(other.context), elements(std::move(other.elements)),
-        elementCount(other.elementCount) {
-    context.inputCallbackSystems[this] =
-        std::move(context.inputCallbackSystems[&other]);
-    context.inputCallbackSystems.erase(&other);
-  }
+  View(View &&other) noexcept;
 
   template <typename T, typename... Args>
   std::shared_ptr<T> addElement(Args &&...args) {
@@ -37,12 +29,9 @@ public:
   auto size() const { return elements.size(); }
   auto empty() const { return elements.empty(); }
 
-  ~View() {
-    context.inputCallbackSystems.erase(this);
-    elements.clear();
-  }
+  ~View();
 
-  void setCurrent() { context.currentInputCallbackSystemKey = this; }
+  void setCurrent();
 
   EngineContext &context;
   std::vector<std::shared_ptr<Element>> elements;
