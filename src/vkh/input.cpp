@@ -56,10 +56,8 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &[ptr, callback] :
-       context->inputCallbackSystems[context->currentInputCallbackSystemKey]
-           .key)
-    callback(key, scancode, action, mods);
+  context->inputCallbackSystems[context->currentInputCallbackSystemKey].key(
+      key, scancode, action, mods);
 }
 
 void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos) {
@@ -71,10 +69,8 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos) {
                              1.f;
   if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &[ptr, callback] :
-       context->inputCallbackSystems[context->currentInputCallbackSystemKey]
-           .cursorPosition)
-    callback(xpos, ypos);
+  context->inputCallbackSystems[context->currentInputCallbackSystemKey]
+      .cursorPosition(xpos, ypos);
 }
 
 int scroll{};
@@ -82,36 +78,15 @@ void scrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
   scroll += static_cast<int>(yoffset);
 }
 
-const int doubleClickDelay = 300;
-void doubleClickCallback(GLFWwindow *window) {
-  auto context =
-      reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
-  if (!context->currentInputCallbackSystemKey)
-    return;
-  for (auto &[ptr, callback] :
-       context->inputCallbackSystems[context->currentInputCallbackSystemKey]
-           .doubleClick)
-    callback();
-}
-
 void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
   static std::chrono::high_resolution_clock::time_point lastClick{};
 
-  if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-    if (std::chrono::high_resolution_clock::now() - lastClick <=
-        std::chrono::milliseconds(doubleClickDelay))
-      doubleClickCallback(window);
-    lastClick = std::chrono::high_resolution_clock::now();
-  }
-
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &[ptr, callback] :
-       context->inputCallbackSystems[context->currentInputCallbackSystemKey]
-           .mouseButton)
-    callback(button, action, mods);
+  context->inputCallbackSystems[context->currentInputCallbackSystemKey]
+      .mouseButton(button, action, mods);
 }
 
 void charCallback(GLFWwindow *window, unsigned int codepoint) {
@@ -119,10 +94,8 @@ void charCallback(GLFWwindow *window, unsigned int codepoint) {
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &[ptr, callback] :
-       context->inputCallbackSystems[context->currentInputCallbackSystemKey]
-           .character)
-    callback(codepoint);
+  context->inputCallbackSystems[context->currentInputCallbackSystemKey]
+      .character(codepoint);
 }
 
 void dropCallback(GLFWwindow *window, int count, const char **paths) {
@@ -130,10 +103,8 @@ void dropCallback(GLFWwindow *window, int count, const char **paths) {
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   if (!context->currentInputCallbackSystemKey)
     return;
-  for (auto &[ptr, callback] :
-       context->inputCallbackSystems[context->currentInputCallbackSystemKey]
-           .drop)
-    callback(count, paths);
+  context->inputCallbackSystems[context->currentInputCallbackSystemKey].drop(
+      count, paths);
 }
 
 void init(EngineContext &context) {
