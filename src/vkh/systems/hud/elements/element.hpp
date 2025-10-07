@@ -29,7 +29,7 @@ public:
   Element(const Element &) = delete;
   Element &operator=(const Element &) = delete;
 
-  ~Element() {
+  virtual ~Element() {
     children.clear();
     view.elementCount--;
   }

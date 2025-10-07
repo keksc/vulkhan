@@ -10,7 +10,7 @@
 
 namespace vkh {
 namespace hud {
-class Canvas : public Element {
+class Canvas : public Rect {
 public:
   Canvas(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
          decltype(Rect::imageIndex) bgImageIndex);
@@ -25,13 +25,14 @@ private:
   bool handleCursorPosition(double xpos, double ypos) override;
   bool handleDrop(int count, const char **paths) override;
 
+  void initBaseElements();
+  void removeFileBtns();
+
   std::shared_ptr<Element> elementBeingAdded;
-  std::shared_ptr<hud::Rect> bg;
   std::shared_ptr<hud::Text> modeText;
   std::shared_ptr<hud::Rect> modeBg;
 
-  std::shared_ptr<Button> fileBtnsBeginning;
-  size_t fileBtnsSize = 0;
+  std::vector<std::shared_ptr<Button>> fileBtns;
 
   enum Mode { Select, Text, Rect, Line } mode{Mode::Select};
 };

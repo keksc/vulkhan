@@ -12,6 +12,8 @@ void Button::setCallback(std::function<void(int, int, int)> newCallback) {
   onClick = std::move(newCallback);
 }
 bool Button::handleMouseButton(int button, int action, int mods) {
+  if(button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
+    return false;
   if (isCursorInside()) {
     onClick(button, action, mods);
     return true;

@@ -17,8 +17,8 @@ public:
 
 private:
   void createPipeline();
-  void addToDraw(std::vector<std::shared_ptr<hud::Element>> elements,
-                 unsigned int &recursionIndex, float oneOverViewSize);
+  void addToDraw(std::vector<std::shared_ptr<hud::Element>> &elements,
+                 float &depth);
   void update();
 
   std::unique_ptr<GraphicsPipeline> pipeline;
