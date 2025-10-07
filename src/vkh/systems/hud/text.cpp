@@ -70,6 +70,7 @@ void TextSys::createPipeline() {
   GraphicsPipeline::enableAlphaBlending(pipelineInfo);
   pipelineInfo.vertpath = "shaders/text.vert.spv";
   pipelineInfo.fragpath = "shaders/text.frag.spv";
+  pipelineInfo.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
 }
 void TextSys::createGlyphs() {

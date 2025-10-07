@@ -1,10 +1,13 @@
 #include "canvas.hpp"
 
+#include <filesystem>
 #include <format>
+#include <memory>
 #include <mutex>
+#include <print>
 
-#include "textInput.hpp"
 #include "line.hpp"
+#include "textInput.hpp"
 
 template <> struct std::formatter<glm::vec3> : std::formatter<std::string> {
   auto format(const glm::vec3 &vec3, format_context &ctx) const {
@@ -20,13 +23,202 @@ template <> struct std::formatter<glm::vec2> : std::formatter<std::string> {
 };
 
 namespace vkh::hud {
+void Canvas::initBaseElements() {
+  filePicker = nullptr;
+  elementBeingAdded = nullptr;
+  modeBg = addChild<hud::Rect>(glm::vec2{}, glm::vec2{1.f}, 0);
+  modeText = addChild<hud::Text>(glm::vec2{}, "mode: Select");
+  modeBg->size = modeText->size;
+}
 Canvas::Canvas(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
                decltype(Rect::imageIndex) bgImageIndex)
-    : Element(view, parent, position, size) {
-  modeText = addChild<hud::Text>(glm::vec2{}, "mode: Select");
-  modeBg = addChild<hud::Rect>(glm::vec2{}, glm::vec2{1.f}, 0);
-  modeBg->size = modeText->size;
-  bg = addChild<hud::Rect>(glm::vec2{}, glm::vec2{1.f}, 0);
+    : hud::Rect(view, parent, position, size, bgImageIndex) {
+  initBaseElements();
+}
+void Canvas::reset() {
+  children.clear();
+  initBaseElements();
+}
+bool Canvas::handleKey(int key, int scancode, int action, int mods) {
+  if (action != GLFW_PRESS)
+    return false;
+  if (key == GLFW_KEY_ENTER) {
+    if (!filePicker)
+      return false;
+    std::filesystem::path path = filePicker->path->content;
+    if (filePicker->mode == FilePicker::Mode::Save) {
+      saveToFile(path);
+      auto it = std::find(children.begin(), children.end(), filePicker);
+      if (it != children.end()) {
+        children.erase(it);
+      }
+      filePicker = nullptr;
+    } else {
+      loadFromFile(
+          path); // reset() nullptrs and removes filePicker automatically
+    }
+    return true;
+  }
+  if (mods == GLFW_MOD_CONTROL && key == GLFW_KEY_O) {
+    if (!filePicker) {
+      filePicker = addChild<FilePicker>(glm::vec2{.1f}, glm::vec2{.8f},
+                                        FilePicker::Mode::Open);
+    }
+    return true;
+  }
+  if (mods == GLFW_MOD_CONTROL && key == GLFW_KEY_S) {
+    if (filePicker)
+      return false;
+    filePicker = addChild<FilePicker>(glm::vec2{.1f}, glm::vec2{.8f},
+                                      FilePicker::Mode::Save);
+    return true;
+  }
+  if (mods == GLFW_MOD_CONTROL && key == GLFW_KEY_R) {
+    reset();
+    return true;
+  }
+  if (mods == GLFW_MOD_CONTROL && key == GLFW_KEY_N) {
+    if (!fileBtns.empty()) {
+      removeFileBtns();
+      return true;
+    }
+
+    unsigned int i = 0;
+    const float spacing = 0.05f;
+    for (const auto &entry : std::filesystem::directory_iterator(".")) {
+      if (!std::filesystem::is_regular_file(entry))
+        continue;
+
+      auto pathStr = std::filesystem::relative(entry.path()).string();
+
+      auto fileBtn = addChild<Button>(
+          glm::vec2{0.f, spacing * i++}, glm::vec2{spacing}, 0,
+          [&, pathStr](int button, int action, int) {
+            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+              loadFromFile(pathStr); // will call reset()
+              fileBtns.clear();
+            }
+          },
+          pathStr);
+
+      fileBtns.push_back(fileBtn);
+    }
+
+    return true;
+  }
+  if (key == GLFW_KEY_ESCAPE) {
+    if (filePicker) {
+      auto it = std::find(children.begin(), children.end(), filePicker);
+      if (it != children.end()) {
+        children.erase(it);
+      }
+      filePicker = nullptr;
+      return true;
+    }
+    if (!fileBtns.empty()) {
+      removeFileBtns();
+      return true;
+    }
+    if (mode == Mode::Select) {
+      return false;
+    }
+    mode = Mode::Select;
+    modeText->content = "mode: Select";
+    modeBg->size = modeText->size;
+    return true;
+  }
+  if (key == input::keybinds[input::PlaceText]) {
+    mode = Mode::Text;
+    modeText->content = "mode: Text";
+    modeBg->size = modeText->size;
+    return true;
+  }
+  if (key == input::keybinds[input::PlaceRect]) {
+    mode = Mode::Rect;
+    modeText->content = "mode: Rect";
+    modeBg->size = modeText->size;
+    return true;
+  }
+  if (key == input::keybinds[input::PlaceLine]) {
+    mode = Mode::Line;
+    modeText->content = "mode: Line";
+    modeBg->size = modeText->size;
+    return true;
+  }
+  return false;
+}
+void Canvas::removeFileBtns() {
+  children.erase(
+      std::remove_if(
+          children.begin(), children.end(),
+          [&](const auto &child) {
+            return std::find_if(fileBtns.begin(), fileBtns.end(),
+                                [&](const auto &btn) {
+                                  return btn.get() == child.get();
+                                }) !=
+                   fileBtns.end(); // Comparing smart pointers doesnt work
+                                   // because fileBtns holds pointers to Buttons
+                                   // and children pointers to Elements, and
+                                   // sharer_ptr's operator= cares about that
+          }),
+      children.end());
+  fileBtns.clear();
+}
+bool Canvas::handleMouseButton(int button, int action, int mods) {
+  if (button != GLFW_MOUSE_BUTTON_LEFT || filePicker ||
+      !isCursorInside()) // TODO: stop checking for file picker, because it will
+                         // grab the mouse button input anyways and this func
+                         // will not be called if a file picked is open
+    return false;
+
+  const auto &cursorPos = view.context.input.cursorPos;
+
+  if (action == GLFW_PRESS) {
+    // if (elementBeingAdded) {
+    //   elementBeingAdded = nullptr;
+    //   return true;
+    // }
+
+    switch (mode) {
+    case Mode::Select:
+      break;
+    case Mode::Text:
+      elementBeingAdded =
+          addChild<hud::TextInput>((cursorPos - position) / size);
+      std::dynamic_pointer_cast<TextInput>(elementBeingAdded)->selected = true;
+      break;
+    case Mode::Rect:
+      elementBeingAdded =
+          addChild<hud::Rect>((cursorPos - position) / size, glm::vec2{}, 0);
+      break;
+    case Mode::Line:
+      elementBeingAdded = addChild<hud::Line>((cursorPos - position) / size,
+                                              glm::vec2{}, glm::vec3{1.f});
+      break;
+    }
+    return true;
+  } else if (action == GLFW_RELEASE) {
+    if (elementBeingAdded) {
+      elementBeingAdded = nullptr;
+      return true;
+    }
+  }
+  return false;
+}
+bool Canvas::handleCursorPosition(double xpos, double ypos) {
+  if (!isCursorInside() || !elementBeingAdded)
+    return false;
+  const auto &cursorPos = view.context.input.cursorPos;
+  if (!std::dynamic_pointer_cast<vkh::hud::TextInput>(elementBeingAdded))
+    elementBeingAdded->size = cursorPos - elementBeingAdded->position;
+  return true;
+}
+bool Canvas::handleDrop(int count, const char **paths) {
+  // int i;
+  // for (i = 0;  i < count;  i++)
+  //     handleDTroppedFile(paths[i]);
+  loadFromFile(paths[0]);
+  return true;
 }
 void Canvas::saveToFile(const std::filesystem::path &path) {
   std::string content;
@@ -52,8 +244,9 @@ void Canvas::saveToFile(const std::filesystem::path &path) {
     content.push_back('\0');
   };
 
-  for (int i = 1; i < children.size(); i++) {
-    const auto &child = children[i];
+  for (auto &child : children) {
+    if (child == modeBg || child == modeText)
+      continue;
 
     glm::vec2 localPos = (child->position - position) / size;
     glm::vec2 localSize = child->size / size;
@@ -81,10 +274,11 @@ void Canvas::saveToFile(const std::filesystem::path &path) {
   out << content;
   out.close();
 }
-void Canvas::reset() { children.erase(children.begin(), children.end() - 1); }
 void Canvas::loadFromFile(const std::filesystem::path &path) {
   if (!std::filesystem::exists(path))
     throw std::runtime_error("path does not exist");
+  if (!std::filesystem::is_regular_file(path))
+    throw std::runtime_error("path is not a regular file");
 
   reset();
 
@@ -158,137 +352,5 @@ void Canvas::loadFromFile(const std::filesystem::path &path) {
       return;
     }
   }
-}
-bool Canvas::handleKey(int key, int scancode, int action, int mods) {
-  if (action != GLFW_PRESS)
-    return false;
-  if (key == GLFW_KEY_ENTER) {
-    if (!filePicker)
-      return false;
-    std::filesystem::path path = filePicker->path->content;
-    if (filePicker->mode == FilePicker::Mode::Save) {
-      saveToFile(path);
-    } else {
-      loadFromFile(path);
-    }
-    children.erase(children.begin());
-    filePicker = nullptr;
-    return true;
-  }
-  if (mods == GLFW_MOD_CONTROL && key == GLFW_KEY_O) {
-    if (!filePicker) {
-      filePicker =
-          insertChild<FilePicker>(children.begin(), glm::vec2{.1f},
-                                  glm::vec2{.8f}, FilePicker::Mode::Open);
-    }
-    return true;
-  }
-  if (mods == GLFW_MOD_CONTROL && key == GLFW_KEY_S) {
-    if (filePicker)
-      return true;
-    filePicker =
-        insertChild<FilePicker>(children.begin(), glm::vec2{.1f},
-                                glm::vec2{.8f}, FilePicker::Mode::Save);
-    return true;
-  }
-  if (mods == GLFW_MOD_CONTROL && key == GLFW_KEY_R) {
-    reset();
-    return true;
-  }
-  if (mods == GLFW_MOD_CONTROL && key == GLFW_KEY_N) {
-    if (fileBtnsBeginning) {
-      auto it = std::find(children.begin(), children.end(), fileBtnsBeginning);
-      children.erase(it, it + fileBtnsSize);
-      fileBtnsBeginning = nullptr;
-      fileBtnsSize = 0;
-    }
-    std::once_flag once;
-    for (const auto &entry : std::filesystem::directory_iterator(".")) {
-      auto pathStr = std::filesystem::relative(entry.path()).string();
-      auto fileBtn = addChild<Button>(
-          glm::vec2{0.f, .1f * fileBtnsSize++}, glm::vec2{2.f}, 0,
-          [&](int button, int action, int) {
-            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-              loadFromFile(pathStr);
-            }
-          },
-          pathStr);
-      std::call_once(once, [&]() { fileBtnsBeginning = fileBtn; });
-    }
-    return true;
-  }
-  if (key == GLFW_KEY_ESCAPE) {
-    if (filePicker) {
-      children.erase(children.begin());
-      filePicker = nullptr;
-      return true;
-    }
-    if (mode == Mode::Select) {
-      return false;
-    }
-    mode = Mode::Select;
-    modeText->content = "mode: Select";
-    modeBg->size = modeText->size;
-    return true;
-  }
-  if (key == input::keybinds[input::PlaceText]) {
-    mode = Mode::Text;
-    modeText->content = "mode: Text";
-    modeBg->size = modeText->size;
-    return true;
-  }
-  if (key == input::keybinds[input::PlaceRect]) {
-    mode = Mode::Rect;
-    modeText->content = "mode: Rect";
-    modeBg->size = modeText->size;
-    return true;
-  }
-  if (key == input::keybinds[input::PlaceLine]) {
-    mode = Mode::Line;
-    modeText->content = "mode: Line";
-    modeBg->size = modeText->size;
-    return true;
-  }
-  return true;
-}
-bool Canvas::handleMouseButton(int button, int action, int mods) {
-  const auto &cursorPos = view.context.input.cursorPos;
-  if (action != GLFW_PRESS || button != GLFW_MOUSE_BUTTON_LEFT || filePicker ||
-      !isCursorInside())
-    return false;
-
-  switch (mode) {
-  case Mode::Select:
-    break;
-  case Mode::Text:
-    elementBeingAdded = insertChild<hud::TextInput>(
-        children.begin(), (cursorPos - position) / size);
-    break;
-  case Mode::Rect:
-    elementBeingAdded = insertChild<hud::Rect>(
-        children.begin(), (cursorPos - position) / size, glm::vec2{}, 0);
-    break;
-  case Mode::Line:
-    elementBeingAdded =
-        insertChild<hud::Line>(children.begin(), (cursorPos - position) / size,
-                               glm::vec2{}, glm::vec3{1.f});
-    break;
-  }
-  return true;
-}
-bool Canvas::handleCursorPosition(double xpos, double ypos) {
-  if (!elementBeingAdded)
-    return false;
-  const auto &cursorPos = view.context.input.cursorPos;
-  if (!std::dynamic_pointer_cast<vkh::hud::Text>(elementBeingAdded))
-    elementBeingAdded->size = cursorPos - elementBeingAdded->position;
-  return true;
-}
-bool Canvas::handleDrop(int count, const char **paths) {
-  // int i;
-  // for (i = 0;  i < count;  i++)
-  //     handleDTroppedFile(paths[i]);
-  loadFromFile(paths[1]);
-  return true;
 }
 } // namespace vkh::hud

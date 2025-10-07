@@ -53,11 +53,15 @@ bool TextInput::handleKey(int key, int scancode, int action, int mods) {
     size = text->size;
     return true;
   }
-  if (key == GLFW_KEY_ESCAPE)
+  if (key == GLFW_KEY_ESCAPE) {
     selected = false;
-  return true;
+    return true;
+  }
+  return false;
 }
 bool TextInput::handleMouseButton(int button, int action, int mods) {
+  if(button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
+    return false;
   selected = isCursorInside();
   return selected;
 }
@@ -65,6 +69,6 @@ bool TextInput::handleCursorPosition(double xpos, double ypos) {
   glfwSetCursor(view.context.window, isCursorInside()
                                          ? view.context.window.cursors.ibeam
                                          : view.context.window.cursors.arrow);
-  return true;
+  return false;
 }
 } // namespace vkh::hud
