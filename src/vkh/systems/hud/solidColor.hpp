@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../../image.hpp"
-#include "../../descriptors.hpp"
 #include "../system.hpp"
 
 namespace vkh {

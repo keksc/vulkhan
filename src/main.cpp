@@ -12,11 +12,12 @@
 #include "vkh/systems/freezeAnimation.hpp"
 #include "vkh/systems/hud/elements/button.hpp"
 #include "vkh/systems/hud/elements/canvas.hpp"
-#include "vkh/systems/hud/elements/rect.hpp"
+#include "vkh/systems/hud/elements/rectImg.hpp"
 #include "vkh/systems/hud/elements/text.hpp"
 #include "vkh/systems/hud/hud.hpp"
 #include "vkh/systems/particles.hpp"
 #include "vkh/systems/skybox.hpp"
+#include "vkh/systems/smoke.hpp"
 #include "vkh/systems/water/water.hpp"
 #include "vkh/window.hpp"
 
@@ -43,17 +44,15 @@ void updateParticles(vkh::EngineContext &context,
   particleSys.update();
 }
 
-namespace vkh::hud {
 class KeybindEdit : public vkh::hud::Button {
 public:
-  KeybindEdit(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
-              decltype(Button::imageIndex) imageIndex,
+  KeybindEdit(vkh::hud::View &view, Element *parent, glm::vec2 position,
+              glm::vec2 size, decltype(Button::imageIndex) imageIndex,
               std::function<void(int, int, int)> onClick,
               const std::string &label)
       : Button{view, parent, position, size, imageIndex, onClick, label} {}
   vkh::input::Action action;
 };
-} // namespace vkh::hud
 
 void run() {
   vkh::EngineContext context{};
@@ -68,6 +67,7 @@ void run() {
     std::vector<vkh::EntitySys::Entity> entities;
     vkh::SkyboxSys skyboxSys(context);
     vkh::EntitySys entitySys(context, entities, skyboxSys);
+    vkh::SmokeSys smokeSys(context);
     // vkh::WaterSys waterSys(context, skyboxSys);
     generateDungeon(context, entitySys);
     auto &cross = entitySys.entities.emplace_back(
@@ -88,6 +88,8 @@ void run() {
     vkh::hud::View settingsView(context);
     vkh::hud::View hudWorld(context);
     vkh::hud::View hudPause(context);
+    vkh::hud::View hudSmoke(context);
+
     auto canvas = canvasView.addElement<vkh::hud::Canvas>(
         glm::vec2{-1.f, -1.f}, glm::vec2{2.f, 2.f}, 0);
 
@@ -103,6 +105,26 @@ void run() {
           }
         },
         "Go to canvas");
+    auto smokeBtn = hudPause.addElement<vkh::hud::Button>(
+        glm::vec2{.8f, .8f}, glm::vec2{.2f, .2f}, 0,
+        [&](int button, int action, int) {
+          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            hudSys.setView(&hudSmoke);
+          }
+        },
+        "Go to smoke");
+    auto smokeViewEventManager =
+        hudSmoke.addElement<vkh::hud::Element>(glm::vec2{0.0}, glm::vec2{1.0});
+    smokeViewEventManager->addEventHandler<vkh::input::EventType::Key>(
+        [&](int key, int scancode, int action, int mods) {
+          if (action != GLFW_PRESS)
+            return false;
+          if (key == GLFW_KEY_ESCAPE) {
+            hudSys.setView(&hudPause);
+            return true;
+          }
+          return false;
+        });
     auto settingsBtn = hudPause.addElement<vkh::hud::Button>(
         glm::vec2{-1.f}, glm::vec2{.2f, .2f}, 0,
         [&](int button, int action, int) {
@@ -115,7 +137,7 @@ void run() {
         "Edit settings");
     settingsView.addElement<vkh::hud::Text>(glm::vec2{-1.f}, "Keybinds");
 
-    std::shared_ptr<vkh::hud::KeybindEdit> selectedButton;
+    std::shared_ptr<KeybindEdit> selectedButton;
 
     using namespace std::string_literals;
 
@@ -158,7 +180,7 @@ void run() {
 
     unsigned short i = 0;
     for (auto &[action, bind] : vkh::input::keybinds) {
-      auto btn = settingsView.addElement<vkh::hud::KeybindEdit>(
+      auto btn = settingsView.addElement<KeybindEdit>(
           glm::vec2{0.f, -1.f + .2f * i}, glm::vec2{.2f}, 0,
           [&](int button, int action, int) {},
           static_cast<std::string>(magic_enum::enum_name(action)) + ":" +
@@ -265,6 +287,7 @@ void run() {
         context.vulkan.globalUBOs[frameIndex]->flush();
 
         // waterSys.update();
+        smokeSys.update();
 
         vkh::renderer::beginSwapChainRenderPass(context, commandBuffer);
 
@@ -272,6 +295,9 @@ void run() {
           // waterSys.render();
           skyboxSys.render();
           entitySys.render();
+        }
+        if (hudSys.getView() == &hudSmoke) {
+          smokeSys.render();
         }
         hudSys.render();
 

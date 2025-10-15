@@ -9,9 +9,6 @@
 #include "WSTessendorf.hpp"
 
 namespace vkh {
-WaterSys::~WaterSys() {
-  vkDestroySampler(context.vulkan.device, sampler, nullptr);
-}
 WaterSys::WaterSys(EngineContext &context, SkyboxSys &skyboxSys)
     : System{context}, modelTess{context},
       oceanSound{"sounds/76007__noisecollector__capemay_delawarebay_loop.wav"},

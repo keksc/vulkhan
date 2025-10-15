@@ -1,5 +1,4 @@
 #include "entities.hpp"
-#include <limits>
 #include <memory>
 
 #define GLM_FORCE_RADIANS

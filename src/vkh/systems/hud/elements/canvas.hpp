@@ -3,7 +3,8 @@
 #include "button.hpp"
 #include "element.hpp"
 #include "filePicker.hpp"
-#include "rect.hpp"
+#include "emptyRect.hpp"
+#include "rectImg.hpp"
 
 #include <GLFW/glfw3.h>
 #include <magic_enum/magic_enum.hpp>
@@ -28,9 +29,10 @@ private:
   void initBaseElements();
   void removeFileBtns();
 
-  std::shared_ptr<Element> elementBeingAdded;
+  std::shared_ptr<Element> selectedElement;
   std::shared_ptr<hud::Text> modeText;
   std::shared_ptr<hud::Rect> modeBg;
+  std::shared_ptr<hud::EmptyRect> selectIndicator;
 
   std::vector<std::shared_ptr<Button>> fileBtns;
 

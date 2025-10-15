@@ -1,4 +1,4 @@
-#include "rect.hpp"
+#include "rectImg.hpp"
 
 namespace vkh::hud {
 Rect::Rect(View &view, Element *parent, glm::vec2 position, glm::vec2 size,

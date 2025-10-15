@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rect.hpp"
+#include "rectImg.hpp"
 #include "text.hpp"
 
 namespace vkh {
@@ -8,7 +8,7 @@ namespace hud {
 class TextInput : public Rect {
 public:
   TextInput(View &view, Element *parent, glm::vec2 position,
-            const std::string &content = "", const glm::vec3 &bgColor = {});
+            const std::string &content = "", bool selected = false);
 
   auto &getContent() const { return text->content; }
   bool selected{false};
