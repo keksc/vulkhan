@@ -3,7 +3,7 @@
 #include <GLFW/glfw3.h>
 #include <filesystem>
 
-#include "rect.hpp"
+#include "rectImg.hpp"
 
 namespace vkh::hud {
 FilePicker::FilePicker(View &view, Element *parent, glm::vec2 position,
@@ -28,7 +28,7 @@ bool FilePicker::handleCharacter(unsigned int codepoint) {
   return true;
 }
 bool FilePicker::handleKey(int key, int scancode, int action, int mods) {
-  if (action != GLFW_PRESS && action != GLFW_REPEAT)
+  if (action != GLFW_PRESS || action != GLFW_REPEAT)
     return false;
   if (key == GLFW_KEY_ENTER || key == GLFW_KEY_TAB) {
     size_t pos = list->content.find('\n');

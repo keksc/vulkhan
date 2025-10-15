@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rect.hpp"
+#include "rectImg.hpp"
 #include "text.hpp"
 
 namespace vkh {

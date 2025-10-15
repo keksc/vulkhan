@@ -1,7 +1,7 @@
 #pragma once
 
 #include "element.hpp"
-#include "rect.hpp"
+#include "rectImg.hpp"
 
 namespace vkh {
 namespace hud {

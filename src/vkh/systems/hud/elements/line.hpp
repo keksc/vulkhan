@@ -12,6 +12,7 @@ public:
 
 protected:
   void addToDrawInfo(DrawInfo &drawInfo, float depth) override;
+  bool isPositionInside(const glm::vec2 &pos) override;
 };
 } // namespace hud
 } // namespace vkh
