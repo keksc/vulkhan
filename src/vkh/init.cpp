@@ -185,7 +185,9 @@ unsigned int getDeviceScore(EngineContext &context, VkPhysicalDevice device) {
   vkGetPhysicalDeviceProperties(device, &properties);
 
   if (!(indices.isComplete() && extensionsSupported && swapChainAdequate &&
-        supportedFeatures.samplerAnisotropy))
+        supportedFeatures.samplerAnisotropy &&
+        supportedFeatures.tessellationShader &&
+        supportedFeatures.fillModeNonSolid && supportedFeatures.wideLines))
     return 0; // unsuitable
 
   unsigned int score = 1;
@@ -237,6 +239,7 @@ void createLogicalDevice(EngineContext &context) {
 
   VkPhysicalDeviceFeatures deviceFeatures = {.tessellationShader = VK_TRUE,
                                              .fillModeNonSolid = VK_TRUE,
+                                             .wideLines = VK_TRUE,
                                              .samplerAnisotropy = VK_TRUE};
 
   VkDeviceCreateInfo createInfo = {.sType =
@@ -369,7 +372,8 @@ void init(EngineContext &context) {
                             ? 2
                             : swapChainSupport.capabilities.minImageCount + 1;
   // maxImageCount 0 means infinite
-  if (swapChainSupport.capabilities.maxImageCount != 0 && imageCount > swapChainSupport.capabilities.maxImageCount)
+  if (swapChainSupport.capabilities.maxImageCount != 0 &&
+      imageCount > swapChainSupport.capabilities.maxImageCount)
     imageCount = swapChainSupport.capabilities.maxImageCount;
 
   context.vulkan.maxFramesInFlight = imageCount;

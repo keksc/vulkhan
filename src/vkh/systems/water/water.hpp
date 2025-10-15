@@ -23,7 +23,6 @@ namespace vkh {
 class WaterSys : public System {
 public:
   WaterSys(EngineContext &context, SkyboxSys &skyboxSys);
-  ~WaterSys();
   void prepare();
   void createRenderData();
   void render();
@@ -31,7 +30,6 @@ public:
 
 private:
   SkyboxSys &skyboxSys;
-  VkSampler sampler;
   struct Vertex {
     glm::vec3 pos;
     glm::vec2 uv;

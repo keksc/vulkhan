@@ -3,8 +3,8 @@
 namespace vkh::hud {
 
 TextInput::TextInput(View &view, Element *parent, glm::vec2 position,
-                     const std::string &content, const glm::vec3 &bgColor)
-    : Rect(view, parent, position, glm::vec2{}, 1) {
+                     const std::string &content, bool selected)
+    : Rect(view, parent, position, glm::vec2{}, 1), selected{selected} {
   text = addChild<Text>(position, content);
   size = text->size;
 }

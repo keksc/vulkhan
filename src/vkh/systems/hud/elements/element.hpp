@@ -1,7 +1,5 @@
 #pragma once
 
-#include <GLFW/glfw3.h>
-
 #include "../../../input.hpp"
 #include "drawInfo.hpp"
 #include "view.hpp"
@@ -50,7 +48,7 @@ public:
     return element;
   }
 
-  bool isPositionInside(const glm::vec2 &pos) {
+  virtual bool isPositionInside(const glm::vec2 &pos) {
     const glm::vec2 min = glm::min(position, position + size);
     const glm::vec2 max = glm::max(position, position + size);
     return glm::all(glm::greaterThanEqual(pos, min)) &&
