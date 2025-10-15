@@ -17,7 +17,7 @@
 #include "vkh/systems/hud/hud.hpp"
 #include "vkh/systems/particles.hpp"
 #include "vkh/systems/skybox.hpp"
-#include "vkh/systems/smoke.hpp"
+#include "vkh/systems/smoke/smoke.hpp"
 #include "vkh/systems/water/water.hpp"
 #include "vkh/window.hpp"
 

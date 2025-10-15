@@ -1,42 +1,9 @@
 #pragma once
 
-#include "../buffer.hpp"
-#include "system.hpp"
+#include "../../buffer.hpp"
+#include "../system.hpp"
 
-class FluidGrid {
-  std::vector<float> velocitiesX;
-  std::vector<float> velocitiesY;
-
-  float cellSize;
-
-public:
-  glm::ivec2 cellCount;
-  FluidGrid(glm::ivec2 cellCount, float cellSize)
-      : cellCount{cellCount}, cellSize{cellSize},
-        velocitiesX((cellCount.x + 1) * cellCount.y),
-        velocitiesY(cellCount.x * (cellCount.y + 1)) {}
-
-  inline float &velX(int i, int j) { return velocitiesX[i * cellCount.y + j]; }
-
-  inline float &velY(int i, int j) {
-    return velocitiesY[i * (cellCount.y + 1) + j];
-  }
-
-  inline const float &velX(int i, int j) const {
-    return velocitiesX[i * cellCount.y + j];
-  }
-
-  inline const float &velY(int i, int j) const {
-    return velocitiesY[i * (cellCount.y + 1) + j];
-  }
-  float calculateVelocityDivergence(glm::ivec2 cell) {
-    // float velocityTop = velY[cell.x + ];
-    // float velocityLeft = velocitiesY[cell.x, cell.y + 1];
-    // float velocityRight = velocitiesY[cell.x, cell.y + 1];
-    // float velocityBottom = velocitiesY[cell.x, cell.y + 1];
-    return 1.f;
-  }
-};
+#include "fluidGrid.hpp"
 
 namespace vkh {
 class SmokeSys : public System {
@@ -70,10 +37,6 @@ public:
     }
   };
 
-  struct Cell {
-    glm::vec3 color{};
-  };
-  std::vector<Cell> grid;
   FluidGrid fluidGrid;
 
 private:
