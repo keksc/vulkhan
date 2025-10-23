@@ -4,11 +4,12 @@
 #include "../../../input.hpp"
 
 namespace vkh {
+class HudSys;
 namespace hud {
 class Element;
 class View {
 public:
-  View(EngineContext &context);
+  View(EngineContext &context, HudSys& hudSys);
   View(const View &) = delete;
   View &operator=(const View &) = delete;
 
@@ -37,6 +38,8 @@ public:
   std::vector<std::shared_ptr<Element>> elements;
 
   size_t elementCount = 0;
+
+  HudSys &hudSys;
 
 private:
   friend class Element;

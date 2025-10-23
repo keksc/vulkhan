@@ -14,14 +14,14 @@ void Rect::addToDrawInfo(DrawInfo &drawInfo, float depth) {
 
   uint32_t baseIndex =
       static_cast<uint32_t>(drawInfo.solidColorTriangleVertices.size());
-  drawInfo.solidColorTriangleVertices.emplace_back(glm::vec3{x0, y0, depth},
-                                                   glm::vec2{0.f, 0.f});
-  drawInfo.solidColorTriangleVertices.emplace_back(glm::vec3{x1, y0, depth},
-                                                   glm::vec2{1.f, 0.f});
-  drawInfo.solidColorTriangleVertices.emplace_back(glm::vec3{x1, y1, depth},
-                                                   glm::vec2{1.f, 1.f});
-  drawInfo.solidColorTriangleVertices.emplace_back(glm::vec3{x0, y1, depth},
-                                                   glm::vec2{0.f, 1.f});
+  drawInfo.solidColorTriangleVertices.emplace_back(
+      glm::vec3{x0, y0, depth}, glm::vec2{0.f, 0.f}, imageIndex);
+  drawInfo.solidColorTriangleVertices.emplace_back(
+      glm::vec3{x1, y0, depth}, glm::vec2{1.f, 0.f}, imageIndex);
+  drawInfo.solidColorTriangleVertices.emplace_back(
+      glm::vec3{x1, y1, depth}, glm::vec2{1.f, 1.f}, imageIndex);
+  drawInfo.solidColorTriangleVertices.emplace_back(
+      glm::vec3{x0, y1, depth}, glm::vec2{0.f, 1.f}, imageIndex);
 
   drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 0);
   drawInfo.solidColorTriangleIndices.emplace_back(baseIndex + 1);

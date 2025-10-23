@@ -11,6 +11,7 @@ public:
   struct TriangleVertex {
     glm::vec3 position{};
     glm::vec2 uv{};
+    int texIndex{0};
     static std::vector<VkVertexInputBindingDescription>
     getBindingDescriptions() {
       std::vector<VkVertexInputBindingDescription> bindingDescriptions(1);
@@ -27,7 +28,8 @@ public:
                                          offsetof(TriangleVertex, position));
       attributeDescriptions.emplace_back(1, 0, VK_FORMAT_R32G32_SFLOAT,
                                          offsetof(TriangleVertex, uv));
-
+      attributeDescriptions.emplace_back(2, 0, VK_FORMAT_R32_SINT,
+                                         offsetof(TriangleVertex, texIndex));
       return attributeDescriptions;
     }
   };
@@ -61,25 +63,31 @@ public:
   std::unique_ptr<Buffer<LineVertex>> linesVertexBuffer;
   std::unique_ptr<Buffer<TriangleVertex>> trianglesVertexBuffer;
   std::unique_ptr<Buffer<uint32_t>> trianglesIndexBuffer;
+  unsigned short addTextureFromMemory(unsigned char *pixels, glm::uvec2 size);
+
+  std::vector<Image> images;
 
 private:
   void createBuffers();
   void createDescriptors();
   void createPipelines();
+  void updateDescriptors();
 
   const int maxLineCount = 160;
   const int maxLineVertexCount =
       2 * maxLineCount; // 4 vertices = 1 quad = 1 glyph
-  const VkDeviceSize maxLineVertexSize = sizeof(LineVertex) * maxLineVertexCount;
+  const VkDeviceSize maxLineVertexSize =
+      sizeof(LineVertex) * maxLineVertexCount;
 
+  const uint32_t maxTextures = 64;
   const int maxRectCount = 1000;
   const int maxTriangleVertexCount = 4 * maxRectCount; // 4 vertices = 1 quad
   const int maxTriangleIndexCount = 6 * maxRectCount;
-  VkDeviceSize maxTriangleVertexSize = sizeof(TriangleVertex) * maxTriangleVertexCount;
+  VkDeviceSize maxTriangleVertexSize =
+      sizeof(TriangleVertex) * maxTriangleVertexCount;
 
   std::unique_ptr<GraphicsPipeline> trianglePipeline;
   std::unique_ptr<GraphicsPipeline> linesPipeline;
-  Image image;
   std::unique_ptr<DescriptorSetLayout> setLayout;
   VkDescriptorSet set;
 };

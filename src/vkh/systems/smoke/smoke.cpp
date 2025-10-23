@@ -20,13 +20,14 @@ namespace vkh {
 void SmokeSys::createBuffer() {
   unsigned int gridSize = fluidGrid.cellCount.x * fluidGrid.cellCount.y;
   unsigned int arrowsSize =
-      (fluidGrid.cellCount.x + 1) * fluidGrid.cellCount.y +
-      fluidGrid.cellCount.x * (fluidGrid.cellCount.y + 1);
+      fluidGrid.velocitiesX.size() * fluidGrid.velocitiesY.size();
+  unsigned int interpolatedArrowsSize =
+      fluidGrid.cellCount.x * fluidGrid.cellCount.y * interpolatedScale;
   vertexBuffer = std::make_unique<Buffer<Vertex>>(
       context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-      gridSize * 6 + arrowsSize * 3);
+      gridSize * 6 + arrowsSize * 3 + interpolatedArrowsSize * 3);
 }
 void SmokeSys::createPipeline() {
   std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
@@ -51,7 +52,7 @@ void SmokeSys::createPipeline() {
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
 }
 SmokeSys::SmokeSys(EngineContext &context)
-    : System(context), fluidGrid(glm::ivec2{5, 3}, 1.f) {
+    : System(context), fluidGrid(glm::ivec2{5, 5}, 1.f) {
   createPipeline();
   createBuffer();
 }
@@ -60,10 +61,35 @@ void SmokeSys::update() {
   std::vector<Vertex> vertices;
   unsigned int gridSize = fluidGrid.cellCount.x * fluidGrid.cellCount.y;
   unsigned int arrowsSize =
-      (fluidGrid.cellCount.x + 1) * fluidGrid.cellCount.y +
-      fluidGrid.cellCount.x * (fluidGrid.cellCount.y + 1);
-  vertices.reserve(gridSize * 6 + arrowsSize * 3);
+      fluidGrid.velocitiesX.size() * fluidGrid.velocitiesY.size();
+  unsigned int interpolatedArrowsSize =
+      fluidGrid.cellCount.x * fluidGrid.cellCount.y * interpolatedScale;
+  vertices.reserve(gridSize * 6 + arrowsSize * 3 + interpolatedArrowsSize * 3);
   const float arrowScale = .2f;
+  for (size_t x = 0; x < fluidGrid.cellCount.x * interpolatedScale; x++) {
+    for (size_t y = 0; y < fluidGrid.cellCount.y * interpolatedScale; y++) {
+      float ndc_x =
+          -1.0f +
+          2.0f * (float(x) / (fluidGrid.cellCount.x * interpolatedScale));
+      float ndc_y =
+          -1.0f +
+          2.0f * (float(y) / (fluidGrid.cellCount.y * interpolatedScale));
+
+      float dx = 2.0f / fluidGrid.cellCount.x;
+      float dy = 2.0f / fluidGrid.cellCount.y;
+
+      glm::vec2 a{ndc_x, ndc_y + dy * arrowScale};
+      glm::vec2 b{ndc_x, ndc_y + dy * (1.f - arrowScale)};
+      glm::vec2 c =
+          ndc_x + fluidGrid.getVelocityAtWorldPos({x, y}) * arrowScale;
+
+      glm::vec3 col{1.f};
+
+      vertices.emplace_back(a, col);
+      vertices.emplace_back(b, col);
+      vertices.emplace_back(c, col);
+    }
+  }
   for (size_t x = 0; x < fluidGrid.cellCount.x + 1; x++) {
     for (size_t y = 0; y < fluidGrid.cellCount.y; y++) {
       float ndc_x = -1.0f + 2.0f * (float(x) / fluidGrid.cellCount.x);
@@ -102,6 +128,8 @@ void SmokeSys::update() {
       vertices.emplace_back(c, col);
     }
   }
+  fluidGrid.solvePressure();
+  fluidGrid.updateVelocities();
   for (size_t x = 0; x < fluidGrid.cellCount.x; x++) {
     for (size_t y = 0; y < fluidGrid.cellCount.y; y++) {
       size_t idx = x + y * fluidGrid.cellCount.x;
@@ -119,6 +147,8 @@ void SmokeSys::update() {
       const float divergenceDisplayRange = 2.f;
       float divergence =
           fluidGrid.calculateVelocityDivergence(glm::ivec2{x, y});
+      // float divergence = fluidGrid.pressureMap[x + y *
+      // fluidGrid.cellCount.x];
       float divergenceT = glm::abs(divergence) / divergenceDisplayRange;
       glm::vec3 col{0.f};
       glm::vec3 negativeDivergenceCol{1.f, 0.f, 0.f};
@@ -153,8 +183,11 @@ void SmokeSys::render() {
   vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers, offsets);
   unsigned int gridSize = fluidGrid.cellCount.x * fluidGrid.cellCount.y;
   unsigned int arrowsSize =
-      (fluidGrid.cellCount.x + 1) * fluidGrid.cellCount.y +
-      fluidGrid.cellCount.x * (fluidGrid.cellCount.y + 1);
-  vkCmdDraw(context.frameInfo.cmd, gridSize * 6 + arrowsSize * 3, 1, 0, 0);
+      fluidGrid.velocitiesX.size() * fluidGrid.velocitiesY.size();
+  unsigned int interpolatedArrowsSize =
+      fluidGrid.cellCount.x * fluidGrid.cellCount.y * interpolatedScale;
+  vkCmdDraw(context.frameInfo.cmd,
+            gridSize * 6 + arrowsSize * 3 + interpolatedArrowsSize * 3, 1, 0,
+            0);
 }
 } // namespace vkh

@@ -3,7 +3,8 @@
 
 namespace vkh {
 namespace hud {
-View::View(EngineContext &context) : context{context} {
+View::View(EngineContext &context, HudSys &hudSys)
+    : context{context}, hudSys{hudSys} {
   context.inputCallbackSystems[this] = {
       [this](int button, int action, int mods) {
         for (auto &elem : elements) {
@@ -46,7 +47,7 @@ View::View(EngineContext &context) : context{context} {
 }
 View::View(View &&other) noexcept
     : context(other.context), elements(std::move(other.elements)),
-      elementCount(other.elementCount) {
+      elementCount(other.elementCount), hudSys(other.hudSys) {
   context.inputCallbackSystems[this] =
       std::move(context.inputCallbackSystems[&other]);
   context.inputCallbackSystems.erase(&other);

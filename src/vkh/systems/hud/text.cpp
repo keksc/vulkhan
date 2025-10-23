@@ -77,17 +77,16 @@ void TextSys::createGlyphs() {
   std::vector<char> fontDataChar = readFile("fonts/Roboto-Regular.ttf");
   unsigned char *fontData =
       reinterpret_cast<unsigned char *>(fontDataChar.data());
-  const glm::vec2 bitmapExtent = {512.f, 512.f};
-  const int atlasSize = static_cast<int>(bitmapExtent.x * bitmapExtent.y);
+  const glm::uvec2 bitmapExtent{512, 512};
+  const unsigned int atlasSize = bitmapExtent.x * bitmapExtent.y;
   const float fontSize = 32.f;
 
   unsigned char *atlasData = new unsigned char[atlasSize];
   std::memset(atlasData, 0, atlasSize);
 
   stbtt_pack_context packContext;
-  if (!stbtt_PackBegin(&packContext, atlasData,
-                       static_cast<int>(bitmapExtent.x),
-                       static_cast<int>(bitmapExtent.y), 0, 1, nullptr)) {
+  if (!stbtt_PackBegin(&packContext, atlasData, bitmapExtent.x, bitmapExtent.y,
+                       0, 1, nullptr)) {
     throw std::runtime_error("Failed to initialize font packing");
   }
   std::vector<stbtt_packedchar> charInfo(127 - 32);
@@ -103,8 +102,7 @@ void TextSys::createGlyphs() {
 
   ImageCreateInfo imageInfo{};
   imageInfo.format = VK_FORMAT_R8_UNORM;
-  imageInfo.w = static_cast<unsigned int>(bitmapExtent.x);
-  imageInfo.h = static_cast<unsigned int>(bitmapExtent.y);
+  imageInfo.size = bitmapExtent;
   imageInfo.data = atlasData;
   fontAtlas = std::make_unique<Image>(context, imageInfo);
 
@@ -119,9 +117,10 @@ void TextSys::createGlyphs() {
     float advance = pc.xadvance / context.window.size.x;
     Glyph glyph{.size = size,
                 .offset = offset,
-                .uvOffset = glm::vec2(pc.x0, pc.y0) / bitmapExtent,
-                .uvExtent =
-                    glm::vec2(pc.x1 - pc.x0, pc.y1 - pc.y0) / bitmapExtent,
+                .uvOffset = glm::vec2(pc.x0, pc.y0) /
+                            static_cast<glm::vec2>(bitmapExtent),
+                .uvExtent = glm::vec2(pc.x1 - pc.x0, pc.y1 - pc.y0) /
+                            static_cast<glm::vec2>(bitmapExtent),
                 .advance = advance};
 
     glyphRange.glyphs[c] = glyph;

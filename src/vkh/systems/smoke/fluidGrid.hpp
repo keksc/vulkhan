@@ -9,6 +9,7 @@ class FluidGrid {
 public:
   std::vector<float> velocitiesX;
   std::vector<float> velocitiesY;
+  std::vector<float> pressureMap;
 
   float cellSize;
 
@@ -29,5 +30,21 @@ public:
     return velocitiesY[i * (cellCount.y + 1) + j];
   }
   float calculateVelocityDivergence(glm::ivec2 cell);
+  float getPressure(glm::ivec2 cell);
+  float pressureSolveCell(glm::ivec2 cell);
+  void solvePressure();
+
+  const float density = 1;
+  const float dt = 1.f / 60.f;
+
+  void updateVelocities();
+
+  std::vector<bool> solidCellMap;
+
+  bool isSolid(glm::ivec2 cell);
+  float sampleBilinear(const std::vector<float>& edgeValues,
+                                glm::ivec2 size,
+                                glm::vec2 worldPos) const;
+  glm::vec2 getVelocityAtWorldPos(glm::vec2 worldPos);
 };
 } // namespace vkh
