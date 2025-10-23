@@ -80,7 +80,7 @@ public:
   Scene(EngineContext &context, const SceneCreateInfo<VertexType> &createInfo)
       : context{context}, disableMaterial{true} {
     ImageCreateInfo imageInfo{};
-    imageInfo.w = imageInfo.h = 1;
+    imageInfo.size = {1, 1};
     glm::vec4 color = {1.0f, 1.0f, 1.0f, 1.0f}; // White
     color.r = std::pow(color.r, 1.0f / 2.2f);
     color.g = std::pow(color.g, 1.0f / 2.2f);

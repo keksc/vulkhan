@@ -73,6 +73,9 @@ public:
 
   void resetPool();
 
+  operator VkDescriptorPool() { return descriptorPool; }
+  operator VkDescriptorPool *() { return &descriptorPool; }
+
 private:
   EngineContext &context;
   VkDescriptorPool descriptorPool;

@@ -22,8 +22,6 @@ bool TextInput::handleKey(int key, int scancode, int action, int mods) {
     return false;
   if (key == GLFW_KEY_V && mods == GLFW_MOD_CONTROL &&
       (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-    if (text->content.empty())
-      return true;
     const char *clipboard = glfwGetClipboardString(NULL);
     if (!clipboard)
       return true;

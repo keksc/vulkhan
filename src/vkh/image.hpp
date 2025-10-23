@@ -1,5 +1,6 @@
 #pragma once
 
+#include <glm/glm.hpp>
 #include <vulkan/vulkan_core.h>
 
 #include <filesystem>
@@ -11,15 +12,14 @@ struct ImageCreateInfo {
   VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
   VkImageUsageFlags usage =
       VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-  unsigned int w = 1;
-  unsigned int h = 1;
+  glm::uvec2 size{};
   void *data = nullptr;
   uint32_t color;
   VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 };
 class Image {
 public:
-  Image(EngineContext &context, uint32_t w, uint32_t h, VkFormat format,
+  Image(EngineContext &context, glm::uvec2 size, VkFormat format,
         uint32_t usage, VkImageLayout layout);
   Image(EngineContext &context, const ImageCreateInfo &createInfo);
   Image(EngineContext &context, const std::filesystem::path &path);
@@ -45,12 +45,12 @@ public:
 
   static uint32_t getFormatSize(VkFormat format);
 
-  VkDescriptorImageInfo getDescriptorInfo(VkSampler sampler) {
+  VkDescriptorImageInfo getDescriptorInfo(VkSampler sampler) const {
     return VkDescriptorImageInfo{
         .sampler = sampler, .imageView = view, .imageLayout = layout};
   }
 
-  unsigned int w, h;
+  glm::uvec2 size{};
   unsigned int mipLevels = 1;
 
   void recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout,
@@ -61,6 +61,9 @@ public:
                                   .baseArrayLayer = 0,
                                   .layerCount = 1});
 
+  std::vector<unsigned char> downloadAndSerializeToPNG();
+  void downloadPixels(unsigned char *dst, uint32_t mipLevel);
+
 private:
   void RecordImageBarrier(VkCommandBuffer cmd,
                           VkPipelineStageFlags srcStageMask,
@@ -69,8 +72,8 @@ private:
                           VkAccessFlags dstAccessMask,
                           VkImageLayout newLayout) const;
 
-  void createImageFromData(void *pixels, size_t dataSize);
-  void createImage(EngineContext &context, int w, int h,
+  void createImageFromData(void *pixels, size_t dataSize, glm::uvec2 size);
+  void createImage(EngineContext &context, glm::uvec2 size,
                    VkImageUsageFlags usage);
   struct TransitionParams {
     VkAccessFlags srcAccessMask;

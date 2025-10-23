@@ -84,11 +84,11 @@ void run() {
     vkh::FreezeAnimationSys freezeAnimationSys(context);
     vkh::HudSys hudSys(context);
 
-    vkh::hud::View canvasView(context);
-    vkh::hud::View settingsView(context);
-    vkh::hud::View hudWorld(context);
-    vkh::hud::View hudPause(context);
-    vkh::hud::View hudSmoke(context);
+    vkh::hud::View canvasView(context, hudSys);
+    vkh::hud::View settingsView(context, hudSys);
+    vkh::hud::View hudWorld(context, hudSys);
+    vkh::hud::View hudPause(context, hudSys);
+    vkh::hud::View hudSmoke(context, hudSys);
 
     auto canvas = canvasView.addElement<vkh::hud::Canvas>(
         glm::vec2{-1.f, -1.f}, glm::vec2{2.f, 2.f}, 0);

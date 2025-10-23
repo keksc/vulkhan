@@ -72,7 +72,7 @@ void WaterSys::createRenderData() {
 std::unique_ptr<Image> createMap(EngineContext &context,
                                  VkCommandBuffer cmdBuffer, const uint32_t size,
                                  const VkFormat mapFormat) {
-  return std::make_unique<Image>(context, size, size, mapFormat,
+  return std::make_unique<Image>(context, glm::uvec2{size, size}, mapFormat,
                                  VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                                      VK_IMAGE_USAGE_SAMPLED_BIT,
                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -92,8 +92,8 @@ void WaterSys::recordUpdateFrameMaps(VkCommandBuffer cmd, FrameMapData &frame) {
       cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
   const VkDeviceSize mapSize = Image::getFormatSize(mapFormat) *
-                               frame.displacementMap->w *
-                               frame.displacementMap->h;
+                               frame.displacementMap->size.x *
+                               frame.displacementMap->size.y;
 
   frame.normalMap->recordTransitionLayout(cmd,
                                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);

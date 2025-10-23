@@ -15,6 +15,9 @@ public:
   hud::View *getView();
   void render();
 
+  TextSys textSys;
+  SolidColorSys solidColorSys;
+
 private:
   void createPipeline();
   void addToDraw(std::vector<std::shared_ptr<hud::Element>> &elements,
@@ -22,8 +25,6 @@ private:
   void update();
 
   std::unique_ptr<GraphicsPipeline> pipeline;
-  TextSys textSys;
-  SolidColorSys solidColorSys;
 
   std::shared_ptr<Image> fontAtlas;
   hud::DrawInfo drawInfo;

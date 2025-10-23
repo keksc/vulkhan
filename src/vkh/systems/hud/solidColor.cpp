@@ -52,7 +52,8 @@ void SolidColorSys::createPipelines() {
       std::make_unique<GraphicsPipeline>(context, trianglesPipelineInfo);
 
   PipelineCreateInfo linesPipelineInfo{};
-  linesPipelineInfo.layoutInfo.pSetLayouts = *context.vulkan.globalDescriptorSetLayout;
+  linesPipelineInfo.layoutInfo.pSetLayouts =
+      *context.vulkan.globalDescriptorSetLayout;
   linesPipelineInfo.layoutInfo.setLayoutCount = 1;
   linesPipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   linesPipelineInfo.attributeDescriptions =
@@ -72,19 +73,76 @@ void SolidColorSys::createPipelines() {
 void SolidColorSys::createDescriptors() {
   setLayout = DescriptorSetLayout::Builder(context)
                   .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                              VK_SHADER_STAGE_FRAGMENT_BIT)
+                              VK_SHADER_STAGE_FRAGMENT_BIT, maxTextures)
                   .build();
-  VkDescriptorImageInfo info =
-      image.getDescriptorInfo(context.vulkan.defaultSampler);
-  DescriptorWriter(*setLayout, *context.vulkan.globalDescriptorPool)
-      .writeImage(0, &info)
-      .build(set);
+  std::vector<VkDescriptorImageInfo> imageInfos;
+  for (const auto &img : images) {
+    VkDescriptorImageInfo info = imageInfos.emplace_back(
+        img.getDescriptorInfo(context.vulkan.defaultSampler));
+  }
+  VkDescriptorSetLayout layouts[] = {*setLayout};
+  VkDescriptorSetAllocateInfo allocInfo{};
+  allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  allocInfo.descriptorPool = *context.vulkan.globalDescriptorPool;
+  allocInfo.descriptorSetCount = 1;
+  allocInfo.pSetLayouts = layouts;
+
+  if (vkAllocateDescriptorSets(context.vulkan.device, &allocInfo, &set) !=
+      VK_SUCCESS) {
+    throw std::runtime_error("Failed to allocate descriptor set!");
+  }
+
+  updateDescriptors();
 }
-SolidColorSys::SolidColorSys(EngineContext &context)
-    : System(context), image(context, "textures/hud.png") {
+void SolidColorSys::updateDescriptors() {
+  std::vector<VkDescriptorImageInfo> imageInfos;
+  imageInfos.reserve(maxTextures);
+
+  for (const auto &img : images) {
+    imageInfos.push_back(img.getDescriptorInfo(context.vulkan.defaultSampler));
+  }
+
+  const VkDescriptorImageInfo &fallback = imageInfos[0]; // hud.png
+
+  while (imageInfos.size() < maxTextures) {
+    imageInfos.push_back(fallback);
+  }
+
+  VkWriteDescriptorSet write{};
+  write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  write.dstSet = set;
+  write.dstBinding = 0;
+  write.dstArrayElement = 0;
+  write.descriptorCount = maxTextures; // ← **full size**
+  write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  write.pImageInfo = imageInfos.data();
+
+  vkUpdateDescriptorSets(context.vulkan.device, 1, &write, 0, nullptr);
+}
+unsigned short SolidColorSys::addTextureFromMemory(unsigned char *pixels, glm::uvec2 size) {
+  ImageCreateInfo info{};
+  info.format = VK_FORMAT_R8G8B8A8_UNORM;
+  info.size = size;
+  info.data = reinterpret_cast<void *>(pixels);
+
+  images.emplace_back(context, info);
+
+  updateDescriptors();
+
+  return static_cast<unsigned short>(images.size() - 1);
+}
+SolidColorSys::SolidColorSys(EngineContext &context) : System(context) {
+  // 1. Load the HUD image, it becomes index 0 and fallback for unused texture
+  // indexes
+  images.emplace_back(context, "textures/hud.png");
+
+  images.reserve(maxTextures);
+
   createDescriptors();
   createBuffers();
   createPipelines();
+
+  updateDescriptors();
 }
 
 void SolidColorSys::render(size_t lineVerticesSize,
