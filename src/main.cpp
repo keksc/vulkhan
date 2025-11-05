@@ -65,9 +65,8 @@ void run() {
   vkh::renderer::init(context);
 
   {
-    std::vector<vkh::EntitySys::Entity> entities;
     vkh::SkyboxSys skyboxSys(context);
-    vkh::EntitySys entitySys(context, entities, skyboxSys);
+    vkh::EntitySys entitySys(context, skyboxSys);
     vkh::SmokeSys smokeSys(context);
     // vkh::WaterSys waterSys(context, skyboxSys);
     // generateDungeon(context, entitySys);

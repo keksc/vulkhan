@@ -27,11 +27,9 @@ struct PushConstantData {
   alignas(4) float metallic;
   alignas(4) float roughness;
 };
-EntitySys::~EntitySys() {}
-
-EntitySys::EntitySys(EngineContext &context, std::vector<Entity> &entities,
+EntitySys::EntitySys(EngineContext &context,
                      SkyboxSys &skyboxSys)
-    : System(context), entities{entities}, skyboxSys{skyboxSys} {
+    : System(context), skyboxSys{skyboxSys} {
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags =
       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -62,12 +60,12 @@ EntitySys::EntitySys(EngineContext &context, std::vector<Entity> &entities,
 
 void EntitySys::compactDraws() {
   batches.clear();
-  batches.emplace_back(&entities[0], 1);
+  batches.emplace_back(entities[0], 1);
   for (std::size_t i = 1; i < entities.size(); i++) {
-    if ((batches.end() - 1)->entity->scene == entities[i].scene)
+    if ((batches.end() - 1)->entity->scene == entities[i]->scene)
       (batches.end() - 1)->count++;
     else
-      batches.emplace_back(&entities[i], 1);
+      batches.emplace_back(entities[i], 1);
   }
 }
 
@@ -88,16 +86,16 @@ void EntitySys::render() {
 
   std::shared_ptr<Scene<Vertex>> currentScene = nullptr;
   for (auto &entity : entities) {
-    auto &scene = entity.scene;
+    auto &scene = entity->scene;
     if (scene != currentScene) {
       currentScene = scene;
       currentScene->bind(context, context.frameInfo.cmd, *pipeline);
     }
 
     PushConstantData push{};
-    auto *mesh = &entity.getMesh();
-    push.modelMatrix = entity.transform.mat4() * mesh->transform;
-    push.normalMatrix = entity.transform.normalMatrix();
+    auto *mesh = &entity->getMesh();
+    push.modelMatrix = entity->transform.mat4() * mesh->transform;
+    push.normalMatrix = entity->transform.normalMatrix();
     Scene<Vertex>::Material *currentMaterial = nullptr;
     for (auto &primitive : mesh->primitives) {
       auto &mat = scene->materials[primitive.materialIndex];

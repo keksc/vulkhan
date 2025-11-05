@@ -185,47 +185,47 @@ void update(EngineContext &context, EntitySys &entitySys) {
 
     // Check collisions with all entities
     bool collision = false;
-    for (const auto &entity : entitySys.entities) {
-      AABB entityAABB = getEntityAABB(entity);
-      if (cameraAABB.intersects(entityAABB)) {
-        collision = true;
-        break;
-      }
-    }
+    // for (const auto &entity : entitySys.entities) {
+    //   AABB entityAABB = getEntityAABB(entity);
+    //   if (cameraAABB.intersects(entityAABB)) {
+    //     collision = true;
+    //     break;
+    //   }
+    // }
     collision = false;
 
     // Only update position if no collision
-    if (!collision) {
+    // if (!collision) {CMakeFiles/vulkhan.dir/src/main.cpp.o
       context.camera.position = newPosition;
-    } else {
-      // Try sliding along each axis
-      glm::vec3 testPosition = context.camera.position;
-      glm::vec3 axisVelocity[3] = {
-          velocity * glm::vec3(1.f, 0.f, 0.f), // X component
-          velocity * glm::vec3(0.f, 1.f, 0.f), // Y component
-          velocity * glm::vec3(0.f, 0.f, 1.f)  // Z component
-      };
-
-      for (const auto &axisVel : axisVelocity) {
-        if (glm::length2(axisVel) > std::numeric_limits<float>::epsilon()) {
-          glm::vec3 axisTestPosition = testPosition + axisVel;
-          AABB axisCameraAABB{axisTestPosition - glm::vec3(cameraSize / 2.0f),
-                              axisTestPosition + glm::vec3(cameraSize / 2.0f)};
-          bool axisCollision = false;
-          for (const auto &entity : entitySys.entities) {
-            AABB entityAABB = getEntityAABB(entity);
-            if (axisCameraAABB.intersects(entityAABB)) {
-              axisCollision = true;
-              break;
-            }
-          }
-          if (!axisCollision) {
-            testPosition = axisTestPosition;
-          }
-        }
-      }
-      context.camera.position = testPosition;
-    }
+    // } else {
+    //   // Try sliding along each axis
+    //   glm::vec3 testPosition = context.camera.position;
+    //   glm::vec3 axisVelocity[3] = {
+    //       velocity * glm::vec3(1.f, 0.f, 0.f), // X component
+    //       velocity * glm::vec3(0.f, 1.f, 0.f), // Y component
+    //       velocity * glm::vec3(0.f, 0.f, 1.f)  // Z component
+    //   };
+    //
+    //   for (const auto &axisVel : axisVelocity) {
+    //     if (glm::length2(axisVel) > std::numeric_limits<float>::epsilon()) {
+    //       glm::vec3 axisTestPosition = testPosition + axisVel;
+    //       AABB axisCameraAABB{axisTestPosition - glm::vec3(cameraSize / 2.0f),
+    //                           axisTestPosition + glm::vec3(cameraSize / 2.0f)};
+    //       bool axisCollision = false;
+    //       for (const auto &entity : entitySys.entities) {
+    //         AABB entityAABB = getEntityAABB(entity);
+    //         if (axisCameraAABB.intersects(entityAABB)) {
+    //           axisCollision = true;
+    //           break;
+    //         }
+    //       }
+    //       if (!axisCollision) {
+    //         testPosition = axisTestPosition;
+    //       }
+    //     }
+    //   }
+    //   context.camera.position = testPosition;
+    // }
   }
 }
 } // namespace input
