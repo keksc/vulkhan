@@ -65,17 +65,16 @@ public:
   };
 
   struct Batch {
-    Entity *entity;
+    std::shared_ptr<Entity> entity;
     uint32_t count;
   };
 
   void compactDraws();
 
-  EntitySys(EngineContext &context, std::vector<Entity> &entities,
+  EntitySys(EngineContext &context,
             SkyboxSys &skyboxSys);
-  ~EntitySys();
   void render();
-  std::vector<std::shared_ptr<Entity>> &entities;
+  std::vector<std::shared_ptr<Entity>> entities;
   std::vector<Batch> batches;
 
 private:
