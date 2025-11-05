@@ -7,6 +7,7 @@
 #include <memory>
 #include <stdexcept>
 
+#include "../../debug.hpp"
 #include "../../descriptors.hpp"
 #include "../../deviceHelpers.hpp"
 
@@ -271,11 +272,11 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   FFTLayoutInfo.pushConstantRangeCount = 1;
   FFTLayoutInfo.pPushConstantRanges = &pushConstantRange;
   preFFTPipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/water/preFFT.comp.spv", FFTLayoutInfo);
+      context, "shaders/water/preFFT.comp.spv", FFTLayoutInfo, "water pre FFT pipeline");
 
   FFTLayoutInfo.pSetLayouts = *postFFTSetLayout;
   postFFTPipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/water/postFFT.comp.spv", FFTLayoutInfo);
+      context, "shaders/water/postFFT.comp.spv", FFTLayoutInfo, "water post FFT pipeline");
 
   // Create reduction pipelines
   VkPushConstantRange reductionPushConstant{};
@@ -289,18 +290,18 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
 
   reductionLayoutInfo.pSetLayouts = *reductionSetLayout0;
   reductionPipeline0 = std::make_unique<ComputePipeline>(
-      context, "shaders/water/reduction_stage0.comp.spv", reductionLayoutInfo);
+      context, "shaders/water/reduction_stage0.comp.spv", reductionLayoutInfo, "water reduction pipeline stage 0");
 
   reductionLayoutInfo.pSetLayouts = *reductionSetLayout1;
   reductionPipeline1 = std::make_unique<ComputePipeline>(
-      context, "shaders/water/reduction_stage1.comp.spv", reductionLayoutInfo);
+      context, "shaders/water/reduction_stage1.comp.spv", reductionLayoutInfo, "water reduction pipeline stage 1");
 
   VkPipelineLayoutCreateInfo updateLayoutInfo{};
   updateLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   updateLayoutInfo.setLayoutCount = 1;
   updateLayoutInfo.pSetLayouts = *updateSetLayout;
   updatePipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/water/update_master.comp.spv", updateLayoutInfo);
+      context, "shaders/water/update_master.comp.spv", updateLayoutInfo, "water update pipeline");
 
   VkPushConstantRange normalizePushConstant{};
   normalizePushConstant.size = sizeof(uint32_t);
@@ -312,7 +313,7 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   normalizeLayoutInfo.pushConstantRangeCount = 1;
   normalizeLayoutInfo.pPushConstantRanges = &normalizePushConstant;
   normalizePipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/water/normalize.comp.spv", normalizeLayoutInfo);
+      context, "shaders/water/normalize.comp.spv", normalizeLayoutInfo, "water normalize pipeline");
 
   VkPipelineLayoutCreateInfo baseWaveHeightFieldLayoutInfo{};
   baseWaveHeightFieldLayoutInfo.sType =
@@ -321,7 +322,7 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   baseWaveHeightFieldLayoutInfo.pSetLayouts = *preFFTSetLayout;
   ComputePipeline baseWaveHeightFieldPipeline(
       context, "shaders/water/baseWaveHeightField.comp.spv",
-      baseWaveHeightFieldLayoutInfo);
+      baseWaveHeightFieldLayoutInfo, "water base wave height field pipeline");
 
   // SetWindDirection(defaultWindDir);
   // m_WindSpeed = glm::max(0.0001f, defaultWindSpeed);
@@ -394,110 +395,138 @@ void WSTessendorf::computeWaveVectors(std::vector<WaveVector> &waveVecs) {
 // }
 
 float WSTessendorf::recordComputeWaves(VkCommandBuffer &cmd, float t) {
-  PushConstantData data{t};
-  vkCmdPushConstants(cmd, preFFTPipeline->getLayout(),
-                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstantData),
-                     &data);
-  preFFTPipeline->bind(cmd);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          preFFTPipeline->getLayout(), 0, 1, &preFFTSet, 0,
-                          nullptr);
-  vkCmdDispatch(cmd, tileSize / 16, tileSize / 16, 1);
+  debug::beginLabel(context, cmd, "record compute waves", {.2f, .2f, 1.f, 1.f});
+  {
+    PushConstantData data{t};
+    debug::beginLabel(context, cmd, "pre FFT", {.2f, .2f, 1.f, 1.f});
+    {
+      vkCmdPushConstants(cmd, preFFTPipeline->getLayout(),
+                         VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                         sizeof(PushConstantData), &data);
+      preFFTPipeline->bind(cmd);
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              preFFTPipeline->getLayout(), 0, 1, &preFFTSet, 0,
+                              nullptr);
+      vkCmdDispatch(cmd, tileSize / 16, tileSize / 16, 1);
+    }
+    debug::endLabel(context, cmd);
 
-  VkMemoryBarrier memoryBarrier{};
-  memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-  memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-  memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                       &memoryBarrier, 0, nullptr, 0, nullptr);
+    VkMemoryBarrier memoryBarrier{};
+    memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                         &memoryBarrier, 0, nullptr, 0, nullptr);
 
-  VkFFTLaunchParams launchParams{};
-  launchParams.buffer = *FFTData;
-  launchParams.commandBuffer = &cmd;
-  VkFFTResult result = VkFFTAppend(&app, 1, &launchParams);
+    debug::beginLabel(context, cmd, "FFT", {.2f, .2f, 1.f, 1.f});
+    {
+      VkFFTLaunchParams launchParams{};
+      launchParams.buffer = *FFTData;
+      launchParams.commandBuffer = &cmd;
+      VkFFTResult result = VkFFTAppend(&app, 1, &launchParams);
+    }
+    debug::endLabel(context, cmd);
 
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                       &memoryBarrier, 0, nullptr, 0, nullptr);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                         &memoryBarrier, 0, nullptr, 0, nullptr);
 
-  vkCmdPushConstants(cmd, postFFTPipeline->getLayout(),
-                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstantData),
-                     &data);
-  postFFTPipeline->bind(cmd);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          postFFTPipeline->getLayout(), 0, 1, &postFFTSet, 0,
-                          nullptr);
-  vkCmdDispatch(cmd, tileSize / 16, tileSize / 16, 1);
+    debug::beginLabel(context, cmd, "post FFT", {.2f, .2f, 1.f, 1.f});
+    {
+      vkCmdPushConstants(cmd, postFFTPipeline->getLayout(),
+                         VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                         sizeof(PushConstantData), &data);
+      postFFTPipeline->bind(cmd);
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              postFFTPipeline->getLayout(), 0, 1, &postFFTSet,
+                              0, nullptr);
+      vkCmdDispatch(cmd, tileSize / 16, tileSize / 16, 1);
+    }
+    debug::endLabel(context, cmd);
 
-  // Reduction Stage 0: Reduce 262,144 heights to 1024 min/max values
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, *reductionPipeline0);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          reductionPipeline0->getLayout(), 0, 1, &reductionSet0,
-                          0, nullptr);
-  uint32_t inputSize = tileSizeSquared;
-  vkCmdPushConstants(cmd, reductionPipeline0->getLayout(),
-                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t),
-                     &inputSize);
-  uint32_t workgroupCount = (tileSizeSquared + 255) / 256; // 1024
-  vkCmdDispatch(cmd, workgroupCount, 1, 1);
+    debug::beginLabel(context, cmd, "reduction", {.2f, .2f, 1.f, 1.f});
+    {
+      // Reduction Stage 0: Reduce 262,144 heights to 1024 min/max values
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              reductionPipeline0->getLayout(), 0, 1,
+                              &reductionSet0, 0, nullptr);
+      uint32_t inputSize = tileSizeSquared;
+      vkCmdPushConstants(cmd, reductionPipeline0->getLayout(),
+                         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t),
+                         &inputSize);
+      reductionPipeline0->bind(cmd);
+      uint32_t workgroupCount = (tileSizeSquared + 255) / 256; // 1024
+      vkCmdDispatch(cmd, workgroupCount, 1, 1);
 
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                       &memoryBarrier, 0, nullptr, 0, nullptr);
+      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                           &memoryBarrier, 0, nullptr, 0, nullptr);
 
-  // Reduction Stage 1: Reduce 1024 min/max values to 4
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, *reductionPipeline1);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          reductionPipeline1->getLayout(), 0, 1, &reductionSet1,
-                          0, nullptr);
-  inputSize = workgroupCount;
-  workgroupCount = (inputSize + 255) / 256;
-  vkCmdPushConstants(cmd, reductionPipeline1->getLayout(),
-                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t),
-                     &inputSize);
-  vkCmdDispatch(cmd, workgroupCount, 1, 1);
+      // Reduction Stage 1: Reduce 1024 min/max values to 4
+      reductionPipeline1->bind(cmd);
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              reductionPipeline1->getLayout(), 0, 1,
+                              &reductionSet1, 0, nullptr);
+      inputSize = workgroupCount;
+      workgroupCount = (inputSize + 255) / 256;
+      vkCmdPushConstants(cmd, reductionPipeline1->getLayout(),
+                         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t),
+                         &inputSize);
+      vkCmdDispatch(cmd, workgroupCount, 1, 1);
 
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                       &memoryBarrier, 0, nullptr, 0, nullptr);
+      vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                           &memoryBarrier, 0, nullptr, 0, nullptr);
 
-  // Reduction Stage 2: Reduce 4 min/max values to 1
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          reductionPipeline1->getLayout(), 0, 1, &reductionSet2,
-                          0, nullptr);
-  inputSize = workgroupCount;
-  workgroupCount = 1;
-  vkCmdPushConstants(cmd, reductionPipeline1->getLayout(),
-                     VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t),
-                     &inputSize);
-  vkCmdDispatch(cmd, workgroupCount, 1, 1);
+      // Reduction Stage 2: Reduce 4 min/max values to 1
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              reductionPipeline1->getLayout(), 0, 1,
+                              &reductionSet2, 0, nullptr);
+      inputSize = workgroupCount;
+      workgroupCount = 1;
+      vkCmdPushConstants(cmd, reductionPipeline1->getLayout(),
+                         VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t),
+                         &inputSize);
+      vkCmdDispatch(cmd, workgroupCount, 1, 1);
+    }
+    debug::endLabel(context, cmd);
 
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                       &memoryBarrier, 0, nullptr, 0, nullptr);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                         &memoryBarrier, 0, nullptr, 0, nullptr);
 
-  // Update master min/max and compute scale
-  updatePipeline->bind(cmd);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          updatePipeline->getLayout(), 0, 1, &updateSet, 0,
-                          nullptr);
-  vkCmdDispatch(cmd, 1, 1, 1);
+    debug::beginLabel(context, cmd, "update master min/max",
+                      {.2f, .2f, 1.f, 1.f});
+    {
+      updatePipeline->bind(cmd);
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              updatePipeline->getLayout(), 0, 1, &updateSet, 0,
+                              nullptr);
+      vkCmdDispatch(cmd, 1, 1, 1);
+    }
+    debug::endLabel(context, cmd);
 
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                       &memoryBarrier, 0, nullptr, 0, nullptr);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                         &memoryBarrier, 0, nullptr, 0, nullptr);
 
-  // Normalize displacements on GPU
-  normalizePipeline->bind(cmd);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          normalizePipeline->getLayout(), 0, 1, &normalizeSet,
-                          0, nullptr);
-  vkCmdDispatch(cmd, (tileSize + 15) / 16, (tileSize + 15) / 16, 1);
+    debug::beginLabel(context, cmd, "normalize displacements",
+                      {.2f, .2f, 1.f, 1.f});
+    {
+      normalizePipeline->bind(cmd);
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                              normalizePipeline->getLayout(), 0, 1,
+                              &normalizeSet, 0, nullptr);
+      vkCmdDispatch(cmd, (tileSize + 15) / 16, (tileSize + 15) / 16, 1);
+    }
+    debug::endLabel(context, cmd);
 
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                       &memoryBarrier, 0, nullptr, 0, nullptr);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
+                         &memoryBarrier, 0, nullptr, 0, nullptr);
+  }
+  debug::endLabel(context, cmd);
 
   maxReductionBuffer2->map();
   float maxHeight;

@@ -49,7 +49,7 @@ void SolidColorSys::createPipelines() {
   trianglesPipelineInfo.depthStencilInfo.depthCompareOp =
       VK_COMPARE_OP_GREATER_OR_EQUAL;
   trianglePipeline =
-      std::make_unique<GraphicsPipeline>(context, trianglesPipelineInfo);
+      std::make_unique<GraphicsPipeline>(context, trianglesPipelineInfo, "solid color triangles");
 
   PipelineCreateInfo linesPipelineInfo{};
   linesPipelineInfo.layoutInfo.pSetLayouts =
@@ -68,7 +68,7 @@ void SolidColorSys::createPipelines() {
   linesPipelineInfo.depthStencilInfo.depthCompareOp =
       VK_COMPARE_OP_GREATER_OR_EQUAL;
   linesPipeline =
-      std::make_unique<GraphicsPipeline>(context, linesPipelineInfo);
+      std::make_unique<GraphicsPipeline>(context, linesPipelineInfo, "solid color lines");
 }
 void SolidColorSys::createDescriptors() {
   setLayout = DescriptorSetLayout::Builder(context)
@@ -119,7 +119,8 @@ void SolidColorSys::updateDescriptors() {
 
   vkUpdateDescriptorSets(context.vulkan.device, 1, &write, 0, nullptr);
 }
-unsigned short SolidColorSys::addTextureFromMemory(unsigned char *pixels, glm::uvec2 size) {
+unsigned short SolidColorSys::addTextureFromMemory(unsigned char *pixels,
+                                                   glm::uvec2 size) {
   ImageCreateInfo info{};
   info.format = VK_FORMAT_R8G8B8A8_UNORM;
   info.size = size;
@@ -148,26 +149,29 @@ SolidColorSys::SolidColorSys(EngineContext &context) : System(context) {
 void SolidColorSys::render(size_t lineVerticesSize,
                            size_t triangleIndicesSize) {
   VkDeviceSize offsets[] = {0};
+  if (lineVerticesSize) {
+    linesPipeline->bind(context.frameInfo.cmd);
+    VkBuffer linesBuffers[] = {*linesVertexBuffer};
+    vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, linesBuffers, offsets);
+    vkCmdBindDescriptorSets(
+        context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *linesPipeline,
+        0, 1, &context.frameInfo.globalDescriptorSet, 0, nullptr);
+    vkCmdSetLineWidth(context.frameInfo.cmd, 3.0);
+    vkCmdDraw(context.frameInfo.cmd, static_cast<uint32_t>(lineVerticesSize), 1,
+              0, 0);
+  }
 
-  linesPipeline->bind(context.frameInfo.cmd);
-  VkBuffer linesBuffers[] = {*linesVertexBuffer};
-  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, linesBuffers, offsets);
-  vkCmdBindDescriptorSets(context.frameInfo.cmd,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, *linesPipeline, 0, 1,
-                          &context.frameInfo.globalDescriptorSet, 0, nullptr);
-  vkCmdSetLineWidth(context.frameInfo.cmd, 3.0);
-  vkCmdDraw(context.frameInfo.cmd, static_cast<uint32_t>(lineVerticesSize), 1,
-            0, 0);
-
-  trianglePipeline->bind(context.frameInfo.cmd);
-  VkBuffer trianglesBuffers[] = {*trianglesVertexBuffer};
-  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, trianglesBuffers,
-                         offsets);
-  vkCmdBindIndexBuffer(context.frameInfo.cmd, *trianglesIndexBuffer, 0,
-                       VK_INDEX_TYPE_UINT32);
-  vkCmdBindDescriptorSets(context.frameInfo.cmd,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, *trianglePipeline, 0,
-                          1, &set, 0, nullptr);
-  vkCmdDrawIndexed(context.frameInfo.cmd, triangleIndicesSize, 1, 0, 0, 0);
+  if (triangleIndicesSize) {
+    trianglePipeline->bind(context.frameInfo.cmd);
+    VkBuffer trianglesBuffers[] = {*trianglesVertexBuffer};
+    vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, trianglesBuffers,
+                           offsets);
+    vkCmdBindIndexBuffer(context.frameInfo.cmd, *trianglesIndexBuffer, 0,
+                         VK_INDEX_TYPE_UINT32);
+    vkCmdBindDescriptorSets(context.frameInfo.cmd,
+                            VK_PIPELINE_BIND_POINT_GRAPHICS, *trianglePipeline,
+                            0, 1, &set, 0, nullptr);
+    vkCmdDrawIndexed(context.frameInfo.cmd, triangleIndicesSize, 1, 0, 0, 0);
+  }
 }
 } // namespace vkh

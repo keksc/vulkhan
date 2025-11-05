@@ -22,6 +22,7 @@
 #include "vkh/window.hpp"
 
 #include "dungeonGenerator.hpp"
+#include "sabl.hpp"
 
 std::mt19937 rng{std::random_device{}()};
 
@@ -69,7 +70,8 @@ void run() {
     vkh::EntitySys entitySys(context, entities, skyboxSys);
     vkh::SmokeSys smokeSys(context);
     // vkh::WaterSys waterSys(context, skyboxSys);
-    generateDungeon(context, entitySys);
+    // generateDungeon(context, entitySys);
+    Sabl sabl(context, entitySys);
     auto &cross = entitySys.entities.emplace_back(
         vkh::EntitySys::Transform{.position = {}}, vkh::EntitySys::RigidBody{},
         std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
@@ -286,8 +288,13 @@ void run() {
         context.vulkan.globalUBOs[frameIndex]->write(&ubo);
         context.vulkan.globalUBOs[frameIndex]->flush();
 
-        // waterSys.update();
-        smokeSys.update();
+        if (hudSys.getView() == &hudWorld) {
+          // waterSys.update();
+          sabl.update();
+        }
+        if (hudSys.getView() == &hudSmoke) {
+          smokeSys.update();
+        }
 
         vkh::renderer::beginSwapChainRenderPass(context, commandBuffer);
 

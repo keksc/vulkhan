@@ -71,10 +71,11 @@ void TextSys::createPipeline() {
   pipelineInfo.vertpath = "shaders/text.vert.spv";
   pipelineInfo.fragpath = "shaders/text.frag.spv";
   pipelineInfo.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
-  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
+  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "text");
 }
 void TextSys::createGlyphs() {
-  std::vector<char> fontDataChar = readFile("fonts/Roboto-Regular.ttf");
+  std::filesystem::path fontPath = "fonts/Roboto-Regular.ttf";
+  std::vector<char> fontDataChar = readFile(fontPath);
   unsigned char *fontData =
       reinterpret_cast<unsigned char *>(fontDataChar.data());
   const glm::uvec2 bitmapExtent{512, 512};
@@ -104,6 +105,8 @@ void TextSys::createGlyphs() {
   imageInfo.format = VK_FORMAT_R8_UNORM;
   imageInfo.size = bitmapExtent;
   imageInfo.data = atlasData;
+  std::string imageName = std::format("font atlas for {}", fontPath.string());
+  imageInfo.name = imageName.c_str();
   fontAtlas = std::make_unique<Image>(context, imageInfo);
 
   for (int i = 0; i < charInfo.size(); i++) {

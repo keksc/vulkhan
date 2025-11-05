@@ -74,7 +74,7 @@ void PostProcessingSys::createPipeline() {
   layoutInfo.pSetLayouts = descriptorSetLayouts.data();
   layoutInfo.setLayoutCount = descriptorSetLayouts.size();
   pipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/postProcessing.comp.spv", layoutInfo);
+      context, "shaders/postProcessing.comp.spv", layoutInfo, "post processing");
 }
 
 PostProcessingSys::PostProcessingSys(EngineContext &context) : System(context) {
