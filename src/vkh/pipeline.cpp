@@ -4,6 +4,7 @@
 
 #include <stdexcept>
 
+#include "debug.hpp"
 #include "deviceHelpers.hpp"
 
 namespace vkh {
@@ -24,12 +25,13 @@ VkShaderModule createShaderModule(EngineContext &context,
   VkShaderModule shaderModule;
   if (vkCreateShaderModule(context.vulkan.device, &createInfo, nullptr,
                            &shaderModule) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create shader module");
+    throw std::runtime_error("failed to create shader");
   }
   return shaderModule;
 }
 GraphicsPipeline::GraphicsPipeline(EngineContext &context,
-                                   const PipelineCreateInfo &createInfo)
+                                   const PipelineCreateInfo &createInfo,
+                                   const char *name)
     : Pipeline{context, VK_PIPELINE_BIND_POINT_GRAPHICS} {
   std::vector<VkPipelineShaderStageCreateInfo> shaderStages;
 
@@ -41,13 +43,19 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
   shaderStages.emplace_back(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                             nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT,
                             vertShaderModule, "main", nullptr);
+  auto str = std::format("vertex shader for pipeline {}", name);
+  debug::setObjName(context, VK_OBJECT_TYPE_SHADER_MODULE,
+                    reinterpret_cast<uint64_t>(vertShaderModule), str.c_str());
 
   shaderStages.emplace_back(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                             nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT,
                             fragShaderModule, "main", nullptr);
+  str = std::format("fragment shader for pipeline {}", name);
+  debug::setObjName(context, VK_OBJECT_TYPE_SHADER_MODULE,
+                    reinterpret_cast<uint64_t>(fragShaderModule), str.c_str());
 
   // Optional tessellation
-  VkShaderModule tescModule, teseModule;
+  VkShaderModule tescShaderModule, teseShaderModule;
   bool useTessellation = false;
   if (createInfo.tescpath.empty() != createInfo.tesepath.empty()) {
     throw std::runtime_error(std::format(
@@ -59,17 +67,27 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
     useTessellation = true;
     auto tescCode = readFile(createInfo.tescpath);
     auto teseCode = readFile(createInfo.tesepath);
-    tescModule = createShaderModule(context, tescCode);
-    teseModule = createShaderModule(context, teseCode);
+    tescShaderModule = createShaderModule(context, tescCode);
+    teseShaderModule = createShaderModule(context, teseCode);
 
     shaderStages.emplace_back(
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-        VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, tescModule, "main", nullptr);
-
-    shaderStages.emplace_back(
-        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-        VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, teseModule, "main",
+        VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, tescShaderModule, "main",
         nullptr);
+    str =
+        std::format("tesselation control shader for pipeline {}", name);
+    debug::setObjName(context, VK_OBJECT_TYPE_SHADER_MODULE,
+                      reinterpret_cast<uint64_t>(tescShaderModule),
+                      str.c_str());
+
+    shaderStages.emplace_back(
+        VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+        VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, teseShaderModule, "main",
+        nullptr);
+    str = std::format("tesselation eval shader for pipeline {}", name);
+    debug::setObjName(context, VK_OBJECT_TYPE_SHADER_MODULE,
+                      reinterpret_cast<uint64_t>(teseShaderModule),
+                      str.c_str());
   }
 
   auto &bindingDescriptions = createInfo.bindingDescriptions;
@@ -114,6 +132,9 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
                              nullptr, &pipelineInfo.layout) != VK_SUCCESS)
     throw std::runtime_error("failed to create pipeline layout!");
   layout = pipelineInfo.layout;
+  str = std::format("pipeline layout for pipeline {}", name);
+  debug::setObjName(context, VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+                    reinterpret_cast<uint64_t>(layout), str.c_str());
 
   pipelineInfo.renderPass = createInfo.renderPass;
   pipelineInfo.subpass = createInfo.subpass;
@@ -131,24 +152,35 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
   vkDestroyShaderModule(context.vulkan.device, fragShaderModule, nullptr);
 
   if (useTessellation) {
-    vkDestroyShaderModule(context.vulkan.device, tescModule, nullptr);
-    vkDestroyShaderModule(context.vulkan.device, teseModule, nullptr);
+    vkDestroyShaderModule(context.vulkan.device, tescShaderModule, nullptr);
+    vkDestroyShaderModule(context.vulkan.device, teseShaderModule, nullptr);
   }
+
+  str = std::format("{} graphics pipeline", name);
+  debug::setObjName(context, VK_OBJECT_TYPE_PIPELINE,
+                    reinterpret_cast<uint64_t>(pipeline), str.c_str());
 }
 
 ComputePipeline::ComputePipeline(EngineContext &context,
                                  const std::filesystem::path &shaderpath,
-                                 VkPipelineLayoutCreateInfo layoutInfo)
+                                 VkPipelineLayoutCreateInfo layoutInfo,
+                                 const char *name)
     : Pipeline{context, VK_PIPELINE_BIND_POINT_COMPUTE} {
   VkComputePipelineCreateInfo pipelineInfo{};
   if (vkCreatePipelineLayout(context.vulkan.device, &layoutInfo, nullptr,
                              &pipelineInfo.layout) != VK_SUCCESS)
     throw std::runtime_error("failed to create pipeline layout!");
   layout = pipelineInfo.layout;
+  std::string str = std::format("pipeline layout for pipeline {}", name);
+  debug::setObjName(context, VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+                    reinterpret_cast<uint64_t>(layout), str.c_str());
 
   auto shaderCode = readFile(shaderpath);
 
   VkShaderModule shaderModule = createShaderModule(context, shaderCode);
+  str = std::format("fragment shader for pipeline {}", name);
+  debug::setObjName(context, VK_OBJECT_TYPE_SHADER_MODULE,
+                    reinterpret_cast<uint64_t>(shaderModule), str.c_str());
 
   pipelineInfo.stage = {.sType =
                             VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -168,6 +200,9 @@ ComputePipeline::ComputePipeline(EngineContext &context,
     throw std::runtime_error("failed to create compute pipeline");
   }
   vkDestroyShaderModule(context.vulkan.device, shaderModule, nullptr);
+  str = std::format("{} compute pipeline", name);
+  debug::setObjName(context, VK_OBJECT_TYPE_PIPELINE,
+                    reinterpret_cast<uint64_t>(pipeline), str.c_str());
 }
 void Pipeline::bind(VkCommandBuffer commandBuffer) {
   vkCmdBindPipeline(commandBuffer, bindPoint, pipeline);

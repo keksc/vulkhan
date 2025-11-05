@@ -1,7 +1,6 @@
 #include "smoke.hpp"
 #include <GLFW/glfw3.h>
 #include <cstdlib>
-#include <random>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -49,7 +48,7 @@ void SmokeSys::createPipeline() {
   pipelineInfo.fragpath = "shaders/smoke.frag.spv";
   pipelineInfo.depthStencilInfo.depthTestEnable = VK_TRUE,
   pipelineInfo.depthStencilInfo.depthWriteEnable = VK_TRUE,
-  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
+  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "smoke");
 }
 SmokeSys::SmokeSys(EngineContext &context)
     : System(context), fluidGrid(glm::ivec2{5, 5}, 1.f) {
@@ -69,21 +68,34 @@ void SmokeSys::update() {
   for (size_t x = 0; x < fluidGrid.cellCount.x * interpolatedScale; x++) {
     for (size_t y = 0; y < fluidGrid.cellCount.y * interpolatedScale; y++) {
       float ndc_x =
-          -1.0f +
-          2.0f * (float(x) / (fluidGrid.cellCount.x * interpolatedScale));
+          -1.0f + 2.0f * (static_cast<float>(x) /
+                          (fluidGrid.cellCount.x * interpolatedScale));
       float ndc_y =
-          -1.0f +
-          2.0f * (float(y) / (fluidGrid.cellCount.y * interpolatedScale));
+          -1.0f + 2.0f * (static_cast<float>(y) /
+                          (fluidGrid.cellCount.y * interpolatedScale));
 
-      float dx = 2.0f / fluidGrid.cellCount.x;
-      float dy = 2.0f / fluidGrid.cellCount.y;
+      float dx = 2.0f / (fluidGrid.cellCount.x * interpolatedScale);
+      float dy = 2.0f / (fluidGrid.cellCount.y * interpolatedScale);
 
+      // Map (x,y) in interpolated grid → world space
+      float worldX = (static_cast<float>(x) /
+                      (fluidGrid.cellCount.x * interpolatedScale)) *
+                         (fluidGrid.cellCount.x * fluidGrid.cellSize) -
+                     (fluidGrid.cellCount.x * fluidGrid.cellSize) / 2.0f;
+      float worldY = (static_cast<float>(y) /
+                      (fluidGrid.cellCount.y * interpolatedScale)) *
+                         (fluidGrid.cellCount.y * fluidGrid.cellSize) -
+                     (fluidGrid.cellCount.y * fluidGrid.cellSize) / 2.0f;
+
+      glm::vec2 worldPos{worldX, worldY};
+      glm::vec2 velocity = fluidGrid.getVelocityAtWorldPos(worldPos);
+
+      // Arrow: vertical line from bottom to top, tip offset by velocity
       glm::vec2 a{ndc_x, ndc_y + dy * arrowScale};
-      glm::vec2 b{ndc_x, ndc_y + dy * (1.f - arrowScale)};
-      glm::vec2 c =
-          ndc_x + fluidGrid.getVelocityAtWorldPos({x, y}) * arrowScale;
+      glm::vec2 b{ndc_x, ndc_y + dy * (1.0f - arrowScale)};
+      glm::vec2 c = glm::vec2(ndc_x, ndc_y + dy * 0.5f) + velocity * arrowScale;
 
-      glm::vec3 col{1.f};
+      glm::vec3 col{1.f, .5f, .5f};
 
       vertices.emplace_back(a, col);
       vertices.emplace_back(b, col);

@@ -81,7 +81,7 @@ void EntitySys::render() {
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 2, 1,
                           &skyboxSys.set, 0, nullptr);
 
-  compactDraws();
+  // compactDraws();
 
   // std::println("batches: {}", batches.size());
   // std::println("entities: {}", entities.size());

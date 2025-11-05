@@ -1,4 +1,5 @@
 #include "init.hpp"
+#include "debug.hpp"
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -72,9 +73,9 @@ std::vector<const char *> getRequiredExtensions(EngineContext &context) {
   std::vector<const char *> extensions(glfwExtensions,
                                        glfwExtensions + glfwExtensionCount);
 
-  if (context.vulkan.enableValidationLayers) {
-    extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-  }
+#ifndef NDEBUG
+  extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+#endif
 
   return extensions;
 }
@@ -98,9 +99,11 @@ void checkGflwRequiredInstanceExtensions(EngineContext &context) {
   }
 }
 void createInstance(EngineContext &context) {
-  if (context.vulkan.enableValidationLayers && !checkValidationLayerSupport()) {
+#ifndef NDEBUG
+  if (!checkValidationLayerSupport()) {
     throw std::runtime_error("validation layers requested, but not available!");
   }
+#endif
 
   VkApplicationInfo appInfo = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO};
   appInfo.pApplicationName = "Vulkhan";
@@ -118,14 +121,13 @@ void createInstance(EngineContext &context) {
   createInfo.ppEnabledExtensionNames = extensions.data();
 
   VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
-  if (context.vulkan.enableValidationLayers) {
-    createInfo.enabledLayerCount =
-        static_cast<uint32_t>(validationLayers.size());
-    createInfo.ppEnabledLayerNames = validationLayers.data();
+#ifndef NDEBUG
+  createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+  createInfo.ppEnabledLayerNames = validationLayers.data();
 
-    populateDebugMessengerCreateInfo(debugCreateInfo);
-    createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT *)&debugCreateInfo;
-  }
+  populateDebugMessengerCreateInfo(debugCreateInfo);
+  createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT *)&debugCreateInfo;
+#endif
 
   if (vkCreateInstance(&createInfo, nullptr, &context.vulkan.instance) !=
       VK_SUCCESS) {
@@ -135,8 +137,6 @@ void createInstance(EngineContext &context) {
   checkGflwRequiredInstanceExtensions(context);
 }
 void setupDebugMessenger(EngineContext &context) {
-  if (!context.vulkan.enableValidationLayers)
-    return;
   VkDebugUtilsMessengerCreateInfoEXT createInfo;
   populateDebugMessengerCreateInfo(createInfo);
   if (reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
@@ -256,23 +256,51 @@ void createLogicalDevice(EngineContext &context) {
 
   // might not really be necessary anymore because device specific validation
   // layers have been deprecated
-  if (context.vulkan.enableValidationLayers) {
-    createInfo.enabledLayerCount =
-        static_cast<uint32_t>(validationLayers.size());
-    createInfo.ppEnabledLayerNames = validationLayers.data();
-  }
+#ifndef NDEBUG
+  createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+  createInfo.ppEnabledLayerNames = validationLayers.data();
+#endif
 
   if (vkCreateDevice(context.vulkan.physicalDevice, &createInfo, nullptr,
                      &context.vulkan.device) != VK_SUCCESS) {
     throw std::runtime_error("failed to create logical device!");
   }
 
+#ifndef NDEBUG
+  context.vulkan.debug.setObjName =
+      reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(vkGetDeviceProcAddr(
+          context.vulkan.device, "vkSetDebugUtilsObjectNameEXT"));
+  context.vulkan.debug.beginLabel =
+      reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(vkGetDeviceProcAddr(
+          context.vulkan.device, "vkCmdBeginDebugUtilsLabelEXT"));
+  context.vulkan.debug.endLabel =
+      reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(vkGetDeviceProcAddr(
+          context.vulkan.device, "vkCmdEndDebugUtilsLabelEXT"));
+  if (!context.vulkan.debug.setObjName || !context.vulkan.debug.beginLabel ||
+      !context.vulkan.debug.endLabel) {
+    throw std::runtime_error("Failed to load VK_EXT_debug_utils device "
+                             "functions. Is the extension enabled?");
+  }
+#endif
+  debug::setObjName(context, VK_OBJECT_TYPE_DEVICE,
+                    reinterpret_cast<uint64_t>(context.vulkan.device),
+                    "logical device");
+
   vkGetDeviceQueue(context.vulkan.device, indices.graphicsFamily, 0,
                    &context.vulkan.graphicsQueue);
+  debug::setObjName(context, VK_OBJECT_TYPE_QUEUE,
+                    reinterpret_cast<uint64_t>(context.vulkan.graphicsQueue),
+                    "graphics queue");
   vkGetDeviceQueue(context.vulkan.device, indices.computeFamily, 0,
                    &context.vulkan.computeQueue);
+  debug::setObjName(context, VK_OBJECT_TYPE_QUEUE,
+                    reinterpret_cast<uint64_t>(context.vulkan.computeQueue),
+                    "compute queue");
   vkGetDeviceQueue(context.vulkan.device, indices.presentFamily, 0,
                    &context.vulkan.presentQueue);
+  debug::setObjName(context, VK_OBJECT_TYPE_QUEUE,
+                    reinterpret_cast<uint64_t>(context.vulkan.presentQueue),
+                    "present queue");
 }
 void createCommandPool(EngineContext &context) {
   QueueFamilyIndices queueFamilyIndices =
@@ -361,11 +389,18 @@ void setupGlobResources(EngineContext &context) {
 }
 void init(EngineContext &context) {
   createInstance(context);
+
+#ifndef NDEBUG
   setupDebugMessenger(context);
+#endif
+
   glfwCreateWindowSurface(context.vulkan.instance, context.window, nullptr,
                           &context.vulkan.surface);
   pickPhysicalDevice(context);
   createLogicalDevice(context);
+  debug::setObjName(context, VK_OBJECT_TYPE_INSTANCE,
+                    reinterpret_cast<uint64_t>(context.vulkan.instance),
+                    "instance");
 
   auto swapChainSupport = getSwapChainSupport(context);
   uint32_t imageCount = (swapChainSupport.capabilities.minImageCount <= 2)

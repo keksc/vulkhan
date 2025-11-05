@@ -6,6 +6,7 @@
 #include <filesystem>
 
 #include "engineContext.hpp"
+#include "debug.hpp"
 
 namespace vkh {
 struct ImageCreateInfo {
@@ -16,14 +17,15 @@ struct ImageCreateInfo {
   void *data = nullptr;
   uint32_t color;
   VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  const char* name = "Unnamed image";
 };
 class Image {
 public:
   Image(EngineContext &context, glm::uvec2 size, VkFormat format,
-        uint32_t usage, VkImageLayout layout);
+        uint32_t usage, VkImageLayout layout, const char* name = "Unnamed image");
   Image(EngineContext &context, const ImageCreateInfo &createInfo);
   Image(EngineContext &context, const std::filesystem::path &path);
-  Image(EngineContext &context, void *data, size_t dataSize);
+  Image(EngineContext &context, void *data, size_t dataSize, const char* name = "Unnamed image");
   Image(Image &&other) noexcept
       : context{other.context}, img{other.img}, view{other.view},
         memory{other.memory}, format{other.format}, layout{other.layout} {
@@ -83,6 +85,14 @@ private:
   };
   TransitionParams getTransitionParams(VkImageLayout oldLayout,
                                        VkImageLayout newLayout);
+  inline void setDbgInfo(const char* name) {
+  std::string str = std::format("{} image", name);
+  debug::setObjName(context, VK_OBJECT_TYPE_IMAGE,
+                    reinterpret_cast<uint64_t>(img), str.c_str());
+  str = std::format("image view for image {}", name);
+  debug::setObjName(context, VK_OBJECT_TYPE_IMAGE_VIEW,
+                    reinterpret_cast<uint64_t>(view), str.c_str());
+  }
 
   EngineContext &context;
 

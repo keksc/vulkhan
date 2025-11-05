@@ -17,6 +17,7 @@
 #include "../pipeline.hpp"
 #include "../scene.hpp"
 #include "../swapChain.hpp"
+#include "../debug.hpp"
 
 namespace vkh {
 
@@ -67,10 +68,11 @@ SkyboxSys::SkyboxSys(EngineContext &context)
   pipelineInfo.depthStencilInfo.depthWriteEnable = VK_FALSE;
   pipelineInfo.vertpath = "shaders/skybox.vert.spv";
   pipelineInfo.fragpath = "shaders/skybox.frag.spv";
-  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
+  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "skybox");
 }
 
 void SkyboxSys::render() {
+  debug::beginLabel(context, context.frameInfo. cmd, "skybox rendering", {.3f, .3f, 1.f, 1.f});
   pipeline->bind(context.frameInfo.cmd);
 
   VkDescriptorSet sets[] = {context.frameInfo.globalDescriptorSet, set};
@@ -79,5 +81,6 @@ void SkyboxSys::render() {
                           sets, 0, nullptr);
   cubeScene->bind(context, context.frameInfo.cmd, *pipeline);
   cubeScene->meshes.begin()->primitives.begin()->draw(context.frameInfo.cmd);
+  debug::endLabel(context, context.frameInfo.cmd);
 }
 } // namespace vkh
