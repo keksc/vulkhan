@@ -75,7 +75,7 @@ public:
             SkyboxSys &skyboxSys);
   ~EntitySys();
   void render();
-  std::vector<Entity> &entities;
+  std::vector<std::shared_ptr<Entity>> &entities;
   std::vector<Batch> batches;
 
 private:
