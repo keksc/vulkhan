@@ -72,16 +72,18 @@ void run() {
     // vkh::WaterSys waterSys(context, skyboxSys);
     // generateDungeon(context, entitySys);
     Sabl sabl(context, entitySys);
-    auto &cross = entitySys.entities.emplace_back(
-        vkh::EntitySys::Transform{.position = {}}, vkh::EntitySys::RigidBody{},
-        std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-            context, "models/cross.glb"));
+    auto cross = entitySys.entities.emplace_back(
+        std::make_shared<vkh::EntitySys::Entity>(
+            vkh::EntitySys::Transform{.position = {}},
+            vkh::EntitySys::RigidBody{},
+            std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+                context, "models/cross.glb")));
     auto piano = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
         context, "models/piano-decent.glb");
     for (int i = 0; i < piano->meshes.size(); i++)
-      entitySys.entities.emplace_back(
+      entitySys.entities.emplace_back(std::make_shared<vkh::EntitySys::Entity>(
           vkh::EntitySys::Transform{.position = {10.f, 10.f, 10.f}},
-          vkh::EntitySys::RigidBody{}, piano, i);
+          vkh::EntitySys::RigidBody{}, piano, i));
 
     vkh::FreezeAnimationSys freezeAnimationSys(context);
     vkh::HudSys hudSys(context);
@@ -253,7 +255,7 @@ void run() {
       orientationtxt->content = std::format(
           "Yaw: {}\nPitch:{}", context.camera.yaw, context.camera.pitch);
 
-      cross.transform.position.y = .7f + .2f * sin(glfwGetTime());
+      cross->transform.position.y = .7f + .2f * sin(glfwGetTime());
 
       currentTime = newTime;
 
@@ -290,8 +292,9 @@ void run() {
 
         if (hudSys.getView() == &hudWorld) {
           // waterSys.update();
-          sabl.update();
         }
+        // entitySys.entities[0].transform.position.x += .2f;
+        sabl.update();
         if (hudSys.getView() == &hudSmoke) {
           smokeSys.update();
         }
