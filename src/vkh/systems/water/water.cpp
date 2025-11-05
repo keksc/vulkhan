@@ -4,6 +4,7 @@
 #include <vulkan/vulkan_core.h>
 
 #include "../../audio.hpp"
+#include "../../debug.hpp"
 #include "../../pipeline.hpp"
 #include "../../swapChain.hpp"
 #include "WSTessendorf.hpp"
@@ -40,7 +41,7 @@ void WaterSys::createPipeline() {
   pipelineInfo.fragpath = "shaders/water/water.frag.spv";
   pipelineInfo.tescpath = "shaders/water/water.tesc.spv";
   pipelineInfo.tesepath = "shaders/water/water.tese.spv";
-  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
+  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "water");
 }
 void WaterSys::createUniformBuffers(const uint32_t bufferCount) {
   const VkDeviceSize bufferSize =
@@ -68,20 +69,15 @@ void WaterSys::createRenderData() {
   createUniformBuffers(imageCount);
   createDescriptorSets(imageCount);
 }
-
-std::unique_ptr<Image> createMap(EngineContext &context,
-                                 VkCommandBuffer cmdBuffer, const uint32_t size,
-                                 const VkFormat mapFormat) {
-  return std::make_unique<Image>(context, glm::uvec2{size, size}, mapFormat,
-                                 VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                     VK_IMAGE_USAGE_SAMPLED_BIT,
-                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-}
 void WaterSys::recordCreateFrameMaps(VkCommandBuffer cmdBuffer) {
-  frameMap.displacementMap =
-      createMap(context, cmdBuffer, modelTess.tileSize, mapFormat);
-  frameMap.normalMap =
-      createMap(context, cmdBuffer, modelTess.tileSize, mapFormat);
+  frameMap.displacementMap = std::make_unique<Image>(
+      context, glm::uvec2{modelTess.tileSize}, mapFormat,
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, "water displacement map");
+  frameMap.normalMap = std::make_unique<Image>(
+      context, glm::uvec2{modelTess.tileSize}, mapFormat,
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, "water normal map");
 }
 void WaterSys::recordUpdateFrameMaps(VkCommandBuffer cmd, FrameMapData &frame) {
   frame.displacementMap->recordTransitionLayout(
@@ -162,10 +158,12 @@ void WaterSys::updateDescriptorSet(VkDescriptorSet set) {
   assert(frameMap.normalMap != nullptr);
 
   VkDescriptorImageInfo imageInfos[2] = {};
-  imageInfos[0] = frameMap.displacementMap->getDescriptorInfo(context.vulkan.defaultSampler);
+  imageInfos[0] = frameMap.displacementMap->getDescriptorInfo(
+      context.vulkan.defaultSampler);
   // TODO force future image layout
   imageInfos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  imageInfos[1] = frameMap.normalMap->getDescriptorInfo(context.vulkan.defaultSampler);
+  imageInfos[1] =
+      frameMap.normalMap->getDescriptorInfo(context.vulkan.defaultSampler);
   // TODO force future image layout
   imageInfos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -194,8 +192,8 @@ void WaterSys::prepare() {
   recordCreateFrameMaps(cmd);
 
   // Do one pass to initialize the maps
-  vertexUBO.WSHeightAmp =
-      modelTess.recordComputeWaves(cmd, static_cast<float>(glfwGetTime()) * animSpeed);
+  vertexUBO.WSHeightAmp = modelTess.recordComputeWaves(
+      cmd, static_cast<float>(glfwGetTime()) * animSpeed);
 
   recordUpdateFrameMaps(cmd, frameMap);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
@@ -218,12 +216,14 @@ void WaterSys::update() {
     // auto cmd = beginSingleTimeCommands(context);
     // vkCmdDispatch(cmd, 16, 16, 1);
     // endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
-    vertexUBO.WSHeightAmp =
-        modelTess.recordComputeWaves(context.frameInfo.cmd, static_cast<float>(glfwGetTime()) * animSpeed);
+    vertexUBO.WSHeightAmp = modelTess.recordComputeWaves(
+        context.frameInfo.cmd, static_cast<float>(glfwGetTime()) * animSpeed);
   }
 }
 
 void WaterSys::render() {
+  debug::beginLabel(context, context.frameInfo.cmd, "WaterSys render",
+                    {0.f, 0.f, 1.f, 1.f});
   pipeline->bind(context.frameInfo.cmd);
 
   VkDescriptorSet sets[] = {descriptorSets[context.frameInfo.frameIndex],
@@ -235,6 +235,7 @@ void WaterSys::render() {
 
   scene->bind(context, context.frameInfo.cmd, *pipeline);
   scene->meshes.begin()->primitives.begin()->draw(context.frameInfo.cmd);
+  debug::endLabel(context, context.frameInfo.cmd);
 }
 
 void WaterSys::createDescriptorSetLayout() {

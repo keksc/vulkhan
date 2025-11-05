@@ -57,7 +57,11 @@ find_program(
         $ENV{VULKAN_SDK}/Bin/
         $ENV{VULKAN_SDK}/Bin32/)
 
-# Recursively find all shaders in subdirectories
+set(GLSL_DEBUG_FLAGS "")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    # -gVS = glslang source-level debug info (RenderDoc-compatible)
+    set(GLSL_DEBUG_FLAGS "-g")
+endif()
 file(
   GLOB_RECURSE
   GLSL_SOURCE_FILES
@@ -84,7 +88,7 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
 
   add_custom_command(
     OUTPUT ${SPIRV}
-    COMMAND ${GLSLC} ${GLSL} -o ${SPIRV} --target-env=vulkan1.1 -DUSE_SUBGROUP_OPS
+    COMMAND ${GLSLC} ${GLSL} -o ${SPIRV} --target-env=vulkan1.1 -DUSE_SUBGROUP_OPS ${GLSL_DEBUG_FLAGS}
     DEPENDS ${GLSL}
     COMMENT "Compiling shader ${RELATIVE_GLSL_PATH}")
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})

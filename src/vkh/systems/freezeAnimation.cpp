@@ -41,7 +41,7 @@ void FreezeAnimationSys::createPipeline() {
   pipelineInfo.layoutInfo = pipelineLayoutInfo;
   pipelineInfo.vertpath = "shaders/freezeAnimation.vert.spv";
   pipelineInfo.fragpath = "shaders/freezeAnimation.frag.spv";
-  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
+  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "freeze animation");
 }
 FreezeAnimationSys::FreezeAnimationSys(EngineContext &context)
     : System(context) {

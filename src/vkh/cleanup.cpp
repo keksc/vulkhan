@@ -19,11 +19,11 @@ void cleanup(EngineContext &context) {
                        nullptr);
   vkDestroyDevice(context.vulkan.device, nullptr);
 
-  if (context.vulkan.enableValidationLayers) {
-    reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(
-        context.vulkan.instance, "vkDestroyDebugUtilsMessengerEXT"))(
-        context.vulkan.instance, context.vulkan.debugMessenger, nullptr);
-  }
+#ifndef NDEBUG
+  reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(
+      context.vulkan.instance, "vkDestroyDebugUtilsMessengerEXT"))(
+      context.vulkan.instance, context.vulkan.debugMessenger, nullptr);
+#endif
 
   vkDestroySurfaceKHR(context.vulkan.instance, context.vulkan.surface, nullptr);
   vkDestroyInstance(context.vulkan.instance, nullptr);

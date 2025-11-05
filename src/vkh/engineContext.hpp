@@ -65,12 +65,15 @@ struct EngineContext {
   } window;
   struct {
     VkInstance instance;
-#ifdef NDEBUG
-    const bool enableValidationLayers = false;
-#else
-    const bool enableValidationLayers = true;
+#ifndef NDEBUG
+    struct {
+      PFN_vkSetDebugUtilsObjectNameEXT setObjName;
+      PFN_vkCmdBeginDebugUtilsLabelEXT beginLabel;
+      PFN_vkCmdEndDebugUtilsLabelEXT endLabel;
+    } debug;
 #endif
     VkDebugUtilsMessengerEXT debugMessenger;
+
     VkSurfaceKHR surface;
     VkPhysicalDevice physicalDevice;
     VkPhysicalDeviceProperties physicalDeviceProperties;
