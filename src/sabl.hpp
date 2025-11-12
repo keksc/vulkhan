@@ -16,15 +16,6 @@ public:
   ~Sabl();
   void update();
 
-private:
-  vkh::EntitySys &entitySys;
-  vkh::EngineContext &context;
-
-  std::shared_ptr<vkh::Scene<vkh::EntitySys::Vertex>> sandwormScene;
-
-  const float snakeAccelStrength = 3.f;
-  const float snakeSpeed = .1f;
-
   static const size_t baseSnakeSize = 20;
   struct Player {
     std::array<std::shared_ptr<vkh::EntitySys::Entity>, baseSnakeSize>
@@ -32,7 +23,18 @@ private:
     std::array<glm::vec3, baseSnakeSize - 1> positionHistory;
     glm::vec3 headVelocity{};
     glm::vec2 headDirection{};
-    std::function<glm::vec2(glm::vec3 otherRelativePos)> relativeDirection;
+    std::function<glm::vec2(Player &self, glm::vec3 otherRelativePos)>
+        relativeDirection;
   };
+
+private:
+  vkh::EntitySys &entitySys;
+  vkh::EngineContext &context;
+
+  std::shared_ptr<vkh::Scene<vkh::EntitySys::Vertex>> sandwormScene;
+
+  const float snakeAccelStrength = .001f;
+  const float snakeSpeed = .2f;
+
   Player kekw, leaf;
 };
