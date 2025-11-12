@@ -71,18 +71,25 @@ void run() {
     // vkh::WaterSys waterSys(context, skyboxSys);
     // generateDungeon(context, entitySys);
     Sabl sabl(context, entitySys);
-    auto cross = entitySys.entities.emplace_back(
-        std::make_shared<vkh::EntitySys::Entity>(
-            vkh::EntitySys::Transform{.position = {}},
-            vkh::EntitySys::RigidBody{},
-            std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-                context, "models/cross.glb")));
+    // auto cross = entitySys.entities.emplace_back(
+    //     std::make_shared<vkh::EntitySys::Entity>(
+    //         vkh::EntitySys::Transform{.position = {}},
+    //         vkh::EntitySys::RigidBody{},
+    //         std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+    //             context, "models/cross.glb")));
     auto piano = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
         context, "models/piano-decent.glb");
     for (int i = 0; i < piano->meshes.size(); i++)
       entitySys.entities.emplace_back(std::make_shared<vkh::EntitySys::Entity>(
           vkh::EntitySys::Transform{.position = {10.f, 10.f, 10.f}},
           vkh::EntitySys::RigidBody{}, piano, i));
+
+    auto base = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+        context, "models/base.glb");
+    for (int i = 0; i < base->meshes.size(); i++)
+      entitySys.entities.emplace_back(std::make_shared<vkh::EntitySys::Entity>(
+          vkh::EntitySys::Transform{.position = {}},
+          vkh::EntitySys::RigidBody{}, base, i));
 
     vkh::FreezeAnimationSys freezeAnimationSys(context);
     vkh::HudSys hudSys(context);
@@ -232,7 +239,7 @@ void run() {
         hudWorld.addElement<vkh::hud::Text>(glm::vec2{1.f, -1.f});
 
     context.camera.position = {0.f, 0.f, 0.f};
-    context.camera.yaw = 1.5f * glm::pi<float>();
+    // context.camera.yaw = 1.5f * glm::pi<float>();
 
     auto currentTime = std::chrono::high_resolution_clock::now();
     auto initTime = currentTime;
@@ -254,7 +261,7 @@ void run() {
       orientationtxt->content = std::format(
           "Yaw: {}\nPitch:{}", context.camera.yaw, context.camera.pitch);
 
-      cross->transform.position.y = .7f + .2f * sin(glfwGetTime());
+      // cross->transform.position.y = .7f + .2f * sin(glfwGetTime());
 
       currentTime = newTime;
 
@@ -265,8 +272,7 @@ void run() {
       context.camera.projectionMatrix =
           glm::perspective(1.919'862'177f /*human FOV*/,
                            context.window.aspectRatio, .1f, 1000.f);
-      context.camera.projectionMatrix[1][1] *= -1; // Flip Y for Vulkan
-      context.camera.projectionMatrix[0][0] *= -1; // Flip X for rotation
+      context.camera.projectionMatrix[1][1] *= -1.f; // Flip Y for Vulkan
       vkh::camera::calcViewYXZ(context);
 
       if (auto commandBuffer = vkh::renderer::beginFrame(context)) {
