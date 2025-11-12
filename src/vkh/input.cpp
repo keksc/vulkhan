@@ -138,7 +138,7 @@ void update(EngineContext &context, EntitySys &entitySys) {
   double dYaw = delta.x * sensitivity;
   double dPitch = -delta.y * sensitivity;
 
-  context.camera.yaw += dYaw;
+  context.camera.yaw -= dYaw;
   context.camera.pitch += dPitch;
 
   const float maxPitch = glm::radians(89.f);
@@ -153,7 +153,7 @@ void update(EngineContext &context, EntitySys &entitySys) {
   context.camera.orientation = pitchQuat * yawQuat;
 
   glm::vec3 forward = context.camera.orientation * glm::vec3(0.f, 0.f, -1.f);
-  glm::vec3 rightDir = context.camera.orientation * glm::vec3(-1.f, 0.f, 0.f);
+  glm::vec3 rightDir = context.camera.orientation * glm::vec3(1.f, 0.f, 0.f);
   glm::vec3 up = glm::vec3(0.f, 1.f, 0.f);
   glm::vec3 moveDir{};
 
@@ -196,7 +196,7 @@ void update(EngineContext &context, EntitySys &entitySys) {
 
     // Only update position if no collision
     // if (!collision) {CMakeFiles/vulkhan.dir/src/main.cpp.o
-      context.camera.position = newPosition;
+    context.camera.position = newPosition;
     // } else {
     //   // Try sliding along each axis
     //   glm::vec3 testPosition = context.camera.position;
@@ -209,8 +209,10 @@ void update(EngineContext &context, EntitySys &entitySys) {
     //   for (const auto &axisVel : axisVelocity) {
     //     if (glm::length2(axisVel) > std::numeric_limits<float>::epsilon()) {
     //       glm::vec3 axisTestPosition = testPosition + axisVel;
-    //       AABB axisCameraAABB{axisTestPosition - glm::vec3(cameraSize / 2.0f),
-    //                           axisTestPosition + glm::vec3(cameraSize / 2.0f)};
+    //       AABB axisCameraAABB{axisTestPosition - glm::vec3(cameraSize
+    //       / 2.0f),
+    //                           axisTestPosition + glm::vec3(cameraSize
+    //                           / 2.0f)};
     //       bool axisCollision = false;
     //       for (const auto &entity : entitySys.entities) {
     //         AABB entityAABB = getEntityAABB(entity);

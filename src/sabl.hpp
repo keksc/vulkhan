@@ -25,9 +25,11 @@ private:
   const float snakeAccelStrength = 3.f;
   const float snakeSpeed = .1f;
 
+  static const size_t baseSnakeSize = 20;
   struct Player {
-    std::array<std::shared_ptr<vkh::EntitySys::Entity>, 20> sandwormPieces;
-    std::array<glm::vec3, 19> positionHistory;
+    std::array<std::shared_ptr<vkh::EntitySys::Entity>, baseSnakeSize>
+        sandwormPieces;
+    std::array<glm::vec3, baseSnakeSize - 1> positionHistory;
     glm::vec3 headVelocity{};
     glm::vec2 headDirection{};
     std::function<glm::vec2(glm::vec3 otherRelativePos)> relativeDirection;

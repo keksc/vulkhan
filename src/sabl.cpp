@@ -2,13 +2,15 @@
 
 #include <glm/ext.hpp>
 
-#include <print>
-
 glm::vec2 leafRelativeDirection(glm::vec3 otherRelativePos) {
-  return {glm::quarter_pi<float>(), 0.f};
+  return {.00001f, 0.f};
 }
 glm::vec2 kekwRelativeDirection(glm::vec3 otherRelativePos) {
-  return {0.f, glm::quarter_pi<float>()};
+  float yaw = glm::atan2(otherRelativePos.x, -otherRelativePos.y);
+  float pitch =
+      glm::atan2(glm::length(glm::vec2{otherRelativePos.x, otherRelativePos.y}),
+                 otherRelativePos.z);
+  return {yaw, pitch};
 }
 enum Sandworm { Head = 0, Body = 1, Tail = 2 };
 Sabl::Sabl(vkh::EngineContext &context, vkh::EntitySys &entitySys)
@@ -17,19 +19,17 @@ Sabl::Sabl(vkh::EngineContext &context, vkh::EntitySys &entitySys)
       context, "models/leafsandworm.glb");
   auto kekwSandwormScene = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
       context, "models/kekwsandworm.glb");
-  for (size_t i = 0; i < 20; i++) {
+  for (size_t i = 0; i < baseSnakeSize; i++) {
     leaf.sandwormPieces[i] = entitySys.entities.emplace_back(
         std::make_shared<vkh::EntitySys::Entity>(
-            vkh::EntitySys::Transform{
-                .position = {-5.f, 0.f, static_cast<float>(i) * 2.f}},
+            vkh::EntitySys::Transform{.position = {-5.f, 0.f, 0.f}},
             vkh::EntitySys::RigidBody{}, leafSandwormScene, Sandworm::Head));
     kekw.sandwormPieces[i] = entitySys.entities.emplace_back(
         std::make_shared<vkh::EntitySys::Entity>(
-            vkh::EntitySys::Transform{
-                .position = {5.f, 0.f, static_cast<float>(i) * 2.f}},
+            vkh::EntitySys::Transform{.position = {5.f, 0.f, 0.f}},
             vkh::EntitySys::RigidBody{}, kekwSandwormScene, Sandworm::Head));
   }
-  for (size_t i = 0; i < 19; i++) {
+  for (size_t i = 0; i < baseSnakeSize - 1; i++) {
     leaf.positionHistory[i] = leaf.sandwormPieces[i]->transform.position;
     kekw.positionHistory[i] = kekw.sandwormPieces[i]->transform.position;
   }
@@ -65,13 +65,11 @@ void Sabl::update() {
       context.frameInfo.dt * snakeAccelStrength;
   kekw.headVelocity +=
       dirFromYawPitch(kekw.headDirection +=
-                      leaf.relativeDirection(-kekwRelativeToLeaf)) *
+                      kekw.relativeDirection(-kekwRelativeToLeaf)) *
       context.frameInfo.dt * snakeAccelStrength;
 
-  leaf.sandwormPieces[0]->transform.position +=
-      leaf.headVelocity * snakeSpeed;
-  kekw.sandwormPieces[0]->transform.position +=
-      kekw.headVelocity * snakeSpeed;
+  leaf.sandwormPieces[0]->transform.position += leaf.headVelocity * snakeSpeed;
+  kekw.sandwormPieces[0]->transform.position += kekw.headVelocity * snakeSpeed;
 
   for (size_t i = leaf.sandwormPieces.size() - 1; i > 0; i--) {
     leaf.sandwormPieces[i]->transform.position = leaf.positionHistory[i - 1];
