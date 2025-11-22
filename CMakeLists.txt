@@ -14,9 +14,11 @@ find_package(Vulkan REQUIRED)
 find_package(glfw3 3.3 REQUIRED)
 find_package(OpenAL REQUIRED)
 find_package(CURL REQUIRED)
-find_package(3rdparty/glslang)
+find_package(simdjson REQUIRED)
+find_package(fastgltf REQUIRED)
+find_package(glslang)
 
-add_subdirectory(3rdparty/fastgltf)
+# add_subdirectory(3rdparty/fastgltf)
 
 add_library(VkFFT INTERFACE)
 target_compile_definitions(VkFFT INTERFACE -DVKFFT_BACKEND=0
@@ -59,8 +61,8 @@ find_program(
 
 set(GLSL_DEBUG_FLAGS "")
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    # -gVS = glslang source-level debug info (RenderDoc-compatible)
-    set(GLSL_DEBUG_FLAGS "-g")
+  # -gVS = glslang source-level debug info (RenderDoc-compatible)
+  set(GLSL_DEBUG_FLAGS "-g")
 endif()
 file(
   GLOB_RECURSE
@@ -88,7 +90,8 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
 
   add_custom_command(
     OUTPUT ${SPIRV}
-    COMMAND ${GLSLC} ${GLSL} -o ${SPIRV} --target-env=vulkan1.1 -DUSE_SUBGROUP_OPS ${GLSL_DEBUG_FLAGS}
+    COMMAND ${GLSLC} ${GLSL} -o ${SPIRV} --target-env=vulkan1.1
+            -DUSE_SUBGROUP_OPS ${GLSL_DEBUG_FLAGS}
     DEPENDS ${GLSL}
     COMMENT "Compiling shader ${RELATIVE_GLSL_PATH}")
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
@@ -101,12 +104,13 @@ file(COPY "${PROJECT_SOURCE_DIR}/models" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/fonts" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/sounds" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/textures" DESTINATION "${PROJECT_BINARY_DIR}")
-file(COPY "${PROJECT_SOURCE_DIR}/flamegraph.sh" DESTINATION "${PROJECT_BINARY_DIR}")
+file(COPY "${PROJECT_SOURCE_DIR}/flamegraph.sh"
+     DESTINATION "${PROJECT_BINARY_DIR}")
 
 install(TARGETS vulkhan DESTINATION bin)
 install(IMPORTED_RUNTIME_ARTIFACTS glfw DESTINATION bin)
 if(WIN32)
   install(FILES ${PROJECT_BINARY_DIR}/OpenAL32.dll DESTINATION bin)
 endif()
-install(DIRECTORY ${PROJECT_BINARY_DIR}/shaders ${PROJECT_BINARY_DIR}/sounds
-                  ${PROJECT_BINARY_DIR}/models DESTINATION bin)
+install(DIRECTORY ${PROJECT_BINARY_DIR}/shaders ${PROJECT_BINARY_DIR}/fonts ${PROJECT_BINARY_DIR}/sounds
+  ${PROJECT_BINARY_DIR}/models ${PROJECT_BINARY_DIR}/textures DESTINATION bin)

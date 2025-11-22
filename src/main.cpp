@@ -20,6 +20,7 @@
 #include "vkh/systems/smoke/smoke.hpp"
 #include "vkh/systems/water/water.hpp"
 #include "vkh/window.hpp"
+#include "vkh/exepath.hpp"
 
 #include "dungeonGenerator.hpp"
 #include "sabl.hpp"
@@ -61,6 +62,7 @@ void run() {
   vkh::init(context);
   vkh::audio::init();
   vkh::input::init(context);
+  execpath::setWorkingDirectoryToExecutable();
 
   vkh::renderer::init(context);
 
