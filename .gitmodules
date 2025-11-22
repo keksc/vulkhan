@@ -1,9 +1,0 @@
-[submodule "3rdparty/fastgltf"]
-	path = 3rdparty/fastgltf
-	url = https://github.com/spnda/fastgltf.git
-[submodule "shaders/lygia"]
-	path = shaders/lygia
-	url = https://github.com/patriciogonzalezvivo/lygia
-[submodule "3rdparty/VkFFT"]
-	path = 3rdparty/VkFFT
-	url = https://github.com/DTolm/VkFFT
