@@ -42,9 +42,6 @@ public:
   std::vector<bool> solidCellMap;
 
   bool isSolid(glm::ivec2 cell);
-  float sampleBilinear(const std::vector<float>& edgeValues,
-                                glm::ivec2 size,
-                                glm::vec2 worldPos) const;
   glm::vec2 getVelocityAtWorldPos(glm::vec2 worldPos);
 };
 } // namespace vkh

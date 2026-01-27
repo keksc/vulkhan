@@ -118,63 +118,30 @@ bool FluidGrid::isSolid(glm::ivec2 cell) {
                      cell.y >= cellCount.y;
   return outOfBounds ? true : solidCellMap[cell.x + cell.y * cellCount.x];
 }
-/*
- * Bilinearly interpolate a scalar field that lives on *edges*.
- *
- * @param edgeValues  1‑D vector that stores the field in row‑major order.
- *                    Size must be size.x * size.y.
- * @param size        Number of *edges* in (x,y). For velX this is
- *                    {cellCount.x+1, cellCount.y},
- *                    for velY it is {cellCount.x, cellCount.y+1}.
- * @param worldPos    Position in world space (origin at the centre of the
- *                    whole domain).
- *
- * The domain spans  [-width/2 , +width/2)  x  [-height/2 , +height/2)
- * where width  = size.x * cellSize
- *       height = size.y * cellSize
- *
- * The function clamps to the valid edge range, so out‑of‑bounds
- * positions return the nearest edge value.
- */
-float FluidGrid::sampleBilinear(const std::vector<float>& edgeValues,
-                                glm::ivec2 size,
-                                glm::vec2 worldPos) const
-{
-    // ---- 1. Compute total extent of the edge grid -----------------
-    const float width  = size.x * cellSize;   // total width  of the edge field
-    const float height = size.y * cellSize;   // total height of the edge field
-
-    // ---- 2. Map world → edge‑index space (float) -----------------
-    //   centre of the domain → (0,0) in edge‑index space
-    const float px = (worldPos.x + width  / 2.0f) / cellSize; // [0, size.x)
-    const float py = (worldPos.y + height / 2.0f) / cellSize; // [0, size.y)
-
-    // ---- 3. Clamp to the *inner* cell (so we always have 4 neighbours) --
-    const int ix0 = static_cast<int>(glm::clamp(px, 0.0f, static_cast<float>(size.x - 2)));
-    const int iy0 = static_cast<int>(glm::clamp(py, 0.0f, static_cast<float>(size.y - 2)));
-    const int ix1 = ix0 + 1;
-    const int iy1 = iy0 + 1;
-
-    // ---- 4. Fractional part inside the cell -----------------------
-    const float fracX = glm::clamp(px - static_cast<float>(ix0), 0.0f, 1.0f);
-    const float fracY = glm::clamp(py - static_cast<float>(iy0), 0.0f, 1.0f);
-
-    // ---- 5. Linear index into the 1‑D vector -----------------------
-    const auto idx = [size](int x, int y) { return x + y * size.x; };
-
-    const float v00 = edgeValues[idx(ix0, iy0)];   // bottom‑left
-    const float v10 = edgeValues[idx(ix1, iy0)];   // bottom‑right
-    const float v01 = edgeValues[idx(ix0, iy1)];   // top‑left
-    const float v11 = edgeValues[idx(ix1, iy1)];   // top‑right
-
-    // ---- 6. Bilinear interpolation -------------------------------
-    const float bottom = glm::mix(v00, v10, fracX);
-    const float top    = glm::mix(v01, v11, fracX);
-    return glm::mix(bottom, top, fracY);
-}
 glm::vec2 FluidGrid::getVelocityAtWorldPos(glm::vec2 worldPos) {
-  return {
-      sampleBilinear(velocitiesX, {cellCount.x + 1, cellCount.y}, worldPos),
-      sampleBilinear(velocitiesY, {cellCount.x, cellCount.y + 1}, worldPos)};
+  int left = static_cast<int>(worldPos.x);
+  int top = static_cast<int>(worldPos.x);
+  int right = left + 1;
+  int bottom = top + 1;
+
+  float px = worldPos.x - left;
+  float py = worldPos.y - top;
+
+  glm::vec2 value{};
+  {
+    float valueTop = glm::mix(velocitiesX[left * cellCount.x + top],
+                              velocitiesX[right * cellCount.x + top], px);
+    float valueBottom = glm::mix(velocitiesX[left * cellCount.x + bottom],
+                                 velocitiesX[right * cellCount.x + bottom], px);
+    value.x = glm::mix(valueTop, valueBottom, py);
+  }
+  {
+    float valueLeft = glm::mix(velocitiesX[top * cellCount.y + left],
+                               velocitiesX[bottom * cellCount.y + left], px);
+    float valueRight = glm::mix(velocitiesX[top * cellCount.x + right],
+                                velocitiesX[bottom * cellCount.y + right], px);
+    value.y = glm::mix(valueLeft, valueRight, px);
+  }
+  return value;
 }
 } // namespace vkh

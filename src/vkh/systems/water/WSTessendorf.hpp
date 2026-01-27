@@ -82,9 +82,9 @@ private:
   std::unique_ptr<Buffer<std::complex<float>>> FFTData;
   std::unique_ptr<Buffer<BaseWaveHeight>> baseWaveHeightField;
   std::unique_ptr<Buffer<WaveVector>> waveVectors;
-  std::unique_ptr<DescriptorSetLayout> preFFTSetLayout;
+  VkDescriptorSetLayout preFFTSetLayout;
   VkDescriptorSet preFFTSet;
-  std::unique_ptr<DescriptorSetLayout> postFFTSetLayout;
+  VkDescriptorSetLayout postFFTSetLayout;
   VkDescriptorSet postFFTSet;
 
   VkFFTApplication app{};
@@ -107,8 +107,8 @@ private:
   std::unique_ptr<Buffer<float>> minReductionBuffer2;
   std::unique_ptr<Buffer<float>> maxReductionBuffer2;
 
-  std::unique_ptr<DescriptorSetLayout> reductionSetLayout0;
-  std::unique_ptr<DescriptorSetLayout> reductionSetLayout1;
+  VkDescriptorSetLayout reductionSetLayout0;
+  VkDescriptorSetLayout reductionSetLayout1;
   VkDescriptorSet reductionSet0;
   VkDescriptorSet reductionSet1;
   VkDescriptorSet reductionSet2;
@@ -124,9 +124,9 @@ private:
   std::unique_ptr<Buffer<float>> masterMaxBuffer;
   std::unique_ptr<Buffer<float>> scaleBuffer;
 
-  std::unique_ptr<DescriptorSetLayout> updateSetLayout;
+  VkDescriptorSetLayout updateSetLayout;
   VkDescriptorSet updateSet;
-  std::unique_ptr<DescriptorSetLayout> normalizeSetLayout;
+  VkDescriptorSetLayout normalizeSetLayout;
   VkDescriptorSet normalizeSet;
 
   std::unique_ptr<ComputePipeline> updatePipeline;

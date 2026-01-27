@@ -24,7 +24,7 @@ enum RoomModel {
 void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys) {
 
   auto westWingAssets = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-      context, "models/westwingassets.glb");
+      context, "models/westwingassets.glb", entitySys.setLayout);
 
   glm::ivec2 maxRoomSize{10, 10};
   int maxRooms = 10;

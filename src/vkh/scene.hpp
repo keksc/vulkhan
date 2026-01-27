@@ -73,9 +73,9 @@ public:
                 "VertexType must have a pos member");
 
   Scene(EngineContext &context, const std::filesystem::path &path,
-        bool disableMaterial = false)
+        VkDescriptorSetLayout setLayout, bool disableMaterial = false)
       : context{context}, disableMaterial{disableMaterial} {
-    loadModel(path);
+    loadModel(path, setLayout);
   }
   Scene(EngineContext &context, const SceneCreateInfo<VertexType> &createInfo)
       : context{context}, disableMaterial{true} {
@@ -96,16 +96,16 @@ public:
     imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
     images.emplace_back(context, imageInfo);
 
-    VkDescriptorSet set;
-    auto descriptorInfo =
-        images[0].getDescriptorInfo(context.vulkan.defaultSampler);
-    DescriptorWriter(*context.vulkan.sceneDescriptorSetLayout,
-                     *context.vulkan.globalDescriptorPool)
-        .writeImage(0, &descriptorInfo)
-        .build(set);
-    imageDescriptorSets.emplace_back(set);
-
-    materials.emplace_back();
+    // VkDescriptorSet set =
+    // context.vulkan.globalDescriptorAllocator->allocate(context.vulkan.sceneDescriptorSetLayout);
+    // DescriptorWriter writer(context);
+    // writer.writeImage(
+    //     0, images[0].getDescriptorInfo(context.vulkan.defaultSampler),
+    //     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    // writer.updateSet(set);
+    // imageDescriptorSets.emplace_back(set);
+    //
+    // materials.emplace_back();
 
     createBuffers(createInfo.vertices, createInfo.indices);
   }
@@ -121,7 +121,8 @@ public:
     vkCmdBindIndexBuffer(commandBuffer, *indexBuffer, 0, VK_INDEX_TYPE_UINT32);
   }
 
-  void loadModel(const std::filesystem::path &path) {
+  void loadModel(const std::filesystem::path &path,
+                 VkDescriptorSetLayout setLayout) {
     auto gltfFile = fastgltf::GltfDataBuffer::FromPath(path);
     if (gltfFile.error() != fastgltf::Error::None) {
       throw std::runtime_error(
@@ -253,15 +254,16 @@ public:
                                 reinterpret_cast<void *>(vector.bytes.data() +
                                                          bufferView.byteOffset),
                                 static_cast<size_t>(bufferView.byteLength));
-                            VkDescriptorSet set;
-                            auto descriptorInfo = image.getDescriptorInfo(
-                                context.vulkan.defaultSampler);
-                            DescriptorWriter(
-                                *context.vulkan.sceneDescriptorSetLayout,
-                                *context.vulkan.globalDescriptorPool)
-                                .writeImage(0, &descriptorInfo)
-                                .build(set);
-                            imageDescriptorSets.emplace_back(set);
+                            auto &set = imageDescriptorSets.emplace_back();
+                            set = context.vulkan.globalDescriptorAllocator
+                                      ->allocate(setLayout);
+                            DescriptorWriter writer(context);
+                            writer.writeImage(
+                                0,
+                                image.getDescriptorInfo(
+                                    context.vulkan.defaultSampler),
+                                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+                            writer.updateSet(set);
                           }},
                       buffer.data);
                 },

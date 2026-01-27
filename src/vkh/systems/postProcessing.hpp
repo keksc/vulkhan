@@ -20,7 +20,7 @@ private:
   void createPipeline();
 
   std::unique_ptr<ComputePipeline> pipeline;
-  std::unique_ptr<DescriptorSetLayout> setLayout;
+  VkDescriptorSetLayout setLayout;
   std::vector<VkDescriptorSet> descriptorSets;
 
   SwapChain *savedSwapChain{};

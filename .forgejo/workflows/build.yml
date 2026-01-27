@@ -1,0 +1,10 @@
+on: push
+jobs:
+  build:
+    runs-on: self-hosted
+    outputs:
+      buildOutput: ${{ steps.generate.outputs.value }}
+    steps:
+      - id: Build using nix flake
+        run: |
+          nix build

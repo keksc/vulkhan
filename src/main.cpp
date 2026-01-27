@@ -1,9 +1,11 @@
+#include <enet/enet.h>
 #include <magic_enum/magic_enum.hpp>
 
 #include "vkh/audio.hpp"
 #include "vkh/camera.hpp"
 #include "vkh/cleanup.hpp"
 #include "vkh/engineContext.hpp"
+#include "vkh/exepath.hpp"
 #include "vkh/init.hpp"
 #include "vkh/input.hpp"
 #include "vkh/renderer.hpp"
@@ -20,10 +22,9 @@
 #include "vkh/systems/smoke/smoke.hpp"
 #include "vkh/systems/water/water.hpp"
 #include "vkh/window.hpp"
-#include "vkh/exepath.hpp"
 
 #include "dungeonGenerator.hpp"
-#include "sabl.hpp"
+// #include "sabl.hpp"
 
 std::mt19937 rng{std::random_device{}()};
 
@@ -56,6 +57,64 @@ public:
   vkh::input::Action action;
 };
 
+void connect() {
+  if (enet_initialize() != 0) {
+    throw std::runtime_error("Failed to initialize ENet");
+  }
+
+  atexit(enet_deinitialize);
+
+  ENetHost *client = enet_host_create(nullptr, 1, 2, 0, 0);
+
+  if (!client) {
+    throw std::runtime_error("Failed to create ENet client");
+  }
+
+  ENetAddress address{};
+  enet_address_set_host(&address, "127.0.0.1");
+  address.port = 1234;
+
+  ENetPeer *peer = enet_host_connect(client, &address, 2, 0);
+  if (!peer) {
+    throw std::runtime_error("No available peers for connection");
+  }
+
+  ENetEvent event{};
+  if (enet_host_service(client, &event, 5000) > 0 &&
+      event.type == ENET_EVENT_TYPE_CONNECT) {
+    std::println("Connected to server");
+  } else {
+    enet_peer_reset(peer);
+    throw std::runtime_error("Connection to server failed");
+  }
+
+  const char *message = "Hello from client!";
+  ENetPacket *packet = enet_packet_create(message, std::strlen(message) + 1,
+                                          ENET_PACKET_FLAG_RELIABLE);
+  enet_peer_send(peer, 0, packet);
+  enet_host_flush(client);
+
+  while (enet_host_service(client, &event, 3000) > 0) {
+    if (event.type == ENET_EVENT_TYPE_RECEIVE) {
+      std::println("Server says: {}",
+                   reinterpret_cast<char *>(event.packet->data));
+      enet_packet_destroy(event.packet);
+      break;
+    }
+  }
+
+  enet_peer_disconnect(peer, 0);
+
+  while (enet_host_service(client, &event, 3000) > 0) {
+    if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
+      std::println("Disconnected cleanly");
+      break;
+    }
+  }
+
+  enet_host_destroy(client);
+  exit(0);
+}
 void run() {
   vkh::EngineContext context{};
   vkh::initWindow(context);
@@ -69,25 +128,25 @@ void run() {
   {
     vkh::SkyboxSys skyboxSys(context);
     vkh::EntitySys entitySys(context, skyboxSys);
-    vkh::SmokeSys smokeSys(context);
-    // vkh::WaterSys waterSys(context, skyboxSys);
+    // vkh::SmokeSys smokeSys(context);
+    vkh::WaterSys waterSys(context, skyboxSys);
     // generateDungeon(context, entitySys);
-    Sabl sabl(context, entitySys);
+    // Sabl sabl(context, entitySys);
     // auto cross = entitySys.entities.emplace_back(
     //     std::make_shared<vkh::EntitySys::Entity>(
     //         vkh::EntitySys::Transform{.position = {}},
     //         vkh::EntitySys::RigidBody{},
     //         std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-    //             context, "models/cross.glb")));
+    //             context, "models/cross.glb", entitySys.setLayout)));
     auto piano = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-        context, "models/piano-decent.glb");
+        context, "models/piano-decent.glb", entitySys.setLayout);
     for (int i = 0; i < piano->meshes.size(); i++)
       entitySys.entities.emplace_back(std::make_shared<vkh::EntitySys::Entity>(
           vkh::EntitySys::Transform{.position = {10.f, 10.f, 10.f}},
           vkh::EntitySys::RigidBody{}, piano, i));
 
     auto base = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-        context, "models/base.glb");
+        context, "models/base.glb", entitySys.setLayout);
     for (int i = 0; i < base->meshes.size(); i++)
       entitySys.entities.emplace_back(std::make_shared<vkh::EntitySys::Entity>(
           vkh::EntitySys::Transform{.position = {}},
@@ -283,7 +342,6 @@ void run() {
             frameIndex,
             frameTime,
             commandBuffer,
-            context.vulkan.globalDescriptorSets[frameIndex],
         };
 
         vkh::GlobalUbo ubo{};
@@ -294,27 +352,27 @@ void run() {
         ubo.resolution = context.window.size;
         ubo.aspectRatio = context.window.aspectRatio;
         ubo.time = glfwGetTime();
-        context.vulkan.globalUBOs[frameIndex]->write(&ubo);
-        context.vulkan.globalUBOs[frameIndex]->flush();
+        context.vulkan.globalUBOs[frameIndex].write(&ubo);
+        context.vulkan.globalUBOs[frameIndex].flush();
 
         if (hudSys.getView() == &hudWorld) {
-          // waterSys.update();
+          waterSys.update();
         }
         // entitySys.entities[0].transform.position.x += .2f;
-        sabl.update();
+        // sabl.update();
         if (hudSys.getView() == &hudSmoke) {
-          smokeSys.update();
+          // smokeSys.update();
         }
 
         vkh::renderer::beginSwapChainRenderPass(context, commandBuffer);
 
         if (hudSys.getView() == &hudWorld) {
-          // waterSys.render();
           skyboxSys.render();
+          waterSys.render();
           entitySys.render();
         }
         if (hudSys.getView() == &hudSmoke) {
-          smokeSys.render();
+          // smokeSys.render();
         }
         hudSys.render();
 

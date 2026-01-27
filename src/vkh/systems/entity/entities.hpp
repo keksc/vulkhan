@@ -71,14 +71,18 @@ public:
 
   void compactDraws();
 
-  EntitySys(EngineContext &context,
-            SkyboxSys &skyboxSys);
+  EntitySys(EngineContext &context, SkyboxSys &skyboxSys);
+  ~EntitySys();
+  void createSetLayout();
   void render();
   std::vector<std::shared_ptr<Entity>> entities;
   std::vector<Batch> batches;
 
+  VkDescriptorSetLayout setLayout;
+
 private:
   std::unique_ptr<GraphicsPipeline> pipeline;
   SkyboxSys &skyboxSys;
+  VkDescriptorSet dummySet;
 };
 } // namespace vkh

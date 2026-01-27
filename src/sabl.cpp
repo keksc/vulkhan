@@ -69,9 +69,9 @@ enum Sandworm { Head = 0, Body = 1, Tail = 2 };
 Sabl::Sabl(vkh::EngineContext &context, vkh::EntitySys &entitySys)
     : context{context}, entitySys{entitySys} {
   auto leafSandwormScene = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-      context, "models/leafsandworm.glb");
+      context, "models/leafsandworm.glb", entitySys.setLayout);
   auto kekwSandwormScene = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-      context, "models/kekwsandworm.glb");
+      context, "models/kekwsandworm.glb", entitySys.setLayout);
   for (size_t i = 0; i < baseSnakeSize; i++) {
     leaf.sandwormPieces[i] = entitySys.entities.emplace_back(
         std::make_shared<vkh::EntitySys::Entity>(

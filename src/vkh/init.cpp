@@ -19,7 +19,7 @@ namespace vkh {
 const std::vector<const char *> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
 const std::vector<const char *> deviceExtensions = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_ROBUSTNESS_2_EXTENSION_NAME};
 
 bool checkValidationLayerSupport() {
   uint32_t layerCount;
@@ -237,10 +237,22 @@ void createLogicalDevice(EngineContext &context) {
                                   nullptr, 0, queueFamily, 1, &queuePriority);
   }
 
-  VkPhysicalDeviceFeatures deviceFeatures = {.tessellationShader = VK_TRUE,
-                                             .fillModeNonSolid = VK_TRUE,
-                                             .wideLines = VK_TRUE,
-                                             .samplerAnisotropy = VK_TRUE};
+  VkPhysicalDeviceRobustness2FeaturesKHR robustness2Features{
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_KHR,
+      .nullDescriptor = VK_TRUE};
+  VkPhysicalDeviceDescriptorIndexingFeatures deviceDescriptorIndexingFeatures{
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
+      .pNext = &robustness2Features,
+      .descriptorBindingPartiallyBound = true};
+
+  VkPhysicalDeviceFeatures deviceFeatures{.tessellationShader = VK_TRUE,
+                                          .fillModeNonSolid = VK_TRUE,
+                                          .wideLines = VK_TRUE,
+                                          .samplerAnisotropy = VK_TRUE};
+  VkPhysicalDeviceFeatures2 deviceFeatures2{
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+      .pNext = &deviceDescriptorIndexingFeatures,
+      .features = deviceFeatures};
 
   VkDeviceCreateInfo createInfo = {.sType =
                                        VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
@@ -249,7 +261,7 @@ void createLogicalDevice(EngineContext &context) {
       static_cast<uint32_t>(queueCreateInfos.size());
   createInfo.pQueueCreateInfos = queueCreateInfos.data();
 
-  createInfo.pEnabledFeatures = &deviceFeatures;
+  createInfo.pNext = &deviceFeatures2;
   createInfo.enabledExtensionCount =
       static_cast<uint32_t>(deviceExtensions.size());
   createInfo.ppEnabledExtensionNames = deviceExtensions.data();
@@ -352,39 +364,43 @@ void displayInitInfo(EngineContext &context) {
   std::println("{:=<60}", ""); // Table border
 }
 void setupGlobResources(EngineContext &context) {
-  context.vulkan.globalDescriptorPool =
-      DescriptorPool::Builder(context)
-          .setMaxSets(context.vulkan.maxFramesInFlight + MAX_SAMPLERS)
-          .addPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                       context.vulkan.maxFramesInFlight + 90)
-          .addPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_SAMPLERS)
-          .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, MAX_STORAGE_IMAGES)
-          .addPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, MAX_STORAGE_BUFFERS)
-          .build();
+  std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> poolSizeRatios = {
+      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
+      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3},
+      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
+      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4},
+  };
+  context.vulkan.globalDescriptorAllocator =
+      std::make_unique<DescriptorAllocatorGrowable>(context);
+  context.vulkan.globalDescriptorAllocator->init(100, poolSizeRatios);
 
-  context.vulkan.globalUBOs.resize(context.vulkan.maxFramesInFlight);
-  for (int i = 0; i < context.vulkan.globalUBOs.size(); i++) {
-    context.vulkan.globalUBOs[i] = std::make_unique<Buffer<GlobalUbo>>(
+  context.vulkan.globalUBOs.reserve(context.vulkan.maxFramesInFlight);
+  for (int i = 0; i < context.vulkan.maxFramesInFlight; i++) {
+    auto &buf = context.vulkan.globalUBOs.emplace_back(
         context, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-    context.vulkan.globalUBOs[i]->map();
+    buf.map();
   }
 
-  context.vulkan.globalDescriptorSetLayout =
-      DescriptorSetLayout::Builder(context)
-          .addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                      VK_SHADER_STAGE_VERTEX_BIT |
-                          VK_SHADER_STAGE_FRAGMENT_BIT |
-                          VK_SHADER_STAGE_COMPUTE_BIT)
-          .build();
+  context.vulkan.globalDescriptorSetLayout = buildDescriptorSetLayout(
+      context, {VkDescriptorSetLayoutBinding{
+                   .binding = 0,
+                   .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                   .descriptorCount = 1,
+                   .stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
+                                 VK_SHADER_STAGE_FRAGMENT_BIT |
+                                 VK_SHADER_STAGE_COMPUTE_BIT,
+               }});
 
-  context.vulkan.globalDescriptorSets.resize(context.vulkan.maxFramesInFlight);
-  for (int i = 0; i < context.vulkan.globalDescriptorSets.size(); i++) {
-    auto bufferInfo = context.vulkan.globalUBOs[i]->descriptorInfo();
-    DescriptorWriter(*context.vulkan.globalDescriptorSetLayout,
-                     *context.vulkan.globalDescriptorPool)
-        .writeBuffer(0, &bufferInfo)
-        .build(context.vulkan.globalDescriptorSets[i]);
+  context.vulkan.globalDescriptorSets.reserve(context.vulkan.maxFramesInFlight);
+  for (int i = 0; i < context.vulkan.maxFramesInFlight; i++) {
+    auto &set = context.vulkan.globalDescriptorSets.emplace_back();
+    set = context.vulkan.globalDescriptorAllocator->allocate(
+        context.vulkan.globalDescriptorSetLayout);
+    DescriptorWriter writer(context);
+    writer.writeBuffer(0, context.vulkan.globalUBOs[i].descriptorInfo(),
+                       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    writer.updateSet(set);
   }
 }
 void init(EngineContext &context) {
@@ -412,14 +428,6 @@ void init(EngineContext &context) {
     imageCount = swapChainSupport.capabilities.maxImageCount;
 
   context.vulkan.maxFramesInFlight = imageCount;
-
-  context.vulkan.sceneDescriptorSetLayout =
-      DescriptorSetLayout::Builder(context)
-          .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                      VK_SHADER_STAGE_FRAGMENT_BIT)
-          .addBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                      VK_SHADER_STAGE_FRAGMENT_BIT)
-          .build();
 
   createCommandPool(context);
   displayInitInfo(context);

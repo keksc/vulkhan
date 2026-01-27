@@ -23,6 +23,7 @@ namespace vkh {
 class WaterSys : public System {
 public:
   WaterSys(EngineContext &context, SkyboxSys &skyboxSys);
+  ~WaterSys();
   void prepare();
   void createRenderData();
   void render();
@@ -71,9 +72,9 @@ private:
   uint32_t tileResolution{32};
   float vertexDistance{1000.f / static_cast<float>(tileResolution)};
 
-  std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
-  std::vector<VkDescriptorSet> descriptorSets;
-  std::vector<std::unique_ptr<Buffer<std::byte>>> uniformBuffers;
+  VkDescriptorSetLayout setLayout;
+  std::vector<VkDescriptorSet> sets;
+  std::vector<Buffer<std::byte>> uniformBuffers;
   std::unique_ptr<GraphicsPipeline> pipeline;
   std::unique_ptr<Scene<Vertex>> scene;
 

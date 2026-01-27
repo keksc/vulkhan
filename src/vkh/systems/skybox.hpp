@@ -29,17 +29,19 @@ public:
     getAttributeDescriptions() {
       std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
 
-      attributeDescriptions.emplace_back(
-          0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos));
+      attributeDescriptions.emplace_back(0, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                                         offsetof(Vertex, pos));
 
       return attributeDescriptions;
     }
   };
   SkyboxSys(EngineContext &context);
+  ~SkyboxSys();
   void render();
 
-  std::shared_ptr<DescriptorSetLayout> setLayout;
+  VkDescriptorSetLayout setLayout;
   VkDescriptorSet set;
+
 private:
   void createSetLayout();
 

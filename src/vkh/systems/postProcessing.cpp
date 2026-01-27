@@ -6,6 +6,7 @@
 #include <glm/gtc/constants.hpp>
 #include <vulkan/vulkan_core.h>
 
+#include "../debug.hpp"
 #include "../descriptors.hpp"
 #include "../deviceHelpers.hpp"
 #include "../pipeline.hpp"
@@ -13,16 +14,28 @@
 
 namespace vkh {
 void PostProcessingSys::createDescriptors() {
-  setLayout = DescriptorSetLayout::Builder(context)
-                  .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                              VK_SHADER_STAGE_COMPUTE_BIT)
-                  .addBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                              VK_SHADER_STAGE_COMPUTE_BIT)
-                  .build();
+  setLayout = buildDescriptorSetLayout(
+      context, {VkDescriptorSetLayoutBinding{
+                    .binding = 0,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                    .descriptorCount = 1,
+                    .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                },
+                VkDescriptorSetLayoutBinding{
+                    .binding = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .descriptorCount = 1,
+                    .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                }});
+  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+                    reinterpret_cast<uint64_t>(setLayout),
+                    "post processing set layout");
 
   auto imageCount = context.vulkan.swapChain->imageCount();
-  descriptorSets.resize(imageCount);
+  descriptorSets.reserve(imageCount);
   for (size_t i = 0; i < imageCount; i++) {
+    auto &set = descriptorSets.emplace_back();
+    set = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
     VkDescriptorImageInfo swapImageInfo{};
     swapImageInfo.imageView = context.vulkan.swapChain->getImageView(i);
     swapImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -33,10 +46,11 @@ void PostProcessingSys::createDescriptors() {
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
     depthImageInfo.sampler = context.vulkan.defaultSampler;
 
-    DescriptorWriter(*setLayout, *context.vulkan.globalDescriptorPool)
-        .writeImage(0, &swapImageInfo)
-        .writeImage(1, &depthImageInfo)
-        .build(descriptorSets[i]);
+    DescriptorWriter writer(context);
+    writer.writeImage(0, swapImageInfo, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+    writer.writeImage(1, depthImageInfo,
+                      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.updateSet(descriptorSets[i]);
   }
 }
 
@@ -46,8 +60,10 @@ void PostProcessingSys::recreateDescriptors() {
 
   // Recreate descriptor sets for new swap chain images
   auto imageCount = context.vulkan.swapChain->imageCount();
-  descriptorSets.resize(imageCount);
+  descriptorSets.reserve(imageCount);
   for (size_t i = 0; i < imageCount; i++) {
+    auto &set = descriptorSets.emplace_back();
+    set = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
     VkDescriptorImageInfo swapImageInfo{};
     swapImageInfo.imageView = context.vulkan.swapChain->getImageView(i);
     swapImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -58,23 +74,26 @@ void PostProcessingSys::recreateDescriptors() {
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
     depthImageInfo.sampler = context.vulkan.defaultSampler;
 
-    DescriptorWriter(*setLayout, *context.vulkan.globalDescriptorPool)
-        .writeImage(0, &swapImageInfo)
-        .writeImage(1, &depthImageInfo)
-        .build(descriptorSets[i]);
+    DescriptorWriter writer(context);
+    writer.writeImage(0, swapImageInfo,
+                      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.writeImage(1, depthImageInfo,
+                      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.updateSet(descriptorSets[i]);
   }
 }
 
 void PostProcessingSys::createPipeline() {
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
-      *context.vulkan.globalDescriptorSetLayout, *setLayout};
+  std::vector<VkDescriptorSetLayout> setLayouts{
+      context.vulkan.globalDescriptorSetLayout, setLayout};
 
   VkPipelineLayoutCreateInfo layoutInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  layoutInfo.pSetLayouts = descriptorSetLayouts.data();
-  layoutInfo.setLayoutCount = descriptorSetLayouts.size();
+  layoutInfo.pSetLayouts = setLayouts.data();
+  layoutInfo.setLayoutCount = setLayouts.size();
   pipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/postProcessing.comp.spv", layoutInfo, "post processing");
+      context, "shaders/postProcessing.comp.spv", layoutInfo,
+      "post processing");
 }
 
 PostProcessingSys::PostProcessingSys(EngineContext &context) : System(context) {
@@ -132,8 +151,9 @@ void PostProcessingSys::run(VkCommandBuffer cmd, uint32_t imageIndex) {
   pipeline->bind(cmd);
 
   // Bind descriptor set
-  VkDescriptorSet sets[] = {context.frameInfo.globalDescriptorSet,
-                            descriptorSets[imageIndex]};
+  VkDescriptorSet sets[] = {
+      context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex],
+      descriptorSets[imageIndex]};
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, *pipeline, 0, 2,
                           sets, 0, nullptr);
 

@@ -47,17 +47,20 @@
             glm
             cmake
             glslang
-            shaderc
             openal
             stb
-            simdjson
             curl
             ktx-tools
             magic-enum
-            gcc
-            fastgltf
             simdjson
-            stdenv.cc
+            fastgltf
+            gcc
+            enet
+            pkg-config
+            spirv-headers
+            spirv-tools
+            shaderc
+            # stdenv.cc.cc.lib
           ];
 
           shellHook = ''
@@ -74,7 +77,6 @@
 
           nativeBuildInputs = with pkgs; [
             cmake
-            shaderc
           ];
 
           buildInputs = with pkgs; [
@@ -84,11 +86,17 @@
             glm
             openal
             curl
-            simdjson
             ktx-tools
             magic-enum
             stb
             glslang
+            simdjson
+            fastgltf
+            spirv-headers
+            spirv-tools
+            enet
+            pkg-config
+            shaderc
           ];
         };
       }
