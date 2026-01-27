@@ -83,7 +83,7 @@ protected:
 class GraphicsPipeline : public Pipeline {
 public:
   GraphicsPipeline(EngineContext &context,
-                   const PipelineCreateInfo &configInfo, const char* name = "Unnamed pipeline");
+                   const PipelineCreateInfo &configInfo, const char* name = "Unnamed");
 
   static void enableAlphaBlending(PipelineCreateInfo &configInfo);
 };

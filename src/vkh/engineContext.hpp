@@ -16,11 +16,7 @@
 #include <memory>
 
 namespace vkh {
-const int MAX_SAMPLERS = 1000;
-const int MAX_STORAGE_IMAGES = 100;
-const int MAX_STORAGE_BUFFERS = 100;
-class DescriptorPool;
-class DescriptorSetLayout;
+class DescriptorAllocatorGrowable;
 template <typename T> class Buffer;
 
 struct GlobalUbo {
@@ -84,18 +80,16 @@ struct EngineContext {
     VkCommandPool commandPool;
     std::unique_ptr<SwapChain> swapChain;
     uint32_t maxFramesInFlight;
-    std::unique_ptr<DescriptorPool> globalDescriptorPool;
-    std::unique_ptr<DescriptorSetLayout> globalDescriptorSetLayout;
-    std::vector<std::unique_ptr<Buffer<GlobalUbo>>> globalUBOs;
+    std::unique_ptr<DescriptorAllocatorGrowable> globalDescriptorAllocator;
+    VkDescriptorSetLayout globalDescriptorSetLayout;
+    std::vector<Buffer<GlobalUbo>> globalUBOs;
     std::vector<VkDescriptorSet> globalDescriptorSets;
-    std::unique_ptr<DescriptorSetLayout> sceneDescriptorSetLayout;
     VkSampler defaultSampler;
   } vulkan;
   struct {
     int frameIndex;
     float dt;
     VkCommandBuffer cmd;
-    VkDescriptorSet globalDescriptorSet;
   } frameInfo;
   struct {
     float yaw = 0.f;

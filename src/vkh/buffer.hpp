@@ -25,7 +25,6 @@ public:
     vkFreeMemory(context.vulkan.device, memory, nullptr);
   }
 
-  Buffer(const Buffer &) = delete;
   Buffer &operator=(const Buffer &) = delete;
 
   void *map(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0) {

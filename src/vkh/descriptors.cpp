@@ -1,194 +1,164 @@
 #include "descriptors.hpp"
+#include "debug.hpp"
 
-#include <cassert>
+#include <format>
 #include <stdexcept>
+#include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_core.h>
 
 namespace vkh {
-
-// *************** Descriptor Set Layout Builder *********************
-
-DescriptorSetLayout::Builder &DescriptorSetLayout::Builder::addBinding(
-    uint32_t binding, VkDescriptorType descriptorType,
-    VkShaderStageFlags stageFlags, uint32_t count) {
-  assert(bindings.count(binding) == 0 && "Binding already in use");
-  VkDescriptorSetLayoutBinding layoutBinding{};
-  layoutBinding.binding = binding;
-  layoutBinding.descriptorType = descriptorType;
-  layoutBinding.descriptorCount = count;
-  layoutBinding.stageFlags = stageFlags;
-  bindings[binding] = layoutBinding;
-  return *this;
+DescriptorAllocatorGrowable::DescriptorAllocatorGrowable(EngineContext &context)
+    : context{context} {}
+DescriptorAllocatorGrowable::~DescriptorAllocatorGrowable() { destroyPools(); }
+void DescriptorAllocatorGrowable::init(uint32_t initialSets,
+                                       std::span<PoolSizeRatio> poolRatios) {
+  ratios.clear();
+  for (auto &r : poolRatios)
+    ratios.emplace_back(r);
+  setsPerPool = initialSets * 1.5f;
+  readyPools.push_back(createPool(initialSets, poolRatios));
 }
-
-std::unique_ptr<DescriptorSetLayout>
-DescriptorSetLayout::Builder::build() const {
-  return std::make_unique<DescriptorSetLayout>(context, bindings);
-}
-
-// *************** Descriptor Set Layout *********************
-
-DescriptorSetLayout::DescriptorSetLayout(
-    EngineContext &context,
-    std::unordered_map<uint32_t, VkDescriptorSetLayoutBinding> bindings)
-    : context{context}, bindings{bindings} {
-  std::vector<VkDescriptorSetLayoutBinding> setLayoutBindings{};
-  for (auto &kv : bindings) {
-    setLayoutBindings.emplace_back(kv.second);
+VkDescriptorPool DescriptorAllocatorGrowable::getPool() {
+  VkDescriptorPool newPool;
+  if (readyPools.size() > 0) {
+    newPool = readyPools.back();
+    readyPools.pop_back();
+  } else {
+    newPool = createPool(setsPerPool, ratios);
+    setsPerPool = setsPerPool * 1.5f;
+    if (setsPerPool > 4092)
+      setsPerPool = 4092;
   }
-
-  VkDescriptorSetLayoutCreateInfo descriptorSetLayoutInfo{};
-  descriptorSetLayoutInfo.sType =
-      VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-  descriptorSetLayoutInfo.bindingCount =
-      static_cast<uint32_t>(setLayoutBindings.size());
-  descriptorSetLayoutInfo.pBindings = setLayoutBindings.data();
-
-  if (vkCreateDescriptorSetLayout(context.vulkan.device,
-                                  &descriptorSetLayoutInfo, nullptr,
-                                  &descriptorSetLayout) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create descriptor set layout!");
+  return newPool;
+}
+VkDescriptorPool
+DescriptorAllocatorGrowable::createPool(uint32_t setCount,
+                                        std::span<PoolSizeRatio> poolRatios) {
+  std::vector<VkDescriptorPoolSize> poolSizes;
+  for (auto &ratio : poolRatios) {
+    poolSizes.emplace_back(ratio.type,
+                           static_cast<uint32_t>(ratio.ratio * setCount));
   }
+  VkDescriptorPoolCreateInfo poolInfo{
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  poolInfo.maxSets = setCount;
+  poolInfo.poolSizeCount = poolSizes.size();
+  poolInfo.pPoolSizes = poolSizes.data();
+
+  VkDescriptorPool newPool;
+  vkCreateDescriptorPool(context.vulkan.device, &poolInfo, nullptr, &newPool);
+  std::string str =
+      std::format("pool #{}", readyPools.size() + fullPools.size());
+  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_POOL,
+                    reinterpret_cast<uint64_t>(newPool), str.c_str());
+  return newPool;
 }
-
-DescriptorSetLayout::~DescriptorSetLayout() {
-  vkDestroyDescriptorSetLayout(context.vulkan.device, descriptorSetLayout,
-                               nullptr);
-}
-
-// *************** Descriptor Pool Builder *********************
-
-DescriptorPool::Builder &
-DescriptorPool::Builder::addPoolSize(VkDescriptorType descriptorType,
-                                     uint32_t count) {
-  poolSizes.emplace_back(descriptorType, count);
-  return *this;
-}
-
-DescriptorPool::Builder &
-DescriptorPool::Builder::setPoolFlags(VkDescriptorPoolCreateFlags flags) {
-  poolFlags = flags;
-  return *this;
-}
-DescriptorPool::Builder &DescriptorPool::Builder::setMaxSets(uint32_t count) {
-  maxSets = count;
-  return *this;
-}
-
-std::unique_ptr<DescriptorPool> DescriptorPool::Builder::build() const {
-  return std::make_unique<DescriptorPool>(context, maxSets, poolFlags,
-                                          poolSizes);
-}
-
-// *************** Descriptor Pool *********************
-
-DescriptorPool::DescriptorPool(
-    EngineContext &context, uint32_t maxSets,
-    VkDescriptorPoolCreateFlags poolFlags,
-    const std::vector<VkDescriptorPoolSize> &poolSizes)
-    : context{context} {
-  VkDescriptorPoolCreateInfo descriptorPoolInfo{};
-  descriptorPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-  descriptorPoolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-  descriptorPoolInfo.pPoolSizes = poolSizes.data();
-  descriptorPoolInfo.maxSets = maxSets;
-  descriptorPoolInfo.flags = poolFlags;
-
-  if (vkCreateDescriptorPool(context.vulkan.device, &descriptorPoolInfo,
-                             nullptr, &descriptorPool) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create descriptor pool!");
+void DescriptorAllocatorGrowable::clearPools() {
+  for (auto &p : readyPools) {
+    vkResetDescriptorPool(context.vulkan.device, p, 0);
   }
+  for (auto &p : fullPools) {
+    vkResetDescriptorPool(context.vulkan.device, p, 0);
+    readyPools.push_back(p);
+  }
+  fullPools.clear();
 }
-
-DescriptorPool::~DescriptorPool() {
-  vkDestroyDescriptorPool(context.vulkan.device, descriptorPool, nullptr);
+void DescriptorAllocatorGrowable::destroyPools() {
+  for (auto &p : readyPools) {
+    vkDestroyDescriptorPool(context.vulkan.device, p, nullptr);
+  }
+  readyPools.clear();
+  for (auto &p : fullPools) {
+    vkDestroyDescriptorPool(context.vulkan.device, p, nullptr);
+  }
+  fullPools.clear();
 }
-
-bool DescriptorPool::allocateDescriptorSet(
-    const VkDescriptorSetLayout descriptorSetLayout,
-    VkDescriptorSet &descriptor) const {
-  VkDescriptorSetAllocateInfo allocInfo{};
-  allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  allocInfo.descriptorPool = descriptorPool;
-  allocInfo.pSetLayouts = &descriptorSetLayout;
+VkDescriptorSet
+DescriptorAllocatorGrowable::allocate(VkDescriptorSetLayout layout,
+                                      void *pNext) {
+  VkDescriptorPool poolToUse = getPool();
+  VkDescriptorSetAllocateInfo allocInfo{
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+  allocInfo.pNext = pNext;
+  allocInfo.descriptorPool = poolToUse;
   allocInfo.descriptorSetCount = 1;
+  allocInfo.pSetLayouts = &layout;
 
-  // Might want to create a "DescriptorPoolManager" class that handles this
-  // case, and builds a new pool whenever an old pool fills up. But this is
-  // beyond our current scope
-  if (vkAllocateDescriptorSets(context.vulkan.device, &allocInfo,
-                               &descriptor) != VK_SUCCESS) {
-    return false;
+  VkDescriptorSet set;
+  VkResult result =
+      vkAllocateDescriptorSets(context.vulkan.device, &allocInfo, &set);
+  if (result == VK_ERROR_OUT_OF_POOL_MEMORY ||
+      result == VK_ERROR_FRAGMENTED_POOL) {
+    fullPools.push_back(poolToUse);
+    poolToUse = getPool();
+    allocInfo.descriptorPool = poolToUse;
+    if (vkAllocateDescriptorSets(context.vulkan.device, &allocInfo, &set) !=
+        VK_SUCCESS)
+      throw std::runtime_error("could not allocate descriptor pool");
   }
-  return true;
+  readyPools.push_back(poolToUse);
+  return set;
+}
+DescriptorWriter::DescriptorWriter(EngineContext &context) : context{context} {}
+void DescriptorWriter::writeBuffer(int binding,
+                                   VkDescriptorBufferInfo bufferInfo,
+                                   VkDescriptorType type) {
+  VkDescriptorBufferInfo &info = bufferInfos.emplace_back(bufferInfo);
+
+  VkWriteDescriptorSet write = {.sType =
+                                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+
+  write.dstBinding = binding;
+  write.dstSet = VK_NULL_HANDLE; // left empty for now until we need to write it
+  write.descriptorCount = 1;
+  write.descriptorType = type;
+  write.pBufferInfo = &info;
+
+  writes.push_back(write);
+}
+void DescriptorWriter::writeImage(int binding, VkDescriptorImageInfo imageInfo,
+                                  VkDescriptorType type) {
+  VkDescriptorImageInfo &info = imageInfos.emplace_back(imageInfo);
+
+  VkWriteDescriptorSet write = {.sType =
+                                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+
+  write.dstBinding = binding;
+  write.dstSet = VK_NULL_HANDLE; // left empty for now until we need to write it
+  write.descriptorCount = 1;
+  write.descriptorType = type;
+  write.pImageInfo = &info;
+
+  writes.push_back(write);
+}
+void DescriptorWriter::clear() {
+  imageInfos.clear();
+  writes.clear();
+  bufferInfos.clear();
 }
 
-void DescriptorPool::freeDescriptors(
-    std::vector<VkDescriptorSet> &descriptors) const {
-  vkFreeDescriptorSets(context.vulkan.device, descriptorPool,
-                       static_cast<uint32_t>(descriptors.size()),
-                       descriptors.data());
-}
-
-void DescriptorPool::resetPool() {
-  vkResetDescriptorPool(context.vulkan.device, descriptorPool, 0);
-}
-
-// *************** Descriptor Writer *********************
-
-DescriptorWriter::DescriptorWriter(DescriptorSetLayout &setLayout,
-                                   DescriptorPool &pool)
-    : setLayout{setLayout}, pool{pool} {}
-
-DescriptorWriter &
-DescriptorWriter::writeBuffer(uint32_t binding,
-                              VkDescriptorBufferInfo *bufferInfo) {
-  assert(setLayout.bindings.count(binding) == 1 &&
-         "Layout does not contain specified binding");
-
-  auto &bindingDescription = setLayout.bindings[binding];
-
-  assert(bindingDescription.descriptorCount == 1 &&
-         "Binding single descriptor info, but binding expects multiple");
-
-  writes.emplace_back(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, nullptr,
-                      binding, 0, 1, bindingDescription.descriptorType, nullptr,
-                      bufferInfo, nullptr);
-  return *this;
-}
-
-DescriptorWriter &
-DescriptorWriter::writeImage(uint32_t binding,
-                             VkDescriptorImageInfo *imageInfo) {
-  assert(setLayout.bindings.count(binding) == 1 &&
-         "Layout does not contain specified binding");
-
-  auto &bindingDescription = setLayout.bindings[binding];
-
-  assert(bindingDescription.descriptorCount == 1 &&
-         "Binding single descriptor info, but binding expects multiple");
-
-  writes.emplace_back(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, nullptr,
-                      binding, 0, 1, bindingDescription.descriptorType, imageInfo,
-                      nullptr, nullptr);
-  return *this;
-}
-
-bool DescriptorWriter::build(VkDescriptorSet &set) {
-  bool success = pool.allocateDescriptorSet(setLayout, set);
-  if (!success) {
-    return false;
-  }
-  overwrite(set);
-  return true;
-}
-
-void DescriptorWriter::overwrite(VkDescriptorSet &set) {
-  for (auto &write : writes) {
+void DescriptorWriter::updateSet(VkDescriptorSet set) {
+  for (VkWriteDescriptorSet &write : writes) {
     write.dstSet = set;
   }
-  vkUpdateDescriptorSets(pool.context.vulkan.device,
-                         static_cast<uint32_t>(writes.size()), writes.data(), 0,
-                         nullptr);
-}
 
+  vkUpdateDescriptorSets(context.vulkan.device, (uint32_t)writes.size(),
+                         writes.data(), 0, nullptr);
+}
+VkDescriptorSetLayout
+buildDescriptorSetLayout(EngineContext &context,
+                         std::vector<VkDescriptorSetLayoutBinding> bindings,
+                         VkDescriptorSetLayoutCreateFlags flags, void *pNext) {
+  VkDescriptorSetLayoutCreateInfo info{
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  info.bindingCount = bindings.size();
+  info.pBindings = bindings.data();
+  info.flags = flags;
+  info.pNext = pNext;
+
+  VkDescriptorSetLayout setLayout;
+  vkCreateDescriptorSetLayout(context.vulkan.device, &info, nullptr,
+                              &setLayout);
+  return setLayout;
+}
 } // namespace vkh

@@ -7,11 +7,11 @@
 
 namespace vkh {
 void cleanup(EngineContext &context) {
+  vkDestroyDescriptorSetLayout(
+      context.vulkan.device, context.vulkan.globalDescriptorSetLayout, nullptr);
   vkDestroySampler(context.vulkan.device, context.vulkan.defaultSampler,
                    nullptr);
-  context.vulkan.sceneDescriptorSetLayout = nullptr;
-  context.vulkan.globalDescriptorSetLayout = nullptr;
-  context.vulkan.globalDescriptorPool = nullptr;
+  context.vulkan.globalDescriptorAllocator = nullptr;
   context.vulkan.globalDescriptorSets.clear();
   context.vulkan.globalUBOs.clear();
 

@@ -56,7 +56,6 @@ private:
   void createDescriptors();
   void createPipeline();
   void createGlyphs();
-  void createSampler();
 
   const int maxCharCount = 1000;
   const int maxVertexCount = 4 * maxCharCount; // 4 vertices = 1 quad = 1 glyph
@@ -64,9 +63,8 @@ private:
   const int maxIndexCount = maxCharCount * 6;
   const VkDeviceSize maxIndexSize = sizeof(uint32_t) * 6 * maxCharCount;
   std::unique_ptr<GraphicsPipeline> pipeline;
-  std::unique_ptr<DescriptorSetLayout> descriptorSetLayout;
-  VkDescriptorSet descriptorSet;
+  VkDescriptorSetLayout setLayout;
+  VkDescriptorSet set;
   std::unique_ptr<Image> fontAtlas;
-  VkSampler sampler;
 };
 } // namespace vkh

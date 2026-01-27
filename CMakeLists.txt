@@ -7,18 +7,23 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(GLFW_INCLUDE_VULKAN)
+set(FASTGLTF_COMPILE_AS_CPP20)
+set(FASTGLTF_ENABLE_CPP_MODULES)
+set(FASTGLFW_USE_STD_MODULE)
 
 project("vulkhan")
+
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
 
 find_package(Vulkan REQUIRED)
 find_package(glfw3 3.3 REQUIRED)
 find_package(OpenAL REQUIRED)
-find_package(CURL REQUIRED)
+# find_package(CURL REQUIRED)
 find_package(simdjson REQUIRED)
 find_package(fastgltf REQUIRED)
-find_package(glslang)
-
-# add_subdirectory(3rdparty/fastgltf)
+find_package(glslang REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(ENET REQUIRED libenet)
 
 add_library(VkFFT INTERFACE)
 target_compile_definitions(VkFFT INTERFACE -DVKFFT_BACKEND=0
@@ -31,11 +36,11 @@ link_libraries(
   glfw
   OpenAL::OpenAL
   fastgltf::fastgltf
-  # GameAnalytics
-  CURL::libcurl
+  # CURL::libcurl
   glslang
   VkFFT
-  ktx)
+  ktx
+  enet)
 
 file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -61,7 +66,8 @@ find_program(
 
 set(GLSL_DEBUG_FLAGS "")
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-  # -gVS = glslang source-level debug info (RenderDoc-compatible)
+  # -gVS = glslang source-level debug info (RenderDoc-compatible), for
+  # glsLangValidator
   set(GLSL_DEBUG_FLAGS "-g")
 endif()
 file(
@@ -112,5 +118,9 @@ install(IMPORTED_RUNTIME_ARTIFACTS glfw DESTINATION bin)
 if(WIN32)
   install(FILES ${PROJECT_BINARY_DIR}/OpenAL32.dll DESTINATION bin)
 endif()
-install(DIRECTORY ${PROJECT_BINARY_DIR}/shaders ${PROJECT_BINARY_DIR}/fonts ${PROJECT_BINARY_DIR}/sounds
-  ${PROJECT_BINARY_DIR}/models ${PROJECT_BINARY_DIR}/textures DESTINATION bin)
+install(DIRECTORY ${PROJECT_BINARY_DIR}/shaders ${PROJECT_BINARY_DIR}/fonts
+                  ${PROJECT_BINARY_DIR}/sounds ${PROJECT_BINARY_DIR}/models
+                  ${PROJECT_BINARY_DIR}/textures DESTINATION bin)
+
+file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/server/*.cpp)
+add_executable(vulkhanServer ${SOURCES})

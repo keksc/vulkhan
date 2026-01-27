@@ -1,12 +1,10 @@
 #include "solidColor.hpp"
-#include <vulkan/vulkan_core.h>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
-
-#include <cassert>
+#include <vulkan/vulkan_core.h>
 
 #include "../../buffer.hpp"
 #include "../../descriptors.hpp"
@@ -38,7 +36,7 @@ void SolidColorSys::createBuffers() {
 void SolidColorSys::createPipelines() {
   PipelineCreateInfo trianglesPipelineInfo{};
   trianglesPipelineInfo.layoutInfo.setLayoutCount = 1;
-  trianglesPipelineInfo.layoutInfo.pSetLayouts = *setLayout;
+  trianglesPipelineInfo.layoutInfo.pSetLayouts = &setLayout;
   trianglesPipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   trianglesPipelineInfo.attributeDescriptions =
       TriangleVertex::getAttributeDescriptions();
@@ -48,12 +46,12 @@ void SolidColorSys::createPipelines() {
   trianglesPipelineInfo.fragpath = "shaders/solidColorTriangles.frag.spv";
   trianglesPipelineInfo.depthStencilInfo.depthCompareOp =
       VK_COMPARE_OP_GREATER_OR_EQUAL;
-  trianglePipeline =
-      std::make_unique<GraphicsPipeline>(context, trianglesPipelineInfo, "solid color triangles");
+  trianglePipeline = std::make_unique<GraphicsPipeline>(
+      context, trianglesPipelineInfo, "solid color triangles");
 
   PipelineCreateInfo linesPipelineInfo{};
   linesPipelineInfo.layoutInfo.pSetLayouts =
-      *context.vulkan.globalDescriptorSetLayout;
+      &context.vulkan.globalDescriptorSetLayout;
   linesPipelineInfo.layoutInfo.setLayoutCount = 1;
   linesPipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   linesPipelineInfo.attributeDescriptions =
@@ -67,30 +65,24 @@ void SolidColorSys::createPipelines() {
       VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
   linesPipelineInfo.depthStencilInfo.depthCompareOp =
       VK_COMPARE_OP_GREATER_OR_EQUAL;
-  linesPipeline =
-      std::make_unique<GraphicsPipeline>(context, linesPipelineInfo, "solid color lines");
+  linesPipeline = std::make_unique<GraphicsPipeline>(context, linesPipelineInfo,
+                                                     "solid color lines");
 }
 void SolidColorSys::createDescriptors() {
-  setLayout = DescriptorSetLayout::Builder(context)
-                  .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                              VK_SHADER_STAGE_FRAGMENT_BIT, maxTextures)
-                  .build();
+  setLayout = buildDescriptorSetLayout(
+      context, {VkDescriptorSetLayoutBinding{
+                   .binding = 0,
+                   .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                   .descriptorCount = maxTextures,
+                   .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+               }});
+  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, reinterpret_cast<uint64_t>(setLayout), "solidColor descriptor set layout");
   std::vector<VkDescriptorImageInfo> imageInfos;
   for (const auto &img : images) {
     VkDescriptorImageInfo info = imageInfos.emplace_back(
         img.getDescriptorInfo(context.vulkan.defaultSampler));
   }
-  VkDescriptorSetLayout layouts[] = {*setLayout};
-  VkDescriptorSetAllocateInfo allocInfo{};
-  allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  allocInfo.descriptorPool = *context.vulkan.globalDescriptorPool;
-  allocInfo.descriptorSetCount = 1;
-  allocInfo.pSetLayouts = layouts;
-
-  if (vkAllocateDescriptorSets(context.vulkan.device, &allocInfo, &set) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("Failed to allocate descriptor set!");
-  }
+  set = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
 
   updateDescriptors();
 }
@@ -146,6 +138,10 @@ SolidColorSys::SolidColorSys(EngineContext &context) : System(context) {
   updateDescriptors();
 }
 
+SolidColorSys::~SolidColorSys() {
+  vkDestroyDescriptorSetLayout(context.vulkan.device, setLayout, nullptr);
+}
+
 void SolidColorSys::render(size_t lineVerticesSize,
                            size_t triangleIndicesSize) {
   VkDeviceSize offsets[] = {0};
@@ -155,7 +151,9 @@ void SolidColorSys::render(size_t lineVerticesSize,
     vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, linesBuffers, offsets);
     vkCmdBindDescriptorSets(
         context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *linesPipeline,
-        0, 1, &context.frameInfo.globalDescriptorSet, 0, nullptr);
+        0, 1,
+        &context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], 0,
+        nullptr);
     vkCmdSetLineWidth(context.frameInfo.cmd, 3.0);
     vkCmdDraw(context.frameInfo.cmd, static_cast<uint32_t>(lineVerticesSize), 1,
               0, 0);

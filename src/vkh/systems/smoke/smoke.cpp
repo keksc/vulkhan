@@ -29,14 +29,14 @@ void SmokeSys::createBuffer() {
       gridSize * 6 + arrowsSize * 3 + interpolatedArrowsSize * 3);
 }
 void SmokeSys::createPipeline() {
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
-      *context.vulkan.globalDescriptorSetLayout};
+  std::vector<VkDescriptorSetLayout> setLayouts{
+      context.vulkan.globalDescriptorSetLayout};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   pipelineLayoutInfo.setLayoutCount =
-      static_cast<uint32_t>(descriptorSetLayouts.size());
-  pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
+      static_cast<uint32_t>(setLayouts.size());
+  pipelineLayoutInfo.pSetLayouts = setLayouts.data();
 
   PipelineCreateInfo pipelineInfo{};
   pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
@@ -188,7 +188,7 @@ void SmokeSys::render() {
 
   vkCmdBindDescriptorSets(context.frameInfo.cmd,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
-                          &context.frameInfo.globalDescriptorSet, 0, nullptr);
+                          &context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], 0, nullptr);
 
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};

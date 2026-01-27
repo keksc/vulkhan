@@ -27,24 +27,57 @@ struct PushConstantData {
   alignas(4) float metallic;
   alignas(4) float roughness;
 };
-EntitySys::EntitySys(EngineContext &context,
-                     SkyboxSys &skyboxSys)
+void EntitySys::createSetLayout() {
+  VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{
+      .sType =
+          VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
+  VkDescriptorBindingFlags bindingFlags[] = {
+      VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+      VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
+  bindingFlagsInfo.pBindingFlags = bindingFlags;
+  bindingFlagsInfo.bindingCount = 2;
+  setLayout = buildDescriptorSetLayout(
+      context,
+      {VkDescriptorSetLayoutBinding{
+           .binding = 0,
+           .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+           .descriptorCount = 1,
+           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+       },
+       VkDescriptorSetLayoutBinding{
+           .binding = 1,
+           .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+           .descriptorCount = 1,
+           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+       }},
+      0, &bindingFlagsInfo);
+}
+EntitySys::EntitySys(EngineContext &context, SkyboxSys &skyboxSys)
     : System(context), skyboxSys{skyboxSys} {
+  createSetLayout();
+
+  dummySet = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
+  DescriptorWriter writer(context);
+  VkDescriptorImageInfo imageInfo{.sampler = VK_NULL_HANDLE,
+                                  .imageView = VK_NULL_HANDLE,
+                                  .imageLayout =
+                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+  writer.writeImage(0, imageInfo, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+  writer.updateSet(dummySet);
+
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags =
       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
   pushConstantRange.offset = 0;
   pushConstantRange.size = sizeof(PushConstantData);
 
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
-      *context.vulkan.globalDescriptorSetLayout,
-      *context.vulkan.sceneDescriptorSetLayout, *skyboxSys.setLayout};
+  std::vector<VkDescriptorSetLayout> setLayouts{
+      context.vulkan.globalDescriptorSetLayout, setLayout, skyboxSys.setLayout};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  pipelineLayoutInfo.setLayoutCount =
-      static_cast<uint32_t>(descriptorSetLayouts.size());
-  pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
+  pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+  pipelineLayoutInfo.pSetLayouts = setLayouts.data();
   pipelineLayoutInfo.pushConstantRangeCount = 1;
   pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
 
@@ -55,9 +88,12 @@ EntitySys::EntitySys(EngineContext &context,
   pipelineInfo.bindingDescriptions = Vertex::getBindingDescriptions();
   pipelineInfo.vertpath = "shaders/entities.vert.spv";
   pipelineInfo.fragpath = "shaders/entities.frag.spv";
-  pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo);
+  pipeline =
+      std::make_unique<GraphicsPipeline>(context, pipelineInfo, "entities");
 }
-
+EntitySys::~EntitySys() {
+  vkDestroyDescriptorSetLayout(context.vulkan.device, setLayout, nullptr);
+}
 void EntitySys::compactDraws() {
   batches.clear();
   batches.emplace_back(entities[0], 1);
@@ -70,11 +106,14 @@ void EntitySys::compactDraws() {
 }
 
 void EntitySys::render() {
+  debug::beginLabel(context, context.frameInfo.cmd, "entities rendering",
+                    {.7f, .3f, 1.f, 1.f});
   pipeline->bind(context.frameInfo.cmd);
 
-  vkCmdBindDescriptorSets(context.frameInfo.cmd,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
-                          &context.frameInfo.globalDescriptorSet, 0, nullptr);
+  vkCmdBindDescriptorSets(
+      context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
+      &context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], 0,
+      nullptr);
   vkCmdBindDescriptorSets(context.frameInfo.cmd,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 2, 1,
                           &skyboxSys.set, 0, nullptr);
@@ -108,6 +147,9 @@ void EntitySys::render() {
               &scene->imageDescriptorSets[mat.baseColorTextureIndex.value()], 0,
               nullptr);
         } else {
+          vkCmdBindDescriptorSets(context.frameInfo.cmd,
+                                  VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1,
+                                  1, &dummySet, 0, nullptr);
           push.useColorTexture = false;
           push.color = mat.baseColorFactor;
         }
@@ -119,5 +161,6 @@ void EntitySys::render() {
       primitive.draw(context.frameInfo.cmd);
     }
   }
+  debug::endLabel(context, context.frameInfo.cmd);
 }
 } // namespace vkh

@@ -13,139 +13,161 @@
 
 namespace vkh {
 void WSTessendorf::createDescriptors() {
-  preFFTSetLayout = DescriptorSetLayout::Builder(context)
-                        .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                    VK_SHADER_STAGE_COMPUTE_BIT)
-                        .addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                    VK_SHADER_STAGE_COMPUTE_BIT)
-                        .addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                    VK_SHADER_STAGE_COMPUTE_BIT)
-                        .build();
+  std::vector<VkDescriptorSetLayoutBinding> bindings = {
+      VkDescriptorSetLayoutBinding{
+          .binding = 0,
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          .descriptorCount = 1,
+          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      },
+      VkDescriptorSetLayoutBinding{
+          .binding = 1,
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          .descriptorCount = 1,
+          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      },
+      VkDescriptorSetLayoutBinding{
+          .binding = 2,
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          .descriptorCount = 1,
+          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      }};
+  preFFTSetLayout = buildDescriptorSetLayout(context, bindings);
+  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+                    reinterpret_cast<uint64_t>(preFFTSetLayout),
+                    "WaterSys pre FFT descriptor set layout");
   VkDescriptorBufferInfo preFFTDescriptorInfos[] = {
       FFTData->descriptorInfo(), baseWaveHeightField->descriptorInfo(),
       waveVectors->descriptorInfo()};
-  DescriptorWriter(*preFFTSetLayout, *context.vulkan.globalDescriptorPool)
-      .writeBuffer(0, &preFFTDescriptorInfos[0])
-      .writeBuffer(1, &preFFTDescriptorInfos[1])
-      .writeBuffer(2, &preFFTDescriptorInfos[2])
-      .build(preFFTSet);
+  preFFTSet =
+      context.vulkan.globalDescriptorAllocator->allocate(preFFTSetLayout);
+  DescriptorWriter writer(context);
+  writer.writeBuffer(0, preFFTDescriptorInfos[0],
+                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(1, preFFTDescriptorInfos[1],
+                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(2, preFFTDescriptorInfos[2],
+                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.updateSet(preFFTSet);
 
-  postFFTSetLayout = DescriptorSetLayout::Builder(context)
-                         .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                     VK_SHADER_STAGE_COMPUTE_BIT)
-                         .addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                     VK_SHADER_STAGE_COMPUTE_BIT)
-                         .addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                     VK_SHADER_STAGE_COMPUTE_BIT)
-                         .build();
+  postFFTSetLayout = buildDescriptorSetLayout(context, bindings);
+  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+                    reinterpret_cast<uint64_t>(postFFTSetLayout),
+                    "WaterSys post FFT descriptor set layout");
   VkDescriptorBufferInfo postFFTDescriptorInfos[] = {
       FFTData->descriptorInfo(), displacementsAndNormals->descriptorInfo(),
       displacementsAndNormals->descriptorInfo()};
-  DescriptorWriter(*postFFTSetLayout, *context.vulkan.globalDescriptorPool)
-      .writeBuffer(0, &postFFTDescriptorInfos[0])
-      .writeBuffer(1, &postFFTDescriptorInfos[1])
-      .writeBuffer(2, &postFFTDescriptorInfos[2])
-      .build(postFFTSet);
+  postFFTSet =
+      context.vulkan.globalDescriptorAllocator->allocate(postFFTSetLayout);
+  writer.clear();
+  writer.writeBuffer(0, postFFTDescriptorInfos[0],
+                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(1, postFFTDescriptorInfos[1],
+                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(2, postFFTDescriptorInfos[2],
+                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.updateSet(postFFTSet);
 
   // Reduction descriptor set layout for stage 0
-  reductionSetLayout0 =
-      DescriptorSetLayout::Builder(context)
-          .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                      VK_SHADER_STAGE_COMPUTE_BIT) // displacements
-          .addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                      VK_SHADER_STAGE_COMPUTE_BIT) // minOut
-          .addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                      VK_SHADER_STAGE_COMPUTE_BIT) // maxOut
-          .build();
+  reductionSetLayout0 = buildDescriptorSetLayout(context, bindings);
+  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+                    reinterpret_cast<uint64_t>(reductionSetLayout0),
+                    "WaterSys reduction descriptor set layout #0");
 
   // Reduction descriptor set layout for subsequent stages
-  reductionSetLayout1 = DescriptorSetLayout::Builder(context)
-                            .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                        VK_SHADER_STAGE_COMPUTE_BIT) // minIn
-                            .addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                        VK_SHADER_STAGE_COMPUTE_BIT) // maxIn
-                            .addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                        VK_SHADER_STAGE_COMPUTE_BIT) // minOut
-                            .addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                        VK_SHADER_STAGE_COMPUTE_BIT) // maxOut
-                            .build();
+  bindings.emplace_back(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+                        VK_SHADER_STAGE_COMPUTE_BIT);
+  reductionSetLayout1 = buildDescriptorSetLayout(context, bindings);
+  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+                    reinterpret_cast<uint64_t>(reductionSetLayout1),
+                    "WaterSys reduction descriptor set layout #1");
 
   // Create reduction descriptor sets
   VkDescriptorBufferInfo reductionInfos0[] = {
       displacementsAndNormals->descriptorInfo(),
       minReductionBuffer0->descriptorInfo(),
       maxReductionBuffer0->descriptorInfo()};
-  DescriptorWriter(*reductionSetLayout0, *context.vulkan.globalDescriptorPool)
-      .writeBuffer(0, &reductionInfos0[0])
-      .writeBuffer(1, &reductionInfos0[1])
-      .writeBuffer(2, &reductionInfos0[2])
-      .build(reductionSet0);
+  reductionSet0 =
+      context.vulkan.globalDescriptorAllocator->allocate(reductionSetLayout0);
+  writer.clear();
+  writer.writeBuffer(0, reductionInfos0[0], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(1, reductionInfos0[1], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(2, reductionInfos0[2], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.updateSet(reductionSet0);
 
   VkDescriptorBufferInfo reductionInfos1[] = {
       minReductionBuffer0->descriptorInfo(),
       maxReductionBuffer0->descriptorInfo(),
       minReductionBuffer1->descriptorInfo(),
       maxReductionBuffer1->descriptorInfo()};
-  DescriptorWriter(*reductionSetLayout1, *context.vulkan.globalDescriptorPool)
-      .writeBuffer(0, &reductionInfos1[0])
-      .writeBuffer(1, &reductionInfos1[1])
-      .writeBuffer(2, &reductionInfos1[2])
-      .writeBuffer(3, &reductionInfos1[3])
-      .build(reductionSet1);
+  reductionSet1 =
+      context.vulkan.globalDescriptorAllocator->allocate(reductionSetLayout1);
+  writer.clear();
+  writer.writeBuffer(0, reductionInfos1[0], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(1, reductionInfos1[1], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(2, reductionInfos1[2], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(3, reductionInfos1[3], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.updateSet(reductionSet1);
 
   VkDescriptorBufferInfo reductionInfos2[] = {
       minReductionBuffer1->descriptorInfo(),
       maxReductionBuffer1->descriptorInfo(),
       minReductionBuffer2->descriptorInfo(),
       maxReductionBuffer2->descriptorInfo()};
-  DescriptorWriter(*reductionSetLayout1, *context.vulkan.globalDescriptorPool)
-      .writeBuffer(0, &reductionInfos2[0])
-      .writeBuffer(1, &reductionInfos2[1])
-      .writeBuffer(2, &reductionInfos2[2])
-      .writeBuffer(3, &reductionInfos2[3])
-      .build(reductionSet2);
+  reductionSet2 =
+      context.vulkan.globalDescriptorAllocator->allocate(reductionSetLayout1);
+  writer.clear();
+  writer.writeBuffer(0, reductionInfos2[0], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(1, reductionInfos2[1], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(2, reductionInfos2[2], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(3, reductionInfos2[3], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.updateSet(reductionSet2);
 
-  updateSetLayout =
-      DescriptorSetLayout::Builder(context)
-          .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                      VK_SHADER_STAGE_COMPUTE_BIT) // minReductionBuffer2
-          .addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                      VK_SHADER_STAGE_COMPUTE_BIT) // maxReductionBuffer2
-          .addBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                      VK_SHADER_STAGE_COMPUTE_BIT) // masterMinBuffer
-          .addBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                      VK_SHADER_STAGE_COMPUTE_BIT) // masterMaxBuffer
-          .addBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                      VK_SHADER_STAGE_COMPUTE_BIT) // scaleBuffer
-          .build();
-
+  bindings.emplace_back(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+                        VK_SHADER_STAGE_COMPUTE_BIT);
+  updateSetLayout = buildDescriptorSetLayout(context, bindings);
+  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+                    reinterpret_cast<uint64_t>(updateSetLayout),
+                    "WaterSys update descriptor set layout");
   VkDescriptorBufferInfo updateInfos[] = {
       minReductionBuffer2->descriptorInfo(),
       maxReductionBuffer2->descriptorInfo(), masterMinBuffer->descriptorInfo(),
       masterMaxBuffer->descriptorInfo(), scaleBuffer->descriptorInfo()};
-  DescriptorWriter(*updateSetLayout, *context.vulkan.globalDescriptorPool)
-      .writeBuffer(0, &updateInfos[0])
-      .writeBuffer(1, &updateInfos[1])
-      .writeBuffer(2, &updateInfos[2])
-      .writeBuffer(3, &updateInfos[3])
-      .writeBuffer(4, &updateInfos[4])
-      .build(updateSet);
+  updateSet =
+      context.vulkan.globalDescriptorAllocator->allocate(updateSetLayout);
+  writer.clear();
+  writer.writeBuffer(0, updateInfos[0], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(1, updateInfos[1], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(2, updateInfos[2], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(3, updateInfos[3], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(4, updateInfos[4], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.updateSet(updateSet);
 
+  bindings = {VkDescriptorSetLayoutBinding{
+                  .binding = 0,
+                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                  .descriptorCount = 1,
+                  .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+              },
+              VkDescriptorSetLayoutBinding{
+                  .binding = 1,
+                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                  .descriptorCount = 1,
+                  .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+              }};
   // Normalize descriptor set layout
-  normalizeSetLayout =
-      DescriptorSetLayout::Builder(context)
-          .addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                      VK_SHADER_STAGE_COMPUTE_BIT) // displacements
-          .addBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                      VK_SHADER_STAGE_COMPUTE_BIT) // scaleBuffer
-          .build();
-
+  normalizeSetLayout = buildDescriptorSetLayout(context, bindings);
+  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+                    reinterpret_cast<uint64_t>(normalizeSetLayout),
+                    "WaterSys normalize descriptor set layout");
   VkDescriptorBufferInfo normalizeInfos[] = {
       displacementsAndNormals->descriptorInfo(), scaleBuffer->descriptorInfo()};
-  DescriptorWriter(*normalizeSetLayout, *context.vulkan.globalDescriptorPool)
-      .writeBuffer(0, &normalizeInfos[0])
-      .writeBuffer(1, &normalizeInfos[1])
-      .build(normalizeSet);
+  normalizeSet =
+      context.vulkan.globalDescriptorAllocator->allocate(normalizeSetLayout);
+  writer.clear();
+  writer.writeBuffer(0, normalizeInfos[0], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(1, normalizeInfos[1], VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.updateSet(normalizeSet);
 }
 
 WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
@@ -265,18 +287,20 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   VkPipelineLayoutCreateInfo FFTLayoutInfo{};
   FFTLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   FFTLayoutInfo.setLayoutCount = 1;
-  FFTLayoutInfo.pSetLayouts = *preFFTSetLayout;
+  FFTLayoutInfo.pSetLayouts = &preFFTSetLayout;
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.size = sizeof(PushConstantData);
   pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
   FFTLayoutInfo.pushConstantRangeCount = 1;
   FFTLayoutInfo.pPushConstantRanges = &pushConstantRange;
   preFFTPipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/water/preFFT.comp.spv", FFTLayoutInfo, "water pre FFT pipeline");
+      context, "shaders/water/preFFT.comp.spv", FFTLayoutInfo,
+      "water pre FFT pipeline");
 
-  FFTLayoutInfo.pSetLayouts = *postFFTSetLayout;
+  FFTLayoutInfo.pSetLayouts = &postFFTSetLayout;
   postFFTPipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/water/postFFT.comp.spv", FFTLayoutInfo, "water post FFT pipeline");
+      context, "shaders/water/postFFT.comp.spv", FFTLayoutInfo,
+      "water post FFT pipeline");
 
   // Create reduction pipelines
   VkPushConstantRange reductionPushConstant{};
@@ -288,20 +312,23 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   reductionLayoutInfo.pushConstantRangeCount = 1;
   reductionLayoutInfo.pPushConstantRanges = &reductionPushConstant;
 
-  reductionLayoutInfo.pSetLayouts = *reductionSetLayout0;
+  reductionLayoutInfo.pSetLayouts = &reductionSetLayout0;
   reductionPipeline0 = std::make_unique<ComputePipeline>(
-      context, "shaders/water/reduction_stage0.comp.spv", reductionLayoutInfo, "water reduction pipeline stage 0");
+      context, "shaders/water/reduction_stage0.comp.spv", reductionLayoutInfo,
+      "water reduction pipeline stage 0");
 
-  reductionLayoutInfo.pSetLayouts = *reductionSetLayout1;
+  reductionLayoutInfo.pSetLayouts = &reductionSetLayout1;
   reductionPipeline1 = std::make_unique<ComputePipeline>(
-      context, "shaders/water/reduction_stage1.comp.spv", reductionLayoutInfo, "water reduction pipeline stage 1");
+      context, "shaders/water/reduction_stage1.comp.spv", reductionLayoutInfo,
+      "water reduction pipeline stage 1");
 
   VkPipelineLayoutCreateInfo updateLayoutInfo{};
   updateLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   updateLayoutInfo.setLayoutCount = 1;
-  updateLayoutInfo.pSetLayouts = *updateSetLayout;
+  updateLayoutInfo.pSetLayouts = &updateSetLayout;
   updatePipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/water/update_master.comp.spv", updateLayoutInfo, "water update pipeline");
+      context, "shaders/water/update_master.comp.spv", updateLayoutInfo,
+      "water update pipeline");
 
   VkPushConstantRange normalizePushConstant{};
   normalizePushConstant.size = sizeof(uint32_t);
@@ -309,17 +336,18 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   VkPipelineLayoutCreateInfo normalizeLayoutInfo{};
   normalizeLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   normalizeLayoutInfo.setLayoutCount = 1;
-  normalizeLayoutInfo.pSetLayouts = *normalizeSetLayout;
+  normalizeLayoutInfo.pSetLayouts = &normalizeSetLayout;
   normalizeLayoutInfo.pushConstantRangeCount = 1;
   normalizeLayoutInfo.pPushConstantRanges = &normalizePushConstant;
   normalizePipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/water/normalize.comp.spv", normalizeLayoutInfo, "water normalize pipeline");
+      context, "shaders/water/normalize.comp.spv", normalizeLayoutInfo,
+      "water normalize pipeline");
 
   VkPipelineLayoutCreateInfo baseWaveHeightFieldLayoutInfo{};
   baseWaveHeightFieldLayoutInfo.sType =
       VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   baseWaveHeightFieldLayoutInfo.setLayoutCount = 1;
-  baseWaveHeightFieldLayoutInfo.pSetLayouts = *preFFTSetLayout;
+  baseWaveHeightFieldLayoutInfo.pSetLayouts = &preFFTSetLayout;
   ComputePipeline baseWaveHeightFieldPipeline(
       context, "shaders/water/baseWaveHeightField.comp.spv",
       baseWaveHeightFieldLayoutInfo, "water base wave height field pipeline");
@@ -350,6 +378,16 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
 WSTessendorf::~WSTessendorf() {
   deleteVkFFT(&app);
   vkDestroyFence(context.vulkan.device, fence, nullptr);
+  vkDestroyDescriptorSetLayout(context.vulkan.device, preFFTSetLayout, nullptr);
+  vkDestroyDescriptorSetLayout(context.vulkan.device, postFFTSetLayout,
+                               nullptr);
+  vkDestroyDescriptorSetLayout(context.vulkan.device, reductionSetLayout0,
+                               nullptr);
+  vkDestroyDescriptorSetLayout(context.vulkan.device, reductionSetLayout1,
+                               nullptr);
+  vkDestroyDescriptorSetLayout(context.vulkan.device, updateSetLayout, nullptr);
+  vkDestroyDescriptorSetLayout(context.vulkan.device, normalizeSetLayout,
+                               nullptr);
 }
 
 void WSTessendorf::computeWaveVectors(std::vector<WaveVector> &waveVecs) {

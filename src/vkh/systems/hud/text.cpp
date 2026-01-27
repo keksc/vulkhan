@@ -1,6 +1,7 @@
 #include "text.hpp"
 
 #include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 #define STB_TRUETYPE_IMPLEMENTATION
 #ifdef WIN32
 #include <stb_truetype.h>
@@ -21,7 +22,7 @@
 namespace vkh {
 TextSys::GlyphRange TextSys::glyphRange;
 TextSys::~TextSys() {
-  vkDestroySampler(context.vulkan.device, sampler, nullptr);
+  vkDestroyDescriptorSetLayout(context.vulkan.device, setLayout, nullptr);
 }
 void TextSys::createBuffers() {
   vertexBuffer = std::make_unique<Buffer<Vertex>>(
@@ -39,28 +40,28 @@ void TextSys::createBuffers() {
   indexBuffer->map();
 }
 void TextSys::createDescriptors() {
-  descriptorSetLayout =
-      DescriptorSetLayout::Builder(context)
-          .addBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                      VK_SHADER_STAGE_FRAGMENT_BIT)
-          .build();
-  VkDescriptorImageInfo imageInfo{};
-  imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  imageInfo.imageView = fontAtlas->getImageView();
-  imageInfo.sampler = sampler;
-  DescriptorWriter(*descriptorSetLayout, *context.vulkan.globalDescriptorPool)
-      .writeImage(0, &imageInfo)
-      .build(descriptorSet);
+  setLayout = buildDescriptorSetLayout(
+      context, {VkDescriptorSetLayoutBinding{
+                   .binding = 0,
+                   .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                   .descriptorCount = 1,
+                   .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+               }});
+  set = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
+  DescriptorWriter writer(context);
+  writer.writeImage(0,
+                    fontAtlas->getDescriptorInfo(context.vulkan.defaultSampler),
+                    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+  writer.updateSet(set);
 }
 void TextSys::createPipeline() {
-  std::vector<VkDescriptorSetLayout> descriptorSetLayouts{
-      *context.vulkan.globalDescriptorSetLayout, *descriptorSetLayout};
+  std::vector<VkDescriptorSetLayout> setLayouts{
+      context.vulkan.globalDescriptorSetLayout, setLayout};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  pipelineLayoutInfo.setLayoutCount =
-      static_cast<uint32_t>(descriptorSetLayouts.size());
-  pipelineLayoutInfo.pSetLayouts = descriptorSetLayouts.data();
+  pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+  pipelineLayoutInfo.pSetLayouts = setLayouts.data();
 
   PipelineCreateInfo pipelineInfo{};
   pipelineInfo.layoutInfo = pipelineLayoutInfo;
@@ -131,34 +132,7 @@ void TextSys::createGlyphs() {
   }
   delete[] atlasData;
 }
-void TextSys::createSampler() {
-  VkSamplerCreateInfo samplerInfo{};
-  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-  samplerInfo.magFilter = VK_FILTER_LINEAR;
-  samplerInfo.minFilter = VK_FILTER_LINEAR;
-  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-  samplerInfo.unnormalizedCoordinates = VK_FALSE;
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  samplerInfo.anisotropyEnable = VK_FALSE;
-  samplerInfo.maxAnisotropy = 1.0f;
-  samplerInfo.compareEnable = VK_FALSE;
-  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  samplerInfo.mipLodBias = 0.0f;
-  samplerInfo.minLod = 0.0f;
-  samplerInfo.maxLod = 0.0f;
-
-  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr, &sampler) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("Failed to create font sampler!");
-  }
-}
 TextSys::TextSys(EngineContext &context) : System(context) {
-  createSampler();
-
   createGlyphs();
   createBuffers();
   createDescriptors();
@@ -173,8 +147,8 @@ void TextSys::render(size_t indicesSize) {
   vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers, offsets);
   vkCmdBindIndexBuffer(context.frameInfo.cmd, *indexBuffer, 0,
                        VK_INDEX_TYPE_UINT32);
-  VkDescriptorSet descriptorSets[2] = {context.frameInfo.globalDescriptorSet,
-                                       descriptorSet};
+  VkDescriptorSet descriptorSets[2] = {
+      context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], set};
   vkCmdBindDescriptorSets(context.frameInfo.cmd,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
                           descriptorSets, 0, nullptr);

@@ -7,6 +7,7 @@ namespace vkh {
 class SolidColorSys : public System {
 public:
   SolidColorSys(EngineContext &context);
+  ~SolidColorSys();
 
   struct TriangleVertex {
     glm::vec3 position{};
@@ -88,7 +89,7 @@ private:
 
   std::unique_ptr<GraphicsPipeline> trianglePipeline;
   std::unique_ptr<GraphicsPipeline> linesPipeline;
-  std::unique_ptr<DescriptorSetLayout> setLayout;
+  VkDescriptorSetLayout setLayout;
   VkDescriptorSet set;
 };
 } // namespace vkh
