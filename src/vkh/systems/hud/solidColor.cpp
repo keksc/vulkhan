@@ -59,8 +59,6 @@ void SolidColorSys::createPipelines() {
   linesPipelineInfo.bindingDescriptions = LineVertex::getBindingDescriptions();
   linesPipelineInfo.vertpath = "shaders/solidColorLines.vert.spv";
   linesPipelineInfo.fragpath = "shaders/solidColorLines.frag.spv";
-  linesPipelineInfo.dynamicStateEnables.emplace_back(
-      VK_DYNAMIC_STATE_LINE_WIDTH);
   linesPipelineInfo.inputAssemblyInfo.topology =
       VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
   linesPipelineInfo.depthStencilInfo.depthCompareOp =
@@ -154,7 +152,6 @@ void SolidColorSys::render(size_t lineVerticesSize,
         0, 1,
         &context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], 0,
         nullptr);
-    vkCmdSetLineWidth(context.frameInfo.cmd, 3.0);
     vkCmdDraw(context.frameInfo.cmd, static_cast<uint32_t>(lineVerticesSize), 1,
               0, 0);
   }

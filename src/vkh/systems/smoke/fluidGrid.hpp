@@ -17,7 +17,6 @@ public:
   FluidGrid(glm::ivec2 cellCount, float cellSize);
 
   inline float &velX(int i, int j) { return velocitiesX[i * cellCount.y + j]; }
-
   inline float &velY(int i, int j) {
     return velocitiesY[i * (cellCount.y + 1) + j];
   }
@@ -34,10 +33,11 @@ public:
   float pressureSolveCell(glm::ivec2 cell);
   void solvePressure();
 
-  const float density = 1;
+  const float density = 1.f;
   const float dt = 1.f / 60.f;
 
   void updateVelocities();
+  void advectVelocities();
 
   std::vector<bool> solidCellMap;
 

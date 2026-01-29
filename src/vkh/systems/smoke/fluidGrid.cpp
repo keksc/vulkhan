@@ -1,5 +1,6 @@
 #include "fluidGrid.hpp"
 
+#include <glm/ext/vector_common.hpp>
 #include <random>
 
 namespace vkh {
@@ -113,35 +114,69 @@ void FluidGrid::updateVelocities() {
     }
   }
 }
+void FluidGrid::advectVelocities() {
+  std::vector<float> nextVelX = velocitiesX;
+  std::vector<float> nextVelY = velocitiesY;
+
+  for (size_t x = 0; x < cellCount.x + 1; x++) {
+    for (size_t y = 0; y < cellCount.y; y++) {
+      glm::vec2 pos(static_cast<float>(x), static_cast<float>(y) + 0.5f);
+
+      glm::vec2 vel = getVelocityAtWorldPos(pos);
+
+      glm::vec2 prevPos = pos - vel * dt;
+
+      nextVelX[x * cellCount.y + y] = getVelocityAtWorldPos(prevPos).x;
+    }
+  }
+
+  for (size_t x = 0; x < cellCount.x; x++) {
+    for (size_t y = 0; y < cellCount.y + 1; y++) {
+      glm::vec2 pos(static_cast<float>(x) + 0.5f, static_cast<float>(y));
+
+      glm::vec2 vel = getVelocityAtWorldPos(pos);
+      glm::vec2 prevPos = pos - vel * dt;
+
+      nextVelY[x * (cellCount.y + 1) + y] = getVelocityAtWorldPos(prevPos).y;
+    }
+  }
+
+  velocitiesX = std::move(nextVelX);
+  velocitiesY = std::move(nextVelY);
+}
 bool FluidGrid::isSolid(glm::ivec2 cell) {
   bool outOfBounds = cell.x < 0 || cell.x >= cellCount.x || cell.y < 0 ||
                      cell.y >= cellCount.y;
   return outOfBounds ? true : solidCellMap[cell.x + cell.y * cellCount.x];
 }
 glm::vec2 FluidGrid::getVelocityAtWorldPos(glm::vec2 worldPos) {
-  int left = static_cast<int>(worldPos.x);
-  int top = static_cast<int>(worldPos.x);
-  int right = left + 1;
-  int bottom = top + 1;
+  float uX =
+      glm::clamp(worldPos.x, 0.f, (float)cellCount.x - 0.001f); // Added -0.001f
+  float uY = glm::clamp(worldPos.y - 0.5f, 0.f, (float)cellCount.y - 1.001f);
 
-  float px = worldPos.x - left;
-  float py = worldPos.y - top;
+  // For V: shift X by 0.5
+  float vX = glm::clamp(worldPos.x - 0.5f, 0.f, (float)cellCount.x - 1.001f);
+  float vY =
+      glm::clamp(worldPos.y, 0.f, (float)cellCount.y - 0.001f); // Added -0.001f
 
-  glm::vec2 value{};
-  {
-    float valueTop = glm::mix(velocitiesX[left * cellCount.x + top],
-                              velocitiesX[right * cellCount.x + top], px);
-    float valueBottom = glm::mix(velocitiesX[left * cellCount.x + bottom],
-                                 velocitiesX[right * cellCount.x + bottom], px);
-    value.x = glm::mix(valueTop, valueBottom, py);
-  }
-  {
-    float valueLeft = glm::mix(velocitiesX[top * cellCount.y + left],
-                               velocitiesX[bottom * cellCount.y + left], px);
-    float valueRight = glm::mix(velocitiesX[top * cellCount.x + right],
-                                velocitiesX[bottom * cellCount.y + right], px);
-    value.y = glm::mix(valueLeft, valueRight, px);
-  }
-  return value;
+  // Interpolate U
+  int iU = static_cast<int>(uX);
+  int jU = static_cast<int>(uY);
+  float txU = uX - iU;
+  float tyU = uY - jU;
+  float vx =
+      glm::mix(glm::mix(velX(iU, jU), velX(iU + 1, jU), txU),
+               glm::mix(velX(iU, jU + 1), velX(iU + 1, jU + 1), txU), tyU);
+
+  // Interpolate V
+  int iV = static_cast<int>(vX);
+  int jV = static_cast<int>(vY);
+  float txV = vX - iV;
+  float tyV = vY - jV;
+  float vy =
+      glm::mix(glm::mix(velY(iV, jV), velY(iV + 1, jV), txV),
+               glm::mix(velY(iV, jV + 1), velY(iV + 1, jV + 1), txV), tyV);
+
+  return {vx, vy};
 }
 } // namespace vkh

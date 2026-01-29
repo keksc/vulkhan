@@ -38,7 +38,7 @@ void WaterSys::createPipeline() {
   pipelineInfo.layoutInfo.pSetLayouts = setLayouts;
   pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
-  // pipelineInfo.rasterizationInfo.polygonMode = VK_POLYGON_MODE_LINE;
+  pipelineInfo.rasterizationInfo.polygonMode = VK_POLYGON_MODE_LINE;
   pipelineInfo.attributeDescriptions = Vertex::s_AttribDescriptions;
   pipelineInfo.bindingDescriptions = Vertex::s_BindingDescriptions;
   pipelineInfo.vertpath = "shaders/water/water.vert.spv";
@@ -61,12 +61,12 @@ void WaterSys::createUniformBuffers(const uint32_t bufferCount) {
   }
 }
 void WaterSys::createDescriptorSets(const uint32_t count) {
-  sets.resize(count);
+  sets.reserve(count);
   for (size_t i = 0; i < count; i++) {
-    sets[i] = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
+    auto& set = sets.emplace_back(context.vulkan.globalDescriptorAllocator->allocate(setLayout));
     std::string str = std::format("set #{} for WaterSys", i);
     debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET,
-                      reinterpret_cast<uint64_t>(sets[i]), str.c_str());
+                      reinterpret_cast<uint64_t>(set), str.c_str());
   }
 }
 

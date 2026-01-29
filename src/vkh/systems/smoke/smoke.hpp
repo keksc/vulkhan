@@ -46,6 +46,7 @@ private:
   std::unique_ptr<GraphicsPipeline> pipeline;
   std::unique_ptr<Buffer<Vertex>> vertexBuffer;
 
-  const unsigned int interpolatedScale = 6;
+  const unsigned int interpolatedScale = 4;
+  uint32_t activeVerticesCount{0};
 }; // namespace particlesSys
 } // namespace vkh
