@@ -30,19 +30,8 @@ std::mt19937 rng{std::random_device{}()};
 
 void updateParticles(vkh::EngineContext &context,
                      vkh::ParticleSys &particleSys) {
-  auto it = particleSys.particles.begin();
-  while (it != particleSys.particles.end()) {
-    float fakeMass = 5000.0f;
-    glm::vec3 direction = -it->pos;
-    float distance = glm::length(direction);
-    if (distance > 0.0001f) {
-      constexpr float speed = .5f;
-      glm::vec3 acceleration =
-          (fakeMass / (distance * distance)) * glm::normalize(direction);
-      it->velocity += acceleration * context.frameInfo.dt * speed;
-      it->pos += it->velocity * context.frameInfo.dt * speed;
-    }
-    ++it;
+  for (auto &particle : particleSys.particles) {
+    particle.pos.z -= context.frameInfo.dt;
   }
   particleSys.update();
 }
@@ -128,8 +117,17 @@ void run() {
   {
     vkh::SkyboxSys skyboxSys(context);
     vkh::EntitySys entitySys(context, skyboxSys);
-    // vkh::SmokeSys smokeSys(context);
+    std::unique_ptr<vkh::SmokeSys> smokeSys;
     vkh::WaterSys waterSys(context, skyboxSys);
+    // vkh::ParticleSys particleSys(context);
+    // particleSys.particles.reserve(100);
+    // std::uniform_real_distribution<float> dis(0.f, 1.f);
+    // for (size_t i = 0; i < 100; i++) {
+    //   particleSys.particles.emplace_back(
+    //       glm::vec3{dis(rng), dis(rng), dis(rng)},
+    //       glm::vec3{dis(rng), dis(rng), dis(rng)},
+    //       glm::vec3{dis(rng), dis(rng), dis(rng)});
+    // }
     // generateDungeon(context, entitySys);
     // Sabl sabl(context, entitySys);
     // auto cross = entitySys.entities.emplace_back(
@@ -180,6 +178,7 @@ void run() {
         glm::vec2{.8f, .8f}, glm::vec2{.2f, .2f}, 0,
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            smokeSys = std::make_unique<vkh::SmokeSys>(context);
             hudSys.setView(&hudSmoke);
           }
         },
@@ -191,6 +190,7 @@ void run() {
           if (action != GLFW_PRESS)
             return false;
           if (key == GLFW_KEY_ESCAPE) {
+            smokeSys = nullptr;
             hudSys.setView(&hudPause);
             return true;
           }
@@ -360,8 +360,9 @@ void run() {
         }
         // entitySys.entities[0].transform.position.x += .2f;
         // sabl.update();
+        // updateParticles(context, particleSys);
         if (hudSys.getView() == &hudSmoke) {
-          // smokeSys.update();
+          smokeSys->update();
         }
 
         vkh::renderer::beginSwapChainRenderPass(context, commandBuffer);
@@ -370,9 +371,10 @@ void run() {
           skyboxSys.render();
           waterSys.render();
           entitySys.render();
+          // particleSys.render();
         }
         if (hudSys.getView() == &hudSmoke) {
-          // smokeSys.render();
+          smokeSys->render();
         }
         hudSys.render();
 

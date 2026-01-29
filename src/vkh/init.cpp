@@ -187,7 +187,7 @@ unsigned int getDeviceScore(EngineContext &context, VkPhysicalDevice device) {
   if (!(indices.isComplete() && extensionsSupported && swapChainAdequate &&
         supportedFeatures.samplerAnisotropy &&
         supportedFeatures.tessellationShader &&
-        supportedFeatures.fillModeNonSolid && supportedFeatures.wideLines))
+        supportedFeatures.fillModeNonSolid))
     return 0; // unsuitable
 
   unsigned int score = 1;
@@ -247,7 +247,6 @@ void createLogicalDevice(EngineContext &context) {
 
   VkPhysicalDeviceFeatures deviceFeatures{.tessellationShader = VK_TRUE,
                                           .fillModeNonSolid = VK_TRUE,
-                                          .wideLines = VK_TRUE,
                                           .samplerAnisotropy = VK_TRUE};
   VkPhysicalDeviceFeatures2 deviceFeatures2{
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,

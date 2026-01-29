@@ -18,15 +18,16 @@ namespace vkh {
 
 void SmokeSys::createBuffer() {
   unsigned int gridSize = fluidGrid.cellCount.x * fluidGrid.cellCount.y;
-  unsigned int arrowsSize =
-      fluidGrid.velocitiesX.size() * fluidGrid.velocitiesY.size();
-  unsigned int interpolatedArrowsSize =
-      fluidGrid.cellCount.x * fluidGrid.cellCount.y * interpolatedScale;
+  unsigned int numArrows = (fluidGrid.cellCount.x * interpolatedScale) *
+                           (fluidGrid.cellCount.y * interpolatedScale);
+
+  size_t maxVertices = (gridSize * 6) + (numArrows * 3);
+
   vertexBuffer = std::make_unique<Buffer<Vertex>>(
       context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-      gridSize * 6 + arrowsSize * 3 + interpolatedArrowsSize * 3);
+      maxVertices);
 }
 void SmokeSys::createPipeline() {
   std::vector<VkDescriptorSetLayout> setLayouts{
@@ -34,8 +35,7 @@ void SmokeSys::createPipeline() {
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  pipelineLayoutInfo.setLayoutCount =
-      static_cast<uint32_t>(setLayouts.size());
+  pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
   pipelineLayoutInfo.pSetLayouts = setLayouts.data();
 
   PipelineCreateInfo pipelineInfo{};
@@ -51,97 +51,57 @@ void SmokeSys::createPipeline() {
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "smoke");
 }
 SmokeSys::SmokeSys(EngineContext &context)
-    : System(context), fluidGrid(glm::ivec2{5, 5}, 1.f) {
+    : System(context), fluidGrid(glm::ivec2{15, 15}, 1.f) {
   createPipeline();
   createBuffer();
 }
 
 void SmokeSys::update() {
   std::vector<Vertex> vertices;
-  unsigned int gridSize = fluidGrid.cellCount.x * fluidGrid.cellCount.y;
-  unsigned int arrowsSize =
-      fluidGrid.velocitiesX.size() * fluidGrid.velocitiesY.size();
-  unsigned int interpolatedArrowsSize =
-      fluidGrid.cellCount.x * fluidGrid.cellCount.y * interpolatedScale;
-  vertices.reserve(gridSize * 6 + arrowsSize * 3 + interpolatedArrowsSize * 3);
   const float arrowScale = .2f;
-  for (size_t x = 0; x < fluidGrid.cellCount.x * interpolatedScale; x++) {
-    for (size_t y = 0; y < fluidGrid.cellCount.y * interpolatedScale; y++) {
-      float ndc_x =
-          -1.0f + 2.0f * (static_cast<float>(x) /
-                          (fluidGrid.cellCount.x * interpolatedScale));
-      float ndc_y =
-          -1.0f + 2.0f * (static_cast<float>(y) /
-                          (fluidGrid.cellCount.y * interpolatedScale));
-
-      float dx = 2.0f / (fluidGrid.cellCount.x * interpolatedScale);
-      float dy = 2.0f / (fluidGrid.cellCount.y * interpolatedScale);
-
-      // Map (x,y) in interpolated grid → world space
-      float worldX = (static_cast<float>(x) /
-                      (fluidGrid.cellCount.x * interpolatedScale)) *
-                         (fluidGrid.cellCount.x * fluidGrid.cellSize) -
-                     (fluidGrid.cellCount.x * fluidGrid.cellSize) / 2.0f;
-      float worldY = (static_cast<float>(y) /
-                      (fluidGrid.cellCount.y * interpolatedScale)) *
-                         (fluidGrid.cellCount.y * fluidGrid.cellSize) -
-                     (fluidGrid.cellCount.y * fluidGrid.cellSize) / 2.0f;
-
-      glm::vec2 worldPos{worldX, worldY};
-      glm::vec2 velocity = fluidGrid.getVelocityAtWorldPos(worldPos);
-
-      // Arrow: vertical line from bottom to top, tip offset by velocity
-      glm::vec2 a{ndc_x, ndc_y + dy * arrowScale};
-      glm::vec2 b{ndc_x, ndc_y + dy * (1.0f - arrowScale)};
-      glm::vec2 c = glm::vec2(ndc_x, ndc_y + dy * 0.5f) + velocity * arrowScale;
-
-      glm::vec3 col{1.f, .5f, .5f};
-
-      vertices.emplace_back(a, col);
-      vertices.emplace_back(b, col);
-      vertices.emplace_back(c, col);
-    }
-  }
-  for (size_t x = 0; x < fluidGrid.cellCount.x + 1; x++) {
-    for (size_t y = 0; y < fluidGrid.cellCount.y; y++) {
-      float ndc_x = -1.0f + 2.0f * (float(x) / fluidGrid.cellCount.x);
-      float ndc_y = -1.0f + 2.0f * (float(y) / fluidGrid.cellCount.y);
-
-      float dx = 2.0f / fluidGrid.cellCount.x;
-      float dy = 2.0f / fluidGrid.cellCount.y;
-
-      glm::vec2 a{ndc_x, ndc_y + dy * arrowScale};
-      glm::vec2 b{ndc_x, ndc_y + dy * (1.f - arrowScale)};
-      glm::vec2 c{ndc_x + fluidGrid.velX(x, y) * arrowScale, ndc_y + dy * .5f};
-
-      glm::vec3 col{1.f};
-
-      vertices.emplace_back(a, col);
-      vertices.emplace_back(b, col);
-      vertices.emplace_back(c, col);
-    }
-  }
-  for (size_t x = 0; x < fluidGrid.cellCount.x; x++) {
-    for (size_t y = 0; y < fluidGrid.cellCount.y + 1; y++) {
-      float ndc_x = -1.0f + 2.0f * (float(x) / fluidGrid.cellCount.x);
-      float ndc_y = -1.0f + 2.0f * (float(y) / fluidGrid.cellCount.y);
-
-      float dx = 2.0f / fluidGrid.cellCount.x;
-      float dy = 2.0f / fluidGrid.cellCount.y;
-
-      glm::vec2 a{ndc_x + dx * arrowScale, ndc_y};
-      glm::vec2 b{ndc_x + dx * (1.f - arrowScale), ndc_y};
-      glm::vec2 c{ndc_x + dx * .5f, ndc_y + fluidGrid.velY(x, y) * arrowScale};
-
-      glm::vec3 col{1.f};
-
-      vertices.emplace_back(a, col);
-      vertices.emplace_back(b, col);
-      vertices.emplace_back(c, col);
-    }
-  }
+  fluidGrid.advectVelocities();
   fluidGrid.solvePressure();
   fluidGrid.updateVelocities();
+  for (size_t x = 0; x < fluidGrid.cellCount.x * interpolatedScale; x++) {
+    for (size_t y = 0; y < fluidGrid.cellCount.y * interpolatedScale; y++) {
+      float fx = (static_cast<float>(x) + 0.5f) /
+                 (fluidGrid.cellCount.x * interpolatedScale);
+      float fy = (static_cast<float>(y) + 0.5f) /
+                 (fluidGrid.cellCount.y * interpolatedScale);
+
+      // Map to NDC range (-1.0 to 1.0)
+      glm::vec2 ndc{-1.f + 2.f * fx, -1.f + 2.f * fy};
+
+      glm::vec2 worldPos{fx * fluidGrid.cellCount.x,
+                         fy * fluidGrid.cellCount.y};
+
+      glm::vec2 velocity = fluidGrid.getVelocityAtWorldPos(worldPos);
+
+      float speed = glm::length(velocity);
+      if (speed > 0.0001f) {
+        glm::vec2 dir = velocity / speed;
+        glm::vec2 side =
+            glm::vec2(-dir.y, dir.x) * 0.3f; // Perpendicular for width
+
+        // Base of the arrow (centered at the sample point)
+        glm::vec2 base = ndc;
+        // Tip of the arrow (scaled by velocity)
+        glm::vec2 tip = ndc + velocity * arrowScale;
+        // Left/Right wings for a triangle shape
+        glm::vec2 left =
+            ndc + (velocity * arrowScale * 0.7f) + (side * arrowScale);
+        glm::vec2 right =
+            ndc + (velocity * arrowScale * 0.7f) - (side * arrowScale);
+
+        glm::vec3 col =
+            glm::mix(glm::vec3(0.2, 0.2, 1.0), glm::vec3(1.0, 0.2, 0.2), speed);
+
+        vertices.emplace_back(tip, col);
+        vertices.emplace_back(left, col);
+        vertices.emplace_back(right, col);
+      }
+    }
+  }
   for (size_t x = 0; x < fluidGrid.cellCount.x; x++) {
     for (size_t y = 0; y < fluidGrid.cellCount.y; y++) {
       size_t idx = x + y * fluidGrid.cellCount.x;
@@ -178,6 +138,7 @@ void SmokeSys::update() {
     }
   }
 
+  activeVerticesCount = vertices.size();
   vertexBuffer->map();
   vertexBuffer->write(vertices.data(), vertices.size() * sizeof(Vertex));
   vertexBuffer->unmap();
@@ -186,20 +147,14 @@ void SmokeSys::update() {
 void SmokeSys::render() {
   pipeline->bind(context.frameInfo.cmd);
 
-  vkCmdBindDescriptorSets(context.frameInfo.cmd,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
-                          &context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], 0, nullptr);
+  vkCmdBindDescriptorSets(
+      context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
+      &context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], 0,
+      nullptr);
 
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers, offsets);
-  unsigned int gridSize = fluidGrid.cellCount.x * fluidGrid.cellCount.y;
-  unsigned int arrowsSize =
-      fluidGrid.velocitiesX.size() * fluidGrid.velocitiesY.size();
-  unsigned int interpolatedArrowsSize =
-      fluidGrid.cellCount.x * fluidGrid.cellCount.y * interpolatedScale;
-  vkCmdDraw(context.frameInfo.cmd,
-            gridSize * 6 + arrowsSize * 3 + interpolatedArrowsSize * 3, 1, 0,
-            0);
+  vkCmdDraw(context.frameInfo.cmd, activeVerticesCount * 3, 1, 0, 0);
 }
 } // namespace vkh
