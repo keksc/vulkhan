@@ -20,7 +20,7 @@ public:
   WSTessendorf(EngineContext &context);
   ~WSTessendorf();
 
-  float recordComputeWaves(VkCommandBuffer &cmd, float time);
+  void recordComputeWaves(VkCommandBuffer &cmd, float time);
 
   // has to be a power of 2
   const unsigned int tileSize = 512;
@@ -100,39 +100,6 @@ private:
 
   void createDescriptors();
 
-  std::unique_ptr<Buffer<float>> minReductionBuffer0;
-  std::unique_ptr<Buffer<float>> maxReductionBuffer0;
-  std::unique_ptr<Buffer<float>> minReductionBuffer1;
-  std::unique_ptr<Buffer<float>> maxReductionBuffer1;
-  std::unique_ptr<Buffer<float>> minReductionBuffer2;
-  std::unique_ptr<Buffer<float>> maxReductionBuffer2;
-
-  VkDescriptorSetLayout reductionSetLayout0;
-  VkDescriptorSetLayout reductionSetLayout1;
-  VkDescriptorSet reductionSet0;
-  VkDescriptorSet reductionSet1;
-  VkDescriptorSet reductionSet2;
-
-  std::unique_ptr<ComputePipeline> reductionPipeline0;
-  std::unique_ptr<ComputePipeline> reductionPipeline1;
-
-  struct ReductionPushConstants {
-    uint32_t inputSize;
-  };
-
-  std::unique_ptr<Buffer<float>> masterMinBuffer;
-  std::unique_ptr<Buffer<float>> masterMaxBuffer;
-  std::unique_ptr<Buffer<float>> scaleBuffer;
-
-  VkDescriptorSetLayout updateSetLayout;
-  VkDescriptorSet updateSet;
-  VkDescriptorSetLayout normalizeSetLayout;
-  VkDescriptorSet normalizeSet;
-
-  std::unique_ptr<ComputePipeline> updatePipeline;
-  std::unique_ptr<ComputePipeline> normalizePipeline;
-
-  VkCommandBuffer preRecordedCmdBuffer{};
   std::unique_ptr<Buffer<glm::vec4>> displacementsAndNormals;
 };
 } // namespace vkh

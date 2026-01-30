@@ -6,7 +6,6 @@ layout(set = 0, binding = 0) uniform VertexUBO {
     mat4 model;
     mat4 view;
     mat4 proj;
-    float WSHeightAmp;
     float WSChoppy;
     float scale;
 } vertexUBO;
@@ -36,7 +35,6 @@ void main() {
 
     // Apply displacement
     vec4 D = texture(displacementMap, uv * vertexUBO.scale);
-    D.y *= vertexUBO.WSHeightAmp;
     vec3 displacedPos = pos + D.xyz;
 
     // Transform to world space
