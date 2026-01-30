@@ -59,6 +59,7 @@ SmokeSys::SmokeSys(EngineContext &context)
 void SmokeSys::update() {
   std::vector<Vertex> vertices;
   const float arrowScale = .2f;
+  fluidGrid.velX(7, 6) = glfwGetTime()*.1f;
   fluidGrid.advectVelocities();
   fluidGrid.solvePressure();
   fluidGrid.updateVelocities();

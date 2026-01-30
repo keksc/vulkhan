@@ -6,7 +6,6 @@ layout(set = 0, binding = 0) uniform VertexUBO {
     mat4 model;
     mat4 view;
     mat4 proj;
-    float WSHeightAmp;
     float WSChoppy;
     float scale;
 } vertexUBO;
@@ -32,7 +31,7 @@ void main() {
         }
         vec3 patchCenter = (worldPos[0] + worldPos[1] + worldPos[2] + worldPos[3]) / 4.0;
         float distance = length(patchCenter - waterUBO.camPos);
-        float tessLevel = clamp(256.0 - distance, 1.0, 16.0);
+        float tessLevel = clamp(256.0 - distance * 0.2, 1.0, 16.0);
 
         gl_TessLevelOuter[0] = tessLevel;
         gl_TessLevelOuter[1] = tessLevel;

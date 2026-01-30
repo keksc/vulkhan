@@ -127,7 +127,6 @@ private:
     alignas(16) glm::mat4 model;
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
-    float WSHeightAmp;
     float WSChoppy;
     float scale{1.0f};    ///< Texture scale
     float vertexDistance; ///< Physical distance between vertices

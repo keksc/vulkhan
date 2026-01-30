@@ -38,7 +38,7 @@ void WaterSys::createPipeline() {
   pipelineInfo.layoutInfo.pSetLayouts = setLayouts;
   pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
-  pipelineInfo.rasterizationInfo.polygonMode = VK_POLYGON_MODE_LINE;
+  // pipelineInfo.rasterizationInfo.polygonMode = VK_POLYGON_MODE_LINE;
   pipelineInfo.attributeDescriptions = Vertex::s_AttribDescriptions;
   pipelineInfo.bindingDescriptions = Vertex::s_BindingDescriptions;
   pipelineInfo.vertpath = "shaders/water/water.vert.spv";
@@ -63,7 +63,8 @@ void WaterSys::createUniformBuffers(const uint32_t bufferCount) {
 void WaterSys::createDescriptorSets(const uint32_t count) {
   sets.reserve(count);
   for (size_t i = 0; i < count; i++) {
-    auto& set = sets.emplace_back(context.vulkan.globalDescriptorAllocator->allocate(setLayout));
+    auto &set = sets.emplace_back(
+        context.vulkan.globalDescriptorAllocator->allocate(setLayout));
     std::string str = std::format("set #{} for WaterSys", i);
     debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET,
                       reinterpret_cast<uint64_t>(set), str.c_str());
@@ -134,7 +135,7 @@ std::vector<WaterSys::Vertex> WaterSys::createGridVertices() {
 std::vector<uint32_t> WaterSys::createGridIndices() {
   const uint32_t vertexCount = tileResolution + 1;
   std::vector<uint32_t> indices;
-  indices.reserve(tileResolution * tileResolution * 4); // 4 indices per quad
+  indices.reserve(tileResolution * tileResolution * 4); // because of tesselation quads are enough
   for (uint32_t y = 0; y < tileResolution; ++y) {
     for (uint32_t x = 0; x < tileResolution; ++x) {
       uint32_t v0 = y * vertexCount + x;
@@ -197,9 +198,8 @@ void WaterSys::prepare() {
   auto cmd = beginSingleTimeCommands(context);
   recordCreateFrameMaps(cmd);
 
-  // Do one pass to initialize the maps
-  vertexUBO.WSHeightAmp = modelTess.recordComputeWaves(
-      cmd, static_cast<float>(glfwGetTime()) * animSpeed);
+  modelTess.recordComputeWaves(cmd,
+                               static_cast<float>(glfwGetTime()) * animSpeed);
 
   recordUpdateFrameMaps(cmd, frameMap);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
@@ -215,15 +215,11 @@ void WaterSys::update() {
   waterSurfaceUBO.camPos = context.camera.position;
 
   updateUniformBuffer();
-  // UpdateMeshBuffers(device, cmdBuffer);
   updateDescriptorSet(sets[context.frameInfo.frameIndex]);
   if (playAnimation) {
     recordUpdateFrameMaps(context.frameInfo.cmd, frameMap);
-    // auto cmd = beginSingleTimeCommands(context);
-    // vkCmdDispatch(cmd, 16, 16, 1);
-    // endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
-    vertexUBO.WSHeightAmp = modelTess.recordComputeWaves(
-        context.frameInfo.cmd, static_cast<float>(glfwGetTime()) * animSpeed);
+    modelTess.recordComputeWaves(context.frameInfo.cmd,
+                                 static_cast<float>(glfwGetTime()) * animSpeed);
   }
 }
 

@@ -19,13 +19,11 @@ void main() {
     vec3 R = reflect(-V, N);
     
     vec3 reflection = texture(skybox, R).rgb;
-    vec3 waterColor = vec4(0.01, 0.05, 0.1, 1.0).rgb; // Deep blue base
+    vec3 waterColor = vec4(0.01, 0.05, 0.1, 1.0).rgb;
 
-    // Fresnel Schlick Approximation
-    float F0 = 0.02; // Reflectance at normal incidence for water
+    float F0 = 0.02;
     float fresnel = F0 + (1.0 - F0) * pow(1.0 - max(dot(N, V), 0.0), 5.0);
 
-    // Mix the base water color with the skybox reflection
     vec3 finalColor = mix(waterColor, reflection, fresnel);
 
     outColor = vec4(finalColor, 1.0);
