@@ -6,35 +6,33 @@ layout(std430, binding = 0) buffer FFTDataIn {
   vec2 FFTData[];
 };
 
-layout(std430, binding = 1) buffer DisplacementsAndNormalsOut {
-  vec4 displacementsAndNormals[];
-};
+layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D displacements;
 
 #include "constants.glsl"
 
 const uint bufferSize = tileSize * tileSize;
-const float lambda = -1.0;  // Should match m_Lambda from WSTessendorf
+const float lambda = -1.0; 
 
 void main() {
   uvec2 gid = gl_GlobalInvocationID.xy;
-
   const uint idx = gid.x + gid.y * tileSize;
 
   const int sign = ((gid.x + gid.y) & 1) == 0 ? 1 : -1;
 
+  // Index 0: Height
   float h_FT = FFTData[idx].x * float(sign);
+  
+  // Index 1: Disp X
+  float x_FT = FFTData[idx + bufferSize].x * float(sign);
+  
+  // Index 2: Disp Z
+  float z_FT = FFTData[idx + 2 * bufferSize].x * float(sign);
 
   vec4 displacement;
-  displacement.x = float(sign) * lambda * FFTData[idx + 3 * bufferSize].x;
+  displacement.x = lambda * x_FT;
   displacement.y = h_FT;
-  displacement.z = float(sign) * lambda * FFTData[idx + 4 * bufferSize].x;
-  displacement.w = 1.0;
+  displacement.z = lambda * z_FT;
+  displacement.w = 1.0; // Padding/Unused
 
-  displacementsAndNormals[idx] = displacement;
-
-  displacementsAndNormals[idx + bufferSize] = vec4(sign * FFTData[idx + bufferSize].x,
-                              sign * FFTData[idx + 2 * bufferSize].x,
-                              sign * FFTData[idx + 5 * bufferSize].x,
-                              sign * FFTData[idx + 6 * bufferSize].x);
-
+  imageStore(displacements, ivec2(gid.x, gid.y), displacement);
 }

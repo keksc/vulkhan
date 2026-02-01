@@ -26,72 +26,62 @@ void Image::recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout,
   imageMemoryBarrier.newLayout = newLayout;
   imageMemoryBarrier.image = img;
   imageMemoryBarrier.subresourceRange = subresourceRange;
+  VkPipelineStageFlags srcStageMask = 0;
+  VkPipelineStageFlags dstStageMask = 0;
 
   switch (layout) {
   case VK_IMAGE_LAYOUT_UNDEFINED:
     imageMemoryBarrier.srcAccessMask = 0;
+    srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     break;
 
   case VK_IMAGE_LAYOUT_PREINITIALIZED:
     imageMemoryBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-    break;
-
-  case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-    imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    break;
-
-  case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-    imageMemoryBarrier.srcAccessMask =
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    break;
-
-  case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-    imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    srcStageMask = VK_PIPELINE_STAGE_HOST_BIT;
     break;
 
   case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
     imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+    break;
+
+  case VK_IMAGE_LAYOUT_GENERAL:
+    imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    srcStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
     break;
 
   case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
     imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    srcStageMask = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                   VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
+                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     break;
   default:
     break;
   }
 
   switch (newLayout) {
-  case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-    imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    break;
-
-  case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-    imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-    break;
-
-  case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-    imageMemoryBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    break;
-
-  case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-    imageMemoryBarrier.dstAccessMask =
-        imageMemoryBarrier.dstAccessMask |
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+  case VK_IMAGE_LAYOUT_GENERAL:
+    imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    dstStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
     break;
 
   case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-    if (imageMemoryBarrier.srcAccessMask == 0) {
-      imageMemoryBarrier.srcAccessMask =
-          VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
-    }
     imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    dstStageMask = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+                   VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
+                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    break;
+
+  case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+    imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
     break;
   default:
     break;
   }
 
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-                       VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0,
+  vkCmdPipelineBarrier(cmd, srcStageMask, dstStageMask, 0, 0, nullptr, 0,
                        nullptr, 1, &imageMemoryBarrier);
   layout = newLayout;
 }

@@ -11,10 +11,10 @@ layout(std430, binding = 0) buffer FFTDataOut {
 };
 
 struct BaseWaveHeight {
-  vec2 heightAmp;      ///< FT amplitude of wave height
-  vec2 heightAmp_conj; ///< conjugate of wave height amplitude
-  float dispersion;    ///< Descrete dispersion value
-  float pad;           //  4
+  vec2 heightAmp;
+  vec2 heightAmp_conj; 
+  float dispersion;
+  float pad;           
 };
 
 layout(std430, binding = 1) buffer BaseWaveHeightFieldIn {
@@ -38,37 +38,27 @@ vec2 cmul(vec2 a, vec2 b) {
 
 vec2 waveHeightFT(const uint idx, const float t) {
   const float omega_t = baseWaveHeightField[idx].dispersion * t;
-
   // exp(ix) = cos(x) * i*sin(x)
   const float pcos = cos(omega_t);
   const float psin = sin(omega_t);
-
   return cmul(baseWaveHeightField[idx].heightAmp, vec2(pcos, psin)) +
          cmul(baseWaveHeightField[idx].heightAmp_conj, vec2(pcos, -psin));
 }
 
 void main() {
   uvec2 gid = gl_GlobalInvocationID.xy;
-
   const uint idx = gid.x + gid.y * tileSize;
-
   const uint bufferSize = tileSize * tileSize;
 
   const vec2 height = waveHeightFT(idx, pc.t);
   const WaveVector waveVector = waveVectors[idx];
 
-  // height
+  // 0: Height
   FFTData[idx] = height;
-  // slopeX
-  FFTData[idx + bufferSize] = cmul(vec2(0, waveVector.vec.x), height);
-  // slopeZ
-  FFTData[idx + 2 * bufferSize] = cmul(vec2(0, waveVector.vec.y), height);
-  // displacementX
-  FFTData[idx + 3 * bufferSize] = cmul(vec2(0, -waveVector.unit.x), height);
-  // displacementZ
-  FFTData[idx + 4 * bufferSize] = cmul(vec2(0, -waveVector.unit.y), height);
-  // dxDisplacementX
-  FFTData[idx + 5 * bufferSize] = cmul(vec2(0, waveVector.vec.x), height);
-  // dzDisplacementZ
-  FFTData[idx + 6 * bufferSize] = cmul(vec2(0, waveVector.vec.y), height);
+  
+  // 1: DisplacementX (Choppy) - formerly index 3
+  FFTData[idx + bufferSize] = cmul(vec2(0, -waveVector.unit.x), height);
+  
+  // 2: DisplacementZ (Choppy) - formerly index 4
+  FFTData[idx + 2 * bufferSize] = cmul(vec2(0, -waveVector.unit.y), height);
 }

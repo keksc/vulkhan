@@ -35,50 +35,45 @@ void WSTessendorf::createDescriptors() {
   debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
                     reinterpret_cast<uint64_t>(preFFTSetLayout),
                     "WaterSys pre FFT descriptor set layout");
-  VkDescriptorBufferInfo preFFTDescriptorInfos[] = {
-      FFTData->descriptorInfo(), baseWaveHeightField->descriptorInfo(),
-      waveVectors->descriptorInfo()};
   preFFTSet =
       context.vulkan.globalDescriptorAllocator->allocate(preFFTSetLayout);
   DescriptorWriter writer(context);
-  writer.writeBuffer(0, preFFTDescriptorInfos[0],
+  writer.writeBuffer(0, FFTData->descriptorInfo(),
                      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-  writer.writeBuffer(1, preFFTDescriptorInfos[1],
+  writer.writeBuffer(1, baseWaveHeightField->descriptorInfo(),
                      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-  writer.writeBuffer(2, preFFTDescriptorInfos[2],
+  writer.writeBuffer(2, waveVectors->descriptorInfo(),
                      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   writer.updateSet(preFFTSet);
 
-  postFFTSetLayout = buildDescriptorSetLayout(context, bindings);
+  // Post FFT bindings: 0: FFTData, 1: Displacements
+  std::vector<VkDescriptorSetLayoutBinding> postBindings = {
+      VkDescriptorSetLayoutBinding{
+          .binding = 0,
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          .descriptorCount = 1,
+          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      },
+      VkDescriptorSetLayoutBinding{
+          .binding = 1,
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+          .descriptorCount = 1,
+          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      }};
+
+  postFFTSetLayout = buildDescriptorSetLayout(context, postBindings);
   debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
                     reinterpret_cast<uint64_t>(postFFTSetLayout),
                     "WaterSys post FFT descriptor set layout");
-  VkDescriptorBufferInfo postFFTDescriptorInfos[] = {
-      FFTData->descriptorInfo(), displacementsAndNormals->descriptorInfo(),
-      displacementsAndNormals->descriptorInfo()};
   postFFTSet =
       context.vulkan.globalDescriptorAllocator->allocate(postFFTSetLayout);
   writer.clear();
-  writer.writeBuffer(0, postFFTDescriptorInfos[0],
+  writer.writeBuffer(0, FFTData->descriptorInfo(),
                      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-  writer.writeBuffer(1, postFFTDescriptorInfos[1],
-                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-  writer.writeBuffer(2, postFFTDescriptorInfos[2],
-                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeImage(
+      1, displacementMap->getDescriptorInfo(context.vulkan.defaultSampler),
+      VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
   writer.updateSet(postFFTSet);
-
-  bindings = {VkDescriptorSetLayoutBinding{
-                  .binding = 0,
-                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                  .descriptorCount = 1,
-                  .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-              },
-              VkDescriptorSetLayoutBinding{
-                  .binding = 1,
-                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                  .descriptorCount = 1,
-                  .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-              }};
 }
 
 WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
@@ -88,22 +83,22 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
 
   FFTData = std::make_unique<Buffer<std::complex<float>>>(
       context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 7 * tileSizeSquared);
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 3 * tileSizeSquared);
 
   baseWaveHeightField = std::make_unique<Buffer<BaseWaveHeight>>(
       context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-      tileSizeSquared);
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, tileSizeSquared);
 
   waveVectors = std::make_unique<Buffer<WaveVector>>(
       context,
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, tileSizeSquared);
 
-  displacementsAndNormals = std::make_unique<Buffer<glm::vec4>>(
-      context,
-      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, tileSizeSquared * 2);
+  displacementMap = std::make_unique<Image>(
+      context, glm::uvec2{tileSize}, VK_FORMAT_R32G32B32A32_SFLOAT,
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+          VK_IMAGE_USAGE_STORAGE_BIT,
+      VK_IMAGE_LAYOUT_GENERAL, "water displacement map");
 
   VkFFTConfiguration config{};
   config.physicalDevice = &context.vulkan.physicalDevice;
@@ -117,14 +112,14 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   config.size[1] = tileSize;
   config.doublePrecision = 0;
   config.halfPrecision = 0;
-  config.numberBatches = 7;
+  config.numberBatches = 3;
   config.useLUT = 0;
   config.performR2C = 0;
   config.performDCT = 0;
   config.disableReorderFourStep = 0;
 
   uint64_t bufSize =
-      7 * config.size[0] * config.size[1] * sizeof(std::complex<float>);
+      3 * config.size[0] * config.size[1] * sizeof(std::complex<float>);
   config.buffer = *FFTData;
   config.bufferSize = &bufSize;
   config.bufferNum = 1;
@@ -245,6 +240,7 @@ void WSTessendorf::recordComputeWaves(VkCommandBuffer &cmd, float t) {
 
     debug::beginLabel(context, cmd, "post FFT", {.2f, .2f, 1.f, 1.f});
     {
+      displacementMap->recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_GENERAL);
       vkCmdPushConstants(cmd, postFFTPipeline->getLayout(),
                          VK_SHADER_STAGE_COMPUTE_BIT, 0,
                          sizeof(PushConstantData), &data);
@@ -253,6 +249,7 @@ void WSTessendorf::recordComputeWaves(VkCommandBuffer &cmd, float t) {
                               postFFTPipeline->getLayout(), 0, 1, &postFFTSet,
                               0, nullptr);
       vkCmdDispatch(cmd, tileSize / 16, tileSize / 16, 1);
+      displacementMap->recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     debug::endLabel(context, cmd);
   }

@@ -6,10 +6,10 @@
 
 #include <complex>
 #include <memory>
-#include <random>
 #include <vector>
 
 #include "../../buffer.hpp"
+#include "../../image.hpp"
 #include "../system.hpp"
 
 #include <vkFFT.h>
@@ -27,8 +27,8 @@ public:
   const unsigned int tileSizeSquared = tileSize * tileSize;
   const float tileLength = 1000.0f;
 
-  Buffer<glm::vec4> &getDisplacementsAndNormalsBuffer() {
-    return *displacementsAndNormals;
+  Image &getDisplacementsImage() {
+    return *displacementMap;
   }
   float lambda{-1.0f}; ///< Importance of displacement vector
 
@@ -54,30 +54,6 @@ private:
                 "BaseWaveHeight must match std430!");
 
   void computeWaveVectors(std::vector<WaveVector> &waveVecs);
-  // std::vector<BaseWaveHeight> computeBaseWaveHeightField(
-  //     const std::vector<WaveVector> waveVectors) const;
-
-  glm::vec2 m_WindDir = glm::vec2(.7071067812f); ///< Unit vector
-  float m_WindSpeed{50.0f};
-
-  // Phillips spectrum
-  float m_Damping{0.1f};
-
-  float m_AnimationPeriod;
-  float m_BaseFreq{1.0f};
-
-private:
-  static std::complex<float> WaveHeightFT(const BaseWaveHeight &waveHeight,
-                                          const float t) {
-    const float omega_t = waveHeight.dispersion * t;
-
-    // exp(ix) = cos(x) * i*sin(x)
-    const float pcos = glm::cos(omega_t);
-    const float psin = glm::sin(omega_t);
-
-    return waveHeight.heightAmp * std::complex<float>(pcos, psin) +
-           waveHeight.heightAmp_conj * std::complex<float>(pcos, -psin);
-  }
 
   std::unique_ptr<Buffer<std::complex<float>>> FFTData;
   std::unique_ptr<Buffer<BaseWaveHeight>> baseWaveHeightField;
@@ -100,6 +76,6 @@ private:
 
   void createDescriptors();
 
-  std::unique_ptr<Buffer<glm::vec4>> displacementsAndNormals;
+  std::unique_ptr<Image> displacementMap;
 };
 } // namespace vkh
