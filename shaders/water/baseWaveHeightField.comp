@@ -5,14 +5,12 @@ layout(local_size_x = 16, local_size_y = 16) in;
 layout(std430, binding = 0) buffer FFTDataOut {
   vec2 FFTData[];
 };
-
 struct BaseWaveHeight {
   vec2 heightAmp;      ///< FT amplitude of wave height
   vec2 heightAmp_conj; ///< conjugate of wave height amplitude
   float dispersion;    ///< Descrete dispersion value
   float pad;           //  4
 };
-
 layout(std430, binding = 1) buffer BaseWaveHeightFieldIn {
   BaseWaveHeight baseWaveHeightField[];
 };
@@ -21,18 +19,13 @@ struct WaveVector {
   vec2 vec;
   vec2 unit;
 };
-
 layout(std430, binding = 2) buffer WaveVectorsIn {
   WaveVector waveVectors[];
 };
-
 #include "constants.glsl"
-#define TWO_PI 6.2831853071795864769252867665590
-#define PI 3.1415926535897932384626433832795
-const float g = 9.81;
+
 // Hash function from https://www.shadertoy.com/view/4djSRW
 vec2 uhash22(uvec2 n) {
-    // Simple bit-mix hash to produce a uniform vec2 in [0,1)
     n ^= (n.yx >> 1);
     n *= 0x27d4eb2du;
     n ^= (n.yx >> 3);
@@ -46,18 +39,19 @@ vec2 gaussian(uvec2 seed) {
     u = clamp(u, vec2(1e-6), vec2(1.0 - 1e-6)); // Avoid log(0)
 
     float r = sqrt(-2.0 * log(u.x));
-    float theta = TWO_PI * u.y;
+    float theta = 6.28318530718 * u.y;
 
-    return vec2(r * cos(theta), r * sin(theta)); // Two independent standard normals
+    return vec2(r * cos(theta), r * sin(theta));
 }
+
 const float m_A = 3e-7f;
 const float oneOver2sqrt = 0.7071067812;
 const vec2 windDir = vec2(0.7071067812);
 const float windSpeed = 50.f;
-/** @param Suppresses wave lengths smaller that its value */
 const float damping = 0.1;
 const float animationPeriod = 200.f;
-const float baseFreq = 2.0f * PI / animationPeriod;
+const float baseFreq = 2.0f * 3.14159265359 / animationPeriod;
+const float g = 9.81;
 
 float jonswapSpectrum(vec2 unitWaveVec, float k) {
     if (k < 1e-6) return 0.0;
@@ -77,10 +71,6 @@ float jonswapSpectrum(vec2 unitWaveVec, float k) {
     return S;
 }
 
-/**
- * @brief Realization of water wave height field in fourier domain
- * @return Fourier amplitudes of a wave height field
- */
 vec2 baseWaveHeightFT(vec2 gaussRandom, vec2 unitWaveVec, float k) {
   return oneOver2sqrt * gaussRandom * sqrt(jonswapSpectrum(unitWaveVec, k));
 }
@@ -88,39 +78,11 @@ vec2 baseWaveHeightFT(vec2 gaussRandom, vec2 unitWaveVec, float k) {
 vec2 conj(vec2 c) {
   return vec2(c.x, -c.y);
 }
-/**
- * @brief Dispersion relation for waves where the bottom is relatively
- *  shallow compared to the length of the waves
- * @param k Magnitude of wave vector
- * @param D Depth below the mean water level
- */
-float DispersionTransWaves(float k, float D) {
-  return sqrt(g * k * tanh(k * D));
-}
 
-/**
- * @brief Dispersion relation for very small waves, i.e., with
- *  wavelength of about >1 cm
- * @param k Magnitude of wave vector
- * @param L wavelength
- */
-float DispersionSmallWaves(float k, float L) {
-  return sqrt(g * k * (1 + k * k * L * L));
-}
-
-/**
- * @brief Dispersion relation for deep water, where the bottom may be
- *  ignored
- * @param k Magnitude of wave vector
- */
 float DispersionDeepWaves(float k) {
   return sqrt(g * k);
 }
-/**
- * @brief Computes quantization of the dispersion surface
- *  - of the frequencies of dispersion relation
- * @param k Magnitude of wave vector
- */
+
 float QDispersion(float k) {
   return floor(DispersionDeepWaves(k) / baseFreq) * baseFreq;
 }
@@ -133,7 +95,6 @@ void main() {
     const WaveVector kWaveVec = waveVectors[idx];
     const float k = length(kWaveVec.vec);
     BaseWaveHeight h0;
-
     if (k > 0.00001) {
         vec2 gaussRandom = gaussian(uvec2(x, y));
         h0.heightAmp = baseWaveHeightFT(gaussRandom, kWaveVec.unit, k);
