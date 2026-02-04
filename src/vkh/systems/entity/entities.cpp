@@ -94,11 +94,17 @@ EntitySys::EntitySys(EngineContext &context, SkyboxSys &skyboxSys)
 EntitySys::~EntitySys() {
   vkDestroyDescriptorSetLayout(context.vulkan.device, setLayout, nullptr);
 }
-void EntitySys::compactDraws() {
+void EntitySys::setEntities(std::vector<Entity> &entities) {
+  Buffer<VkDrawIndexedIndirectCommand> cmdsBuf(
+      context, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  VkDrawIndexedIndirectCommand cmd{};
+  cmd.instanceCount = 1;
   batches.clear();
   batches.emplace_back(entities[0], 1);
   for (std::size_t i = 1; i < entities.size(); i++) {
-    if ((batches.end() - 1)->entity->scene == entities[i]->scene)
+    if ((batches.end() - 1)->entity.scene == entities[i].scene)
       (batches.end() - 1)->count++;
     else
       batches.emplace_back(entities[i], 1);
@@ -123,44 +129,44 @@ void EntitySys::render() {
   // std::println("batches: {}", batches.size());
   // std::println("entities: {}", entities.size());
 
-  std::shared_ptr<Scene<Vertex>> currentScene = nullptr;
-  for (auto &entity : entities) {
-    auto &scene = entity->scene;
-    if (scene != currentScene) {
-      currentScene = scene;
-      currentScene->bind(context, context.frameInfo.cmd, *pipeline);
-    }
-
-    PushConstantData push{};
-    auto *mesh = &entity->getMesh();
-    push.modelMatrix = entity->transform.mat4() * mesh->transform;
-    push.normalMatrix = entity->transform.normalMatrix();
-    Scene<Vertex>::Material *currentMaterial = nullptr;
-    for (auto &primitive : mesh->primitives) {
-      auto &mat = scene->materials[primitive.materialIndex];
-      if (&mat != currentMaterial) {
-        if (mat.baseColorTextureIndex.has_value()) {
-          push.useColorTexture = true;
-          vkCmdBindDescriptorSets(
-              context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline,
-              1, 1,
-              &scene->imageDescriptorSets[mat.baseColorTextureIndex.value()], 0,
-              nullptr);
-        } else {
-          vkCmdBindDescriptorSets(context.frameInfo.cmd,
-                                  VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1,
-                                  1, &dummySet, 0, nullptr);
-          push.useColorTexture = false;
-          push.color = mat.baseColorFactor;
-        }
-        vkCmdPushConstants(context.frameInfo.cmd, *pipeline,
-                           VK_SHADER_STAGE_VERTEX_BIT |
-                               VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(PushConstantData), &push);
-      }
-      primitive.draw(context.frameInfo.cmd);
-    }
-  }
+  // std::shared_ptr<Scene<Vertex>> currentScene = nullptr;
+  // for (auto &entity : entities) {
+  //   auto &scene = entity.scene;
+  //   if (scene != currentScene) {
+  //     currentScene = scene;
+  //     currentScene->bind(context, context.frameInfo.cmd, *pipeline);
+  //   }
+  //
+  //   PushConstantData push{};
+  //   auto *mesh = &entity.getMesh();
+  //   push.modelMatrix = entity.transform.mat4() * mesh->transform;
+  //   push.normalMatrix = entity.transform.normalMatrix();
+  //   Scene<Vertex>::Material *currentMaterial = nullptr;
+  //   for (auto &primitive : mesh->primitives) {
+  //     auto &mat = scene->materials[primitive.materialIndex];
+  //     if (&mat != currentMaterial) {
+  //       if (mat.baseColorTextureIndex.has_value()) {
+  //         push.useColorTexture = true;
+  //         vkCmdBindDescriptorSets(
+  //             context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline,
+  //             1, 1,
+  //             &scene->imageDescriptorSets[mat.baseColorTextureIndex.value()], 0,
+  //             nullptr);
+  //       } else {
+  //         vkCmdBindDescriptorSets(context.frameInfo.cmd,
+  //                                 VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1,
+  //                                 1, &dummySet, 0, nullptr);
+  //         push.useColorTexture = false;
+  //         push.color = mat.baseColorFactor;
+  //       }
+  //       vkCmdPushConstants(context.frameInfo.cmd, *pipeline,
+  //                          VK_SHADER_STAGE_VERTEX_BIT |
+  //                              VK_SHADER_STAGE_FRAGMENT_BIT,
+  //                          0, sizeof(PushConstantData), &push);
+  //     }
+  //     primitive.draw(context.frameInfo.cmd);
+  //   }
+  // }
   debug::endLabel(context, context.frameInfo.cmd);
 }
 } // namespace vkh

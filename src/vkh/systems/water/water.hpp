@@ -28,6 +28,7 @@ public:
   void createRenderData();
   void render();
   void update();
+  void downloadDisplacementAtWorldPos();
 
 private:
   SkyboxSys &skyboxSys;
@@ -64,9 +65,10 @@ private:
     static const inline std::vector<VkVertexInputAttributeDescription>
         attribDescriptions{GetAttributeDescriptions()};
   };
-  
+
   uint32_t tileResolution{32};
-  float vertexDistance{1000.f / static_cast<float>(tileResolution)};
+  float vertexDistance{WSTessendorf::tileLength /
+                       static_cast<float>(tileResolution)};
 
   VkDescriptorSetLayout setLayout;
   std::vector<VkDescriptorSet> sets;
@@ -81,7 +83,7 @@ private:
 
   struct VertexUBO {
     alignas(16) glm::mat4 model;
-    float scale{1.0f};
+    alignas(4) float scale{1.0f};
   } vertexUBO{};
 
   const uint32_t totalVertexCount = (tileResolution + 1) * (tileResolution + 1);

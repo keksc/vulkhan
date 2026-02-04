@@ -2,37 +2,74 @@
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
+// Updated Push Constant to include Delta Time
+layout(push_constant) uniform Push {
+  float t;
+  float dt;
+} pc;
+
 layout(std430, binding = 0) buffer FFTDataIn {
-  vec2 FFTData[];
+    vec2 FFTData[];
 };
+layout(set = 0, binding = 1, rgba16f) uniform image2D displacements;
 
-layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D displacements;
-
-#include "constants.glsl"
-
+layout (constant_id = 0) const uint tileSize = 512;
 const uint bufferSize = tileSize * tileSize;
-const float lambda = -1.0; 
+const float lambda = -1.0;
+
+float getSign(uint x, uint y) {
+    return 1.0 - 2.0 * float((x + y) & 1); 
+}
 
 void main() {
   uvec2 gid = gl_GlobalInvocationID.xy;
+  if (gid.x >= tileSize || gid.y >= tileSize) return;
+
+  // Precompute indices for neighbor access
+  uint xL = (gid.x + tileSize - 1) % tileSize;
+  uint xR = (gid.x + 1) % tileSize;
+  uint yT = (gid.y + tileSize - 1) % tileSize;
+  uint yB = (gid.y + 1) % tileSize;
+
   const uint idx = gid.x + gid.y * tileSize;
+    
+  float signCenter = getSign(gid.x, gid.y);
+    
+  float h_FT = FFTData[idx].x * signCenter;
+  float x_FT = FFTData[idx + bufferSize].x * signCenter;
+  float z_FT = FFTData[idx + 2 * bufferSize].x * signCenter;
+    
+  // Horizontal Displacement X (Buffer offset 1)
+  float dx_L = FFTData[xL + gid.y * tileSize + bufferSize].x * getSign(xL, gid.y);
+  float dx_R = FFTData[xR + gid.y * tileSize + bufferSize].x * getSign(xR, gid.y);
+  float dx_T = FFTData[gid.x + yT * tileSize + bufferSize].x * getSign(gid.x, yT);
+  float dx_B = FFTData[gid.x + yB * tileSize + bufferSize].x * getSign(gid.x, yB);
+    
+  // Horizontal Displacement Z (Buffer offset 2)
+  float dz_L = FFTData[xL + gid.y * tileSize + 2 * bufferSize].x * getSign(xL, gid.y);
+  float dz_R = FFTData[xR + gid.y * tileSize + 2 * bufferSize].x * getSign(xR, gid.y);
+  float dz_T = FFTData[gid.x + yT * tileSize + 2 * bufferSize].x * getSign(gid.x, yT);
+  float dz_B = FFTData[gid.x + yB * tileSize + 2 * bufferSize].x * getSign(gid.x, yB);
+    
+  // Calculate Partial Derivatives (Finite Differences)
+  float dDx_dx = (dx_R - dx_L) * 0.5 * lambda;
+  float dDx_dz = (dx_B - dx_T) * 0.5 * lambda;
+  float dDz_dx = (dz_R - dz_L) * 0.5 * lambda;
+  float dDz_dz = (dz_B - dz_T) * 0.5 * lambda;
 
-  const int sign = ((gid.x + gid.y) & 1) == 0 ? 1 : -1;
+  // Jacobian 
+  float J = (1.0 + dDx_dx) * (1.0 + dDz_dz) - (dDx_dz * dDz_dx);
+    
+  float currentFoam = imageLoad(displacements, ivec2(gid)).a;
 
-  // Index 0: Height
-  float h_FT = FFTData[idx].x * float(sign);
-  
-  // Index 1: Disp X
-  float x_FT = FFTData[idx + bufferSize].x * float(sign);
-  
-  // Index 2: Disp Z
-  float z_FT = FFTData[idx + 2 * bufferSize].x * float(sign);
+  // foam(t) = foam(0) * e^(-decayRate * t)
+  const float decayRate = 3.0; 
+  currentFoam *= exp(-decayRate * pc.dt);
 
-  vec4 displacement;
-  displacement.x = lambda * x_FT;
-  displacement.y = h_FT;
-  displacement.z = lambda * z_FT;
-  displacement.w = 1.0; // Padding/Unused
-
-  imageStore(displacements, ivec2(gid.x, gid.y), displacement);
+  const float foamThreshold = 0.3;
+  if (J < foamThreshold) {
+    currentFoam += (foamThreshold - J) * 2.5 * pc.dt;
+    currentFoam = min(currentFoam, 1.0);
+  }
+  imageStore(displacements, ivec2(gid), vec4(x_FT * lambda, h_FT, z_FT * lambda, currentFoam));
 }

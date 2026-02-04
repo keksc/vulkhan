@@ -65,22 +65,21 @@ public:
   };
 
   struct Batch {
-    std::shared_ptr<Entity> entity;
+    Entity& entity;
     uint32_t count;
   };
 
-  void compactDraws();
+  void setEntities(std::vector<Entity> &entities);
 
   EntitySys(EngineContext &context, SkyboxSys &skyboxSys);
   ~EntitySys();
   void createSetLayout();
   void render();
-  std::vector<std::shared_ptr<Entity>> entities;
-  std::vector<Batch> batches;
 
   VkDescriptorSetLayout setLayout;
 
 private:
+  std::vector<Batch> batches;
   std::unique_ptr<GraphicsPipeline> pipeline;
   SkyboxSys &skyboxSys;
   VkDescriptorSet dummySet;

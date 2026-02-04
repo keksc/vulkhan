@@ -4,6 +4,7 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(push_constant) uniform Push {
   float t;
+  float dt;
 } pc;
 
 layout(std430, binding = 0) buffer FFTDataOut {
@@ -30,7 +31,7 @@ layout(std430, binding = 2) buffer WaveVectorsIn {
   WaveVector waveVectors[];
 };
 
-#include "constants.glsl"
+layout (constant_id = 0) const uint tileSize = 512;
 
 vec2 cmul(vec2 a, vec2 b) {
   return vec2(a.x*b.x-a.y*b.y, a.x*b.y+b.x*a.y);
@@ -53,12 +54,10 @@ void main() {
   const vec2 height = waveHeightFT(idx, pc.t);
   const WaveVector waveVector = waveVectors[idx];
 
-  // 0: Height
+  // Height
   FFTData[idx] = height;
-  
-  // 1: DisplacementX (Choppy) - formerly index 3
+  // Choppy X
   FFTData[idx + bufferSize] = cmul(vec2(0, -waveVector.unit.x), height);
-  
-  // 2: DisplacementZ (Choppy) - formerly index 4
+  // Choppy Z
   FFTData[idx + 2 * bufferSize] = cmul(vec2(0, -waveVector.unit.y), height);
 }

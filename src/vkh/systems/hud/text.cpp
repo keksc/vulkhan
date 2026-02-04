@@ -140,6 +140,8 @@ TextSys::TextSys(EngineContext &context) : System(context) {
   createPipeline();
 }
 void TextSys::render(size_t indicesSize) {
+  debug::beginLabel(context, context.frameInfo.cmd, "TextSys rendering",
+                    glm::vec4{.2f, .7f, .6f, 1.f});
   pipeline->bind(context.frameInfo.cmd);
 
   VkBuffer buffers[] = {*vertexBuffer};
@@ -155,5 +157,6 @@ void TextSys::render(size_t indicesSize) {
 
   vkCmdDrawIndexed(context.frameInfo.cmd, static_cast<uint32_t>(indicesSize), 1,
                    0, 0, 0);
+  debug::endLabel(context, context.frameInfo.cmd);
 }
 } // namespace vkh

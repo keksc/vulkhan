@@ -15,14 +15,23 @@
 namespace vkh {
 void PostProcessingSys::createDescriptors() {
   setLayout = buildDescriptorSetLayout(
-      context, {VkDescriptorSetLayoutBinding{
+      context, {// Binding 0: Storage Image (Output)
+                VkDescriptorSetLayoutBinding{
                     .binding = 0,
                     .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                     .descriptorCount = 1,
                     .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
                 },
+                // Binding 1: Color Sampler (Input)
                 VkDescriptorSetLayoutBinding{
                     .binding = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .descriptorCount = 1,
+                    .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+                },
+                // Binding 2: Depth Sampler (Input)
+                VkDescriptorSetLayoutBinding{
+                    .binding = 2,
                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .descriptorCount = 1,
                     .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -55,10 +64,8 @@ void PostProcessingSys::createDescriptors() {
 }
 
 void PostProcessingSys::recreateDescriptors() {
-  // Clear old descriptor sets (optional, depending on descriptor pool flags)
   descriptorSets.clear();
 
-  // Recreate descriptor sets for new swap chain images
   auto imageCount = context.vulkan.swapChain->imageCount();
   descriptorSets.reserve(imageCount);
   for (size_t i = 0; i < imageCount; i++) {
@@ -68,17 +75,20 @@ void PostProcessingSys::recreateDescriptors() {
     swapImageInfo.imageView = context.vulkan.swapChain->getImageView(i);
     swapImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-    VkDescriptorImageInfo depthImageInfo{};
-    depthImageInfo.imageView = context.vulkan.swapChain->getDepthImageView(i);
-    depthImageInfo.imageLayout =
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-    depthImageInfo.sampler = context.vulkan.defaultSampler;
+    VkDescriptorImageInfo colorInfo{};
+    colorInfo.imageView = context.vulkan.swapChain->getDepthImageView(i);
+    colorInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    colorInfo.sampler = context.vulkan.defaultSampler;
+
+    VkDescriptorImageInfo depthInfo{
+        .sampler = context.vulkan.defaultSampler,
+        .imageView = context.vulkan.swapChain->getDepthImageView(i),
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
     DescriptorWriter writer(context);
-    writer.writeImage(0, swapImageInfo,
-                      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    writer.writeImage(1, depthImageInfo,
-                      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    writer.writeImage(0, swapImageInfo, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+    writer.writeImage(1, colorInfo, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+    writer.writeImage(2, depthInfo, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
     writer.updateSet(descriptorSets[i]);
   }
 }

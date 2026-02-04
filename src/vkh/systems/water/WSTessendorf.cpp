@@ -2,6 +2,7 @@
 
 #include <vulkan/vulkan_core.h>
 
+#include <format>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -46,7 +47,6 @@ void WSTessendorf::createDescriptors() {
                      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   writer.updateSet(preFFTSet);
 
-  // Post FFT bindings: 0: FFTData, 1: Displacements
   std::vector<VkDescriptorSetLayoutBinding> postBindings = {
       VkDescriptorSetLayoutBinding{
           .binding = 0,
@@ -71,7 +71,7 @@ void WSTessendorf::createDescriptors() {
   writer.writeBuffer(0, FFTData->descriptorInfo(),
                      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   writer.writeImage(
-      1, displacementMap->getDescriptorInfo(context.vulkan.defaultSampler),
+      1, displacementFoamMap->getDescriptorInfo(context.vulkan.defaultSampler),
       VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
   writer.updateSet(postFFTSet);
 }
@@ -94,8 +94,8 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, tileSizeSquared);
 
-  displacementMap = std::make_unique<Image>(
-      context, glm::uvec2{tileSize}, VK_FORMAT_R32G32B32A32_SFLOAT,
+  displacementFoamMap = std::make_unique<Image>(
+      context, glm::uvec2{tileSize}, VK_FORMAT_R16G16B16A16_SFLOAT,
       VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
           VK_IMAGE_USAGE_STORAGE_BIT,
       VK_IMAGE_LAYOUT_GENERAL, "water displacement map");
@@ -132,6 +132,17 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
 
   createDescriptors();
 
+  VkSpecializationMapEntry specMapEntry{};
+  specMapEntry.size = sizeof(uint32_t);
+  specMapEntry.constantID = 0;
+  specMapEntry.offset = 0;
+
+  VkSpecializationInfo specInfo{};
+  specInfo.mapEntryCount = 1;
+  specInfo.dataSize = sizeof(uint32_t);
+  specInfo.pMapEntries = &specMapEntry;
+  specInfo.pData = &tileSize;
+
   VkPipelineLayoutCreateInfo FFTLayoutInfo{};
   FFTLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   FFTLayoutInfo.setLayoutCount = 1;
@@ -143,12 +154,12 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   FFTLayoutInfo.pPushConstantRanges = &pushConstantRange;
   preFFTPipeline = std::make_unique<ComputePipeline>(
       context, "shaders/water/preFFT.comp.spv", FFTLayoutInfo,
-      "water pre FFT pipeline");
+      "water pre FFT pipeline", &specInfo);
 
   FFTLayoutInfo.pSetLayouts = &postFFTSetLayout;
   postFFTPipeline = std::make_unique<ComputePipeline>(
       context, "shaders/water/postFFT.comp.spv", FFTLayoutInfo,
-      "water post FFT pipeline");
+      "water post FFT pipeline", &specInfo);
 
   VkPipelineLayoutCreateInfo baseWaveHeightFieldLayoutInfo{};
   baseWaveHeightFieldLayoutInfo.sType =
@@ -157,7 +168,8 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   baseWaveHeightFieldLayoutInfo.pSetLayouts = &preFFTSetLayout;
   ComputePipeline baseWaveHeightFieldPipeline(
       context, "shaders/water/baseWaveHeightField.comp.spv",
-      baseWaveHeightFieldLayoutInfo, "water base wave height field pipeline");
+      baseWaveHeightFieldLayoutInfo, "water base wave height field pipeline",
+      &specInfo);
 
   Buffer<WaveVector> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
@@ -203,7 +215,7 @@ void WSTessendorf::computeWaveVectors(std::vector<WaveVector> &waveVecs) {
 void WSTessendorf::recordComputeWaves(VkCommandBuffer &cmd, float t) {
   debug::beginLabel(context, cmd, "record compute waves", {.2f, .2f, 1.f, 1.f});
   {
-    PushConstantData data{t};
+    PushConstantData data{.t = t, .dt = context.frameInfo.dt};
     debug::beginLabel(context, cmd, "pre FFT", {.2f, .2f, 1.f, 1.f});
     {
       vkCmdPushConstants(cmd, preFFTPipeline->getLayout(),
@@ -240,7 +252,8 @@ void WSTessendorf::recordComputeWaves(VkCommandBuffer &cmd, float t) {
 
     debug::beginLabel(context, cmd, "post FFT", {.2f, .2f, 1.f, 1.f});
     {
-      displacementMap->recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+      displacementFoamMap->recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+
       vkCmdPushConstants(cmd, postFFTPipeline->getLayout(),
                          VK_SHADER_STAGE_COMPUTE_BIT, 0,
                          sizeof(PushConstantData), &data);
@@ -249,7 +262,9 @@ void WSTessendorf::recordComputeWaves(VkCommandBuffer &cmd, float t) {
                               postFFTPipeline->getLayout(), 0, 1, &postFFTSet,
                               0, nullptr);
       vkCmdDispatch(cmd, tileSize / 16, tileSize / 16, 1);
-      displacementMap->recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+      displacementFoamMap->recordTransitionLayout(
+          cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
     debug::endLabel(context, cmd);
   }

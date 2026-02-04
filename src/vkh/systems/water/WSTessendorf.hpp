@@ -22,15 +22,13 @@ public:
 
   void recordComputeWaves(VkCommandBuffer &cmd, float time);
 
-  // has to be a power of 2
-  const unsigned int tileSize = 512;
-  const unsigned int tileSizeSquared = tileSize * tileSize;
-  const float tileLength = 1000.0f;
+  static constexpr unsigned int tileSize = 512; // has to be a power of 2
+  static constexpr unsigned int tileSizeSquared = tileSize * tileSize;
+  static constexpr float tileLength = 1000.f;
 
-  Image &getDisplacementsImage() {
-    return *displacementMap;
+  Image &getDisplacementFoamImage() {
+    return *displacementFoamMap;
   }
-  float lambda{-1.0f}; ///< Importance of displacement vector
 
 private:
   struct WaveVector {
@@ -72,10 +70,11 @@ private:
 
   struct PushConstantData {
     float t;
+    float dt;
   };
 
   void createDescriptors();
 
-  std::unique_ptr<Image> displacementMap;
+  std::unique_ptr<Image> displacementFoamMap;
 };
 } // namespace vkh

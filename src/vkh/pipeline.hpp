@@ -82,8 +82,8 @@ protected:
 
 class GraphicsPipeline : public Pipeline {
 public:
-  GraphicsPipeline(EngineContext &context,
-                   const PipelineCreateInfo &configInfo, const char* name = "Unnamed");
+  GraphicsPipeline(EngineContext &context, const PipelineCreateInfo &configInfo,
+                   const char *name = "Unnamed");
 
   static void enableAlphaBlending(PipelineCreateInfo &configInfo);
 };
@@ -92,8 +92,10 @@ class ComputePipeline : public Pipeline {
 public:
   ComputePipeline(EngineContext &context,
                   const std::filesystem::path &shaderpath,
-                  VkPipelineLayoutCreateInfo layoutInfo = {
-                      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO}, const char* name = "Unnamed pipeline");
+                  VkPipelineLayoutCreateInfo layoutInfo =
+                      {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO},
+                  const char *name = "Unnamed pipeline",
+                  VkSpecializationInfo *specializationInfo = nullptr);
 };
 
 } // namespace vkh
