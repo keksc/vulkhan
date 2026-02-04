@@ -65,6 +65,8 @@ void HudSys::render() {
     return;
   update();
 
+  debug::beginLabel(context, context.frameInfo.cmd, "HudSys rendering",
+                    glm::vec4{1.f, 1.f, 1.f, 1.f});
   VkClearAttachment clearAttachment = {};
   clearAttachment.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
   clearAttachment.clearValue.depthStencil = {0.0f, 0};
@@ -82,5 +84,6 @@ void HudSys::render() {
                        drawInfo.solidColorTriangleIndices.size());
 
   textSys.render(drawInfo.textIndices.size());
+  debug::endLabel(context, context.frameInfo.cmd);
 }
 } // namespace vkh

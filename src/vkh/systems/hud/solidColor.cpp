@@ -74,7 +74,9 @@ void SolidColorSys::createDescriptors() {
                    .descriptorCount = maxTextures,
                    .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
                }});
-  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, reinterpret_cast<uint64_t>(setLayout), "solidColor descriptor set layout");
+  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+                    reinterpret_cast<uint64_t>(setLayout),
+                    "solidColor descriptor set layout");
   std::vector<VkDescriptorImageInfo> imageInfos;
   for (const auto &img : images) {
     VkDescriptorImageInfo info = imageInfos.emplace_back(
@@ -142,6 +144,10 @@ SolidColorSys::~SolidColorSys() {
 
 void SolidColorSys::render(size_t lineVerticesSize,
                            size_t triangleIndicesSize) {
+  debug::beginLabel(context, context.frameInfo.cmd, "SolidColorSys rendering",
+                    glm::vec4{.9f, .1f, .1f, 1.f});
+  debug::beginLabel(context, context.frameInfo.cmd, "lines",
+                    glm::vec4{.9f, .1f, .1f, 1.f});
   VkDeviceSize offsets[] = {0};
   if (lineVerticesSize) {
     linesPipeline->bind(context.frameInfo.cmd);
@@ -155,7 +161,10 @@ void SolidColorSys::render(size_t lineVerticesSize,
     vkCmdDraw(context.frameInfo.cmd, static_cast<uint32_t>(lineVerticesSize), 1,
               0, 0);
   }
+  debug::endLabel(context, context.frameInfo.cmd);
 
+  debug::beginLabel(context, context.frameInfo.cmd, "triangles",
+                    glm::vec4{.9f, .1f, .1f, 1.f});
   if (triangleIndicesSize) {
     trianglePipeline->bind(context.frameInfo.cmd);
     VkBuffer trianglesBuffers[] = {*trianglesVertexBuffer};
@@ -168,5 +177,7 @@ void SolidColorSys::render(size_t lineVerticesSize,
                             0, 1, &set, 0, nullptr);
     vkCmdDrawIndexed(context.frameInfo.cmd, triangleIndicesSize, 1, 0, 0, 0);
   }
+  debug::endLabel(context, context.frameInfo.cmd);
+  debug::endLabel(context, context.frameInfo.cmd);
 }
 } // namespace vkh

@@ -451,6 +451,7 @@ void init(EngineContext &context) {
                       &context.vulkan.defaultSampler) != VK_SUCCESS) {
     throw std::runtime_error("failed to create texture sampler!");
   }
+  debug::setObjName(context, VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(context.vulkan.defaultSampler), "default sampler");
 
   setupGlobResources(context);
 }

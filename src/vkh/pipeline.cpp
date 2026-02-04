@@ -74,8 +74,7 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
         VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, tescShaderModule, "main",
         nullptr);
-    str =
-        std::format("tesselation control shader for pipeline {}", name);
+    str = std::format("tesselation control shader for pipeline {}", name);
     debug::setObjName(context, VK_OBJECT_TYPE_SHADER_MODULE,
                       reinterpret_cast<uint64_t>(tescShaderModule),
                       str.c_str());
@@ -161,10 +160,10 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
                     reinterpret_cast<uint64_t>(pipeline), str.c_str());
 }
 
-ComputePipeline::ComputePipeline(EngineContext &context,
-                                 const std::filesystem::path &shaderpath,
-                                 VkPipelineLayoutCreateInfo layoutInfo,
-                                 const char *name)
+ComputePipeline::ComputePipeline(
+    EngineContext &context, const std::filesystem::path &shaderpath,
+    VkPipelineLayoutCreateInfo layoutInfo, const char *name,
+    VkSpecializationInfo *specializationInfo)
     : Pipeline{context, VK_PIPELINE_BIND_POINT_COMPUTE} {
   VkComputePipelineCreateInfo pipelineInfo{};
   if (vkCreatePipelineLayout(context.vulkan.device, &layoutInfo, nullptr,
@@ -178,7 +177,7 @@ ComputePipeline::ComputePipeline(EngineContext &context,
   auto shaderCode = readFile(shaderpath);
 
   VkShaderModule shaderModule = createShaderModule(context, shaderCode);
-  str = std::format("fragment shader for pipeline {}", name);
+  str = std::format("compute shader for pipeline {}", name);
   debug::setObjName(context, VK_OBJECT_TYPE_SHADER_MODULE,
                     reinterpret_cast<uint64_t>(shaderModule), str.c_str());
 
@@ -186,7 +185,8 @@ ComputePipeline::ComputePipeline(EngineContext &context,
                             VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                         .stage = VK_SHADER_STAGE_COMPUTE_BIT,
                         .module = shaderModule,
-                        .pName = "main"};
+                        .pName = "main",
+                        .pSpecializationInfo = specializationInfo};
   pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
   pipelineInfo.layout = layout;
 

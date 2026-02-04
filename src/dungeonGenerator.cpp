@@ -21,8 +21,8 @@ enum RoomModel {
   Top = 4
 };
 
-void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys) {
-
+void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys,
+                     std::vector<vkh::EntitySys::Entity> &entities) {
   auto westWingAssets = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
       context, "models/westwingassets.glb", entitySys.setLayout);
 
@@ -117,37 +117,36 @@ void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys) {
       if (grid[x][y] == CellType::Empty)
         continue;
       glm::vec3 pos{x, 0.f, y};
-      entitySys.entities.emplace_back(std::make_shared<vkh::EntitySys::Entity>(
+      entities.emplace_back(
           vkh::EntitySys::Transform{.position = pos},
-          vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Bottom));
+          vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Bottom);
 
-      entitySys.entities.emplace_back(std::make_shared<vkh::EntitySys::Entity>(
+      entities.emplace_back(
           vkh::EntitySys::Transform{.position = pos},
-          vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Top));
+          vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Top);
 
       if (x == 0 || grid[x - 1][y] == CellType::Empty) {
-        entitySys.entities.emplace_back(
-            std::make_shared<vkh::EntitySys::Entity>(
-                vkh::EntitySys::Transform{.position = pos},
-                vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Front));
+        entities.emplace_back(
+
+            vkh::EntitySys::Transform{.position = pos},
+            vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Front);
       }
       if (x == gridSize.x - 1 || grid[x + 1][y] == CellType::Empty) {
-        entitySys.entities.emplace_back(
-            std::make_shared<vkh::EntitySys::Entity>(
-                vkh::EntitySys::Transform{.position = pos},
-                vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Back));
+        entities.emplace_back(
+
+            vkh::EntitySys::Transform{.position = pos},
+            vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Back);
       }
       if (y == 0 || grid[x][y - 1] == CellType::Empty) {
-        entitySys.entities.emplace_back(
-            std::make_shared<vkh::EntitySys::Entity>(
-                vkh::EntitySys::Transform{.position = pos},
-                vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Right));
+        entities.emplace_back(
+
+            vkh::EntitySys::Transform{.position = pos},
+            vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Right);
       }
       if (y == gridSize.y - 1 || grid[x][y + 1] == CellType::Empty) {
-        entitySys.entities.emplace_back(
-            std::make_shared<vkh::EntitySys::Entity>(
-                vkh::EntitySys::Transform{.position = pos},
-                vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Left));
+        entities.emplace_back(
+            vkh::EntitySys::Transform{.position = pos},
+            vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Left);
       }
     }
   }

@@ -13,8 +13,7 @@
 
 namespace vkh {
 WaterSys::WaterSys(EngineContext &context, SkyboxSys &skyboxSys)
-    : System{context}, modelTess{context},
-      skyboxSys{skyboxSys} {
+    : System{context}, modelTess{context}, skyboxSys{skyboxSys} {
   createDescriptorSetLayout();
 
   createPipeline();
@@ -27,9 +26,17 @@ WaterSys::WaterSys(EngineContext &context, SkyboxSys &skyboxSys)
 WaterSys::~WaterSys() {
   vkDestroyDescriptorSetLayout(context.vulkan.device, setLayout, nullptr);
 }
+void WaterSys::createMesh() {
+  std::vector<Vertex> vertices = createGridVertices();
+  std::vector<uint32_t> indices = createGridIndices();
+
+  SceneCreateInfo<Vertex> meshInfo{.vertices = vertices, .indices = indices};
+  scene = std::make_unique<Scene<Vertex>>(context, meshInfo);
+}
 void WaterSys::createPipeline() {
   PipelineCreateInfo pipelineInfo{};
-  const VkDescriptorSetLayout setLayouts[] = {context.vulkan.globalDescriptorSetLayout, setLayout, skyboxSys.setLayout};
+  const VkDescriptorSetLayout setLayouts[] = {
+      context.vulkan.globalDescriptorSetLayout, setLayout, skyboxSys.setLayout};
 
   pipelineInfo.layoutInfo.setLayoutCount = 3;
   pipelineInfo.layoutInfo.pSetLayouts = setLayouts;
@@ -37,6 +44,7 @@ void WaterSys::createPipeline() {
   pipelineInfo.inputAssemblyInfo.topology = VK_PRIMITIVE_TOPOLOGY_PATCH_LIST;
   pipelineInfo.attributeDescriptions = Vertex::attribDescriptions;
   pipelineInfo.bindingDescriptions = Vertex::bindingDescriptions;
+  pipelineInfo.rasterizationInfo.polygonMode = VK_POLYGON_MODE_FILL;
   pipelineInfo.vertpath = "shaders/water/water.vert.spv";
   pipelineInfo.fragpath = "shaders/water/water.frag.spv";
   pipelineInfo.tescpath = "shaders/water/water.tesc.spv";
@@ -101,7 +109,7 @@ std::vector<WaterSys::Vertex> WaterSys::createGridVertices() {
 std::vector<uint32_t> WaterSys::createGridIndices() {
   const uint32_t vertexCount = tileResolution + 1;
   std::vector<uint32_t> indices;
-  indices.reserve(tileResolution * tileResolution * 4); 
+  indices.reserve(tileResolution * tileResolution * 4);
   for (uint32_t y = 0; y < tileResolution; ++y) {
     for (uint32_t x = 0; x < tileResolution; ++x) {
       uint32_t v0 = y * vertexCount + x;
@@ -123,24 +131,44 @@ void WaterSys::updateDescriptorSet(VkDescriptorSet set) {
   bufferInfos[0].offset = 0;
   bufferInfos[0].range = sizeof(VertexUBO);
 
+  // Binding 1: Displacement Map
   VkDescriptorImageInfo imageInfo = {};
-  imageInfo = modelTess.getDisplacementsImage().getDescriptorInfo(
+  imageInfo = modelTess.getDisplacementFoamImage().getDescriptorInfo(
       context.vulkan.defaultSampler);
   imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
   DescriptorWriter writer(context);
 
   writer.writeBuffer(0, bufferInfos[0], VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-  writer.writeImage(1, imageInfo,
-                    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+  writer.writeImage(1, imageInfo, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
   writer.updateSet(set);
 }
 void WaterSys::updateUniformBuffer() {
   auto &buffer = uniformBuffers[context.frameInfo.frameIndex];
-
   buffer.write(&vertexUBO, sizeof(vertexUBO));
-
   buffer.flush();
+}
+void WaterSys::createDescriptorSetLayout() {
+  setLayout = buildDescriptorSetLayout(
+      context, {// Binding 0: UBO
+                VkDescriptorSetLayoutBinding{
+                    .binding = 0,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .descriptorCount = 1,
+                    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
+                                  VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT |
+                                  VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT |
+                                  VK_SHADER_STAGE_FRAGMENT_BIT},
+                // Binding 1: Displacement Map (RGB), Foam (A)
+                VkDescriptorSetLayoutBinding{
+                    .binding = 1,
+                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .descriptorCount = 1,
+                    .stageFlags = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT |
+                                  VK_SHADER_STAGE_FRAGMENT_BIT,
+                }});
+  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+                    reinterpret_cast<uint64_t>(setLayout), "water set layout");
 }
 void WaterSys::prepare() {
   auto cmd = beginSingleTimeCommands(context);
@@ -152,7 +180,15 @@ void WaterSys::prepare() {
 }
 
 void WaterSys::update() {
-  vertexUBO.model = glm::mat4(1.0f);
+  glm::vec3 camPos = context.camera.position;
+
+  const float snapStep = vertexDistance;
+
+  float snappedX = std::floor(camPos.x / snapStep) * snapStep;
+  float snappedZ = std::floor(camPos.z / snapStep) * snapStep;
+
+  vertexUBO.model =
+      glm::translate(glm::mat4(1.0f), glm::vec3(snappedX, 0.0f, snappedZ));
 
   updateUniformBuffer();
   updateDescriptorSet(sets[context.frameInfo.frameIndex]);
@@ -167,8 +203,9 @@ void WaterSys::render() {
                     {0.f, 0.f, 1.f, 1.f});
   pipeline->bind(context.frameInfo.cmd);
 
-  VkDescriptorSet bindSets[] = {context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], sets[context.frameInfo.frameIndex],
-                                skyboxSys.set};
+  VkDescriptorSet bindSets[] = {
+      context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex],
+      sets[context.frameInfo.frameIndex], skyboxSys.set};
 
   vkCmdBindDescriptorSets(context.frameInfo.cmd,
                           VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 3,
@@ -178,32 +215,5 @@ void WaterSys::render() {
   scene->meshes.begin()->primitives.begin()->draw(context.frameInfo.cmd);
   debug::endLabel(context, context.frameInfo.cmd);
 }
-
-void WaterSys::createDescriptorSetLayout() {
-  setLayout = buildDescriptorSetLayout(
-      context, {VkDescriptorSetLayoutBinding{
-                    .binding = 0,
-                    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .descriptorCount = 1,
-                    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT |
-                                  VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT |
-                                  VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
-                },
-                VkDescriptorSetLayoutBinding{
-                    .binding = 1,
-                    .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                    .descriptorCount = 1,
-                    .stageFlags = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
-                }});
-  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
-                    reinterpret_cast<uint64_t>(setLayout), "water set layout");
-}
-
-void WaterSys::createMesh() {
-  std::vector<Vertex> vertices = createGridVertices();
-  std::vector<uint32_t> indices = createGridIndices();
-
-  SceneCreateInfo<Vertex> meshInfo{.vertices = vertices, .indices = indices};
-  scene = std::make_unique<Scene<Vertex>>(context, meshInfo);
-}
+void WaterSys::downloadDisplacementAtWorldPos() {}
 } // namespace vkh

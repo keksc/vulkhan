@@ -18,13 +18,13 @@
 #include "vkh/systems/hud/elements/text.hpp"
 #include "vkh/systems/hud/hud.hpp"
 #include "vkh/systems/particles.hpp"
+#include "vkh/systems/postProcessing.hpp"
 #include "vkh/systems/skybox.hpp"
 #include "vkh/systems/smoke/smoke.hpp"
 #include "vkh/systems/water/water.hpp"
 #include "vkh/window.hpp"
 
 #include "dungeonGenerator.hpp"
-// #include "sabl.hpp"
 
 std::mt19937 rng{std::random_device{}()};
 
@@ -129,26 +129,25 @@ void run() {
     //       glm::vec3{dis(rng), dis(rng), dis(rng)});
     // }
     // generateDungeon(context, entitySys);
-    // Sabl sabl(context, entitySys);
     // auto cross = entitySys.entities.emplace_back(
     //     std::make_shared<vkh::EntitySys::Entity>(
     //         vkh::EntitySys::Transform{.position = {}},
     //         vkh::EntitySys::RigidBody{},
     //         std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
     //             context, "models/cross.glb", entitySys.setLayout)));
+    std::vector<vkh::EntitySys::Entity> entities;
     auto piano = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
         context, "models/piano-decent.glb", entitySys.setLayout);
     for (int i = 0; i < piano->meshes.size(); i++)
-      entitySys.entities.emplace_back(std::make_shared<vkh::EntitySys::Entity>(
+      entities.emplace_back(
           vkh::EntitySys::Transform{.position = {10.f, 10.f, 10.f}},
-          vkh::EntitySys::RigidBody{}, piano, i));
+          vkh::EntitySys::RigidBody{}, piano, i);
 
     auto base = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
         context, "models/base.glb", entitySys.setLayout);
     for (int i = 0; i < base->meshes.size(); i++)
-      entitySys.entities.emplace_back(std::make_shared<vkh::EntitySys::Entity>(
-          vkh::EntitySys::Transform{.position = {}},
-          vkh::EntitySys::RigidBody{}, base, i));
+      entities.emplace_back(vkh::EntitySys::Transform{.position = {}},
+                                      vkh::EntitySys::RigidBody{}, base, i);
 
     vkh::FreezeAnimationSys freezeAnimationSys(context);
     vkh::HudSys hudSys(context);
@@ -359,7 +358,6 @@ void run() {
           waterSys.update();
         }
         // entitySys.entities[0].transform.position.x += .2f;
-        // sabl.update();
         // updateParticles(context, particleSys);
         if (hudSys.getView() == &hudSmoke) {
           smokeSys->update();
