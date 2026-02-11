@@ -88,14 +88,14 @@ public:
 
   void *getMappedAddr() const { return mapped; }
 
-  template<typename U>
+  template <typename U>
   void copyFromBuffer(Buffer<U> &srcBuffer, VkDeviceSize size = VK_WHOLE_SIZE,
                       VkDeviceSize srcOffset = 0, VkDeviceSize dstOffset = 0) {
     auto cmd = beginSingleTimeCommands(context);
     recordCopyFromBuffer(cmd, srcBuffer, size, srcOffset, dstOffset);
     endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
   }
-  template<typename U>
+  template <typename U>
   void recordCopyFromBuffer(VkCommandBuffer cmdBuffer, Buffer<U> &srcBuffer,
                             VkDeviceSize size = VK_WHOLE_SIZE,
                             VkDeviceSize srcOffset = 0,
@@ -106,6 +106,8 @@ public:
     copyRegion.size = size == VK_WHOLE_SIZE ? bufSize : size;
     vkCmdCopyBuffer(cmdBuffer, srcBuffer, buf, 1, &copyRegion);
   }
+
+  VkDeviceSize getSize() const { return bufSize; }
 
 private:
   void allocateMemory(VkMemoryPropertyFlags properties) {

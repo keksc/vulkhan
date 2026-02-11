@@ -1,6 +1,5 @@
 #include "smoke.hpp"
 #include <GLFW/glfw3.h>
-#include <cstdlib>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -14,14 +13,14 @@
 #include "../../pipeline.hpp"
 #include "../../swapChain.hpp"
 
-namespace vkh {
+#include <cstdlib>
+#include <print>
 
+namespace vkh {
 void SmokeSys::createBuffer() {
   unsigned int gridSize = fluidGrid.cellCount.x * fluidGrid.cellCount.y;
-  unsigned int numArrows = (fluidGrid.cellCount.x * interpolatedScale) *
-                           (fluidGrid.cellCount.y * interpolatedScale);
-
-  size_t maxVertices = (gridSize * 6) + (numArrows * 3);
+  // Reserve space for grid quads (6 verts per cell)
+  size_t maxVertices = gridSize * 6;
 
   vertexBuffer = std::make_unique<Buffer<Vertex>>(
       context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -29,6 +28,7 @@ void SmokeSys::createBuffer() {
           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
       maxVertices);
 }
+
 void SmokeSys::createPipeline() {
   std::vector<VkDescriptorSetLayout> setLayouts{
       context.vulkan.globalDescriptorSetLayout};
@@ -46,90 +46,67 @@ void SmokeSys::createPipeline() {
   GraphicsPipeline::enableAlphaBlending(pipelineInfo);
   pipelineInfo.vertpath = "shaders/smoke.vert.spv";
   pipelineInfo.fragpath = "shaders/smoke.frag.spv";
-  pipelineInfo.depthStencilInfo.depthTestEnable = VK_TRUE,
-  pipelineInfo.depthStencilInfo.depthWriteEnable = VK_TRUE,
+  pipelineInfo.depthStencilInfo.depthTestEnable = VK_TRUE;
+  pipelineInfo.depthStencilInfo.depthWriteEnable = VK_TRUE;
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "smoke");
 }
+
 SmokeSys::SmokeSys(EngineContext &context)
-    : System(context), fluidGrid(glm::ivec2{15, 15}, 1.f) {
+    : System(context), fluidGrid(glm::ivec2{100, 100}, 1.f) {
   createPipeline();
   createBuffer();
 }
 
 void SmokeSys::update() {
-  std::vector<Vertex> vertices;
-  const float arrowScale = .2f;
-  fluidGrid.velX(7, 6) = glfwGetTime()*.1f;
-  fluidGrid.advectVelocities();
+  static glm::ivec2 prevCursorPos;
+  static glm::ivec2 dcp;
+  glm::ivec2 cursorPos =
+      static_cast<glm::ivec2>(static_cast<glm::vec2>(fluidGrid.cellCount) *
+                              (context.input.cursorPos + 1.f) * .5f);
+  if (cursorPos - prevCursorPos != glm::ivec2{0})
+    dcp = cursorPos - prevCursorPos;
+  prevCursorPos = cursorPos;
+
+  if (cursorPos.x >= 1 && cursorPos.x < fluidGrid.cellCount.x - 1 &&
+      cursorPos.y >= 1 && cursorPos.y < fluidGrid.cellCount.y - 1) {
+    fluidGrid.velX(cursorPos.x, cursorPos.y) = dcp.x * 10.f; // Increased force
+    fluidGrid.velY(cursorPos.x, cursorPos.y) = dcp.y * 10.f;
+    fluidGrid.smoke(cursorPos.x, cursorPos.y) = 1.0f;
+  }
+
+  // Physics Steps
   fluidGrid.solvePressure();
   fluidGrid.updateVelocities();
-  for (size_t x = 0; x < fluidGrid.cellCount.x * interpolatedScale; x++) {
-    for (size_t y = 0; y < fluidGrid.cellCount.y * interpolatedScale; y++) {
-      float fx = (static_cast<float>(x) + 0.5f) /
-                 (fluidGrid.cellCount.x * interpolatedScale);
-      float fy = (static_cast<float>(y) + 0.5f) /
-                 (fluidGrid.cellCount.y * interpolatedScale);
+  fluidGrid.advectVelocities();
+  fluidGrid.advectSmoke();
 
-      // Map to NDC range (-1.0 to 1.0)
-      glm::vec2 ndc{-1.f + 2.f * fx, -1.f + 2.f * fy};
+  // Rendering Mesh Generation
+  std::vector<Vertex> vertices;
+  vertices.reserve(fluidGrid.cellCount.x * fluidGrid.cellCount.y * 6);
 
-      glm::vec2 worldPos{fx * fluidGrid.cellCount.x,
-                         fy * fluidGrid.cellCount.y};
+  float dx = 2.0f / fluidGrid.cellCount.x;
+  float dy = 2.0f / fluidGrid.cellCount.y;
 
-      glm::vec2 velocity = fluidGrid.getVelocityAtWorldPos(worldPos);
+  for (int x = 0; x < fluidGrid.cellCount.x; x++) {
+    for (int y = 0; y < fluidGrid.cellCount.y; y++) {
 
-      float speed = glm::length(velocity);
-      if (speed > 0.0001f) {
-        glm::vec2 dir = velocity / speed;
-        glm::vec2 side =
-            glm::vec2(-dir.y, dir.x) * 0.3f; // Perpendicular for width
-
-        // Base of the arrow (centered at the sample point)
-        glm::vec2 base = ndc;
-        // Tip of the arrow (scaled by velocity)
-        glm::vec2 tip = ndc + velocity * arrowScale;
-        // Left/Right wings for a triangle shape
-        glm::vec2 left =
-            ndc + (velocity * arrowScale * 0.7f) + (side * arrowScale);
-        glm::vec2 right =
-            ndc + (velocity * arrowScale * 0.7f) - (side * arrowScale);
-
-        glm::vec3 col =
-            glm::mix(glm::vec3(0.2, 0.2, 1.0), glm::vec3(1.0, 0.2, 0.2), speed);
-
-        vertices.emplace_back(tip, col);
-        vertices.emplace_back(left, col);
-        vertices.emplace_back(right, col);
-      }
-    }
-  }
-  for (size_t x = 0; x < fluidGrid.cellCount.x; x++) {
-    for (size_t y = 0; y < fluidGrid.cellCount.y; y++) {
-      size_t idx = x + y * fluidGrid.cellCount.x;
+      // Calculate NDC coordinates
       float ndc_x = -1.0f + 2.0f * (float(x) / fluidGrid.cellCount.x);
       float ndc_y = -1.0f + 2.0f * (float(y) / fluidGrid.cellCount.y);
 
-      float dx = 2.0f / fluidGrid.cellCount.x;
-      float dy = 2.0f / fluidGrid.cellCount.y;
-
+      // Quad vertices
       glm::vec2 a{ndc_x, ndc_y};
       glm::vec2 b{ndc_x + dx, ndc_y};
       glm::vec2 c{ndc_x, ndc_y + dy};
       glm::vec2 d{ndc_x + dx, ndc_y + dy};
 
-      const float divergenceDisplayRange = 2.f;
-      float divergence =
-          fluidGrid.calculateVelocityDivergence(glm::ivec2{x, y});
-      // float divergence = fluidGrid.pressureMap[x + y *
-      // fluidGrid.cellCount.x];
-      float divergenceT = glm::abs(divergence) / divergenceDisplayRange;
-      glm::vec3 col{0.f};
-      glm::vec3 negativeDivergenceCol{1.f, 0.f, 0.f};
-      glm::vec3 positiveDivergenceCol{0.f, 0.f, 1.f};
-      col = glm::mix(
-          col, divergence < 0 ? negativeDivergenceCol : positiveDivergenceCol,
-          divergenceT);
+      // Color from density
+      // Using direct array access for rendering is faster than world-pos
+      // interpolation since we are drawing the grid cells directly.
+      float density = fluidGrid.smoke(x, y);
+      glm::vec3 col = glm::vec3(density);
 
+      // Add 2 triangles
       vertices.emplace_back(a, col);
       vertices.emplace_back(b, col);
       vertices.emplace_back(c, col);
@@ -145,6 +122,7 @@ void SmokeSys::update() {
   vertexBuffer->unmap();
 }
 
+// ... (render function remains unchanged) ...
 void SmokeSys::render() {
   pipeline->bind(context.frameInfo.cmd);
 
@@ -156,6 +134,7 @@ void SmokeSys::render() {
   VkBuffer buffers[] = {*vertexBuffer};
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers, offsets);
-  vkCmdDraw(context.frameInfo.cmd, activeVerticesCount * 3, 1, 0, 0);
+  vkCmdDraw(context.frameInfo.cmd, activeVerticesCount, 1, 0,
+            0); // Removed *3 because activeVerticesCount is already total verts
 }
 } // namespace vkh

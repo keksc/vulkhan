@@ -48,7 +48,7 @@ vec2 gaussian(uvec2 seed) {
 const float m_A = 3e-7f;
 const float oneOver2sqrt = 0.7071067812;
 const vec2 windDir = vec2(1.0, 0.0);
-const float windSpeed = 50.f;
+const float windSpeed = 20.f;
 const float damping = 0.1;
 const float animationPeriod = 200.f;
 const float baseFreq = 2.0f * 3.14159265359 / animationPeriod;

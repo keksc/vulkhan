@@ -10,15 +10,23 @@ layout(location = 2) out vec2 fragUV;
 
 #include "globalUbo.glsl"
 
-layout(push_constant) uniform Push {
-  mat4 modelMatrix;
-  mat3 normalMatrix; // Changed from mat4 to mat3 to match C++ struct
-} pc;
+struct ObjectData {
+  mat4 model;
+  mat4 normal;
+};
+
+layout(std430, set = 2, binding = 0) readonly buffer ObjectBuffer {
+  ObjectData objects[];
+} objectBuffer;
 
 void main() {
-  vec4 positionWorld = pc.modelMatrix * vec4(position, 1.0);
+  mat4 modelMatrix = objectBuffer.objects[gl_InstanceIndex].model;
+  mat3 normalMatrix = mat3(objectBuffer.objects[gl_InstanceIndex].normal);
+
+  vec4 positionWorld = modelMatrix * vec4(position, 1.0);
+  
   gl_Position = ubo.projView * positionWorld;
-  fragNormalWorld = normalize(pc.normalMatrix * normal); // mat3 used directly
+  fragNormalWorld = normalize(normalMatrix * normal);
   fragPosWorld = positionWorld.xyz;
   fragUV = uv;
 }

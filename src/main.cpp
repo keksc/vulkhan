@@ -1,4 +1,3 @@
-#include <enet/enet.h>
 #include <magic_enum/magic_enum.hpp>
 
 #include "vkh/audio.hpp"
@@ -25,6 +24,10 @@
 #include "vkh/window.hpp"
 
 #include "dungeonGenerator.hpp"
+#include "network.hpp"
+
+#include <string>
+#include <random>
 
 std::mt19937 rng{std::random_device{}()};
 
@@ -46,64 +49,6 @@ public:
   vkh::input::Action action;
 };
 
-void connect() {
-  if (enet_initialize() != 0) {
-    throw std::runtime_error("Failed to initialize ENet");
-  }
-
-  atexit(enet_deinitialize);
-
-  ENetHost *client = enet_host_create(nullptr, 1, 2, 0, 0);
-
-  if (!client) {
-    throw std::runtime_error("Failed to create ENet client");
-  }
-
-  ENetAddress address{};
-  enet_address_set_host(&address, "127.0.0.1");
-  address.port = 1234;
-
-  ENetPeer *peer = enet_host_connect(client, &address, 2, 0);
-  if (!peer) {
-    throw std::runtime_error("No available peers for connection");
-  }
-
-  ENetEvent event{};
-  if (enet_host_service(client, &event, 5000) > 0 &&
-      event.type == ENET_EVENT_TYPE_CONNECT) {
-    std::println("Connected to server");
-  } else {
-    enet_peer_reset(peer);
-    throw std::runtime_error("Connection to server failed");
-  }
-
-  const char *message = "Hello from client!";
-  ENetPacket *packet = enet_packet_create(message, std::strlen(message) + 1,
-                                          ENET_PACKET_FLAG_RELIABLE);
-  enet_peer_send(peer, 0, packet);
-  enet_host_flush(client);
-
-  while (enet_host_service(client, &event, 3000) > 0) {
-    if (event.type == ENET_EVENT_TYPE_RECEIVE) {
-      std::println("Server says: {}",
-                   reinterpret_cast<char *>(event.packet->data));
-      enet_packet_destroy(event.packet);
-      break;
-    }
-  }
-
-  enet_peer_disconnect(peer, 0);
-
-  while (enet_host_service(client, &event, 3000) > 0) {
-    if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
-      std::println("Disconnected cleanly");
-      break;
-    }
-  }
-
-  enet_host_destroy(client);
-  exit(0);
-}
 void run() {
   vkh::EngineContext context{};
   vkh::initWindow(context);
@@ -115,8 +60,9 @@ void run() {
   vkh::renderer::init(context);
 
   {
+    // Network network;
     vkh::SkyboxSys skyboxSys(context);
-    vkh::EntitySys entitySys(context, skyboxSys);
+    vkh::EntitySys entitySys(context);
     std::unique_ptr<vkh::SmokeSys> smokeSys;
     vkh::WaterSys waterSys(context, skyboxSys);
     // vkh::ParticleSys particleSys(context);
@@ -128,7 +74,6 @@ void run() {
     //       glm::vec3{dis(rng), dis(rng), dis(rng)},
     //       glm::vec3{dis(rng), dis(rng), dis(rng)});
     // }
-    // generateDungeon(context, entitySys);
     // auto cross = entitySys.entities.emplace_back(
     //     std::make_shared<vkh::EntitySys::Entity>(
     //         vkh::EntitySys::Transform{.position = {}},
@@ -136,18 +81,25 @@ void run() {
     //         std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
     //             context, "models/cross.glb", entitySys.setLayout)));
     std::vector<vkh::EntitySys::Entity> entities;
+    generateDungeon(context, entitySys, entities);
     auto piano = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-        context, "models/piano-decent.glb", entitySys.setLayout);
+        context, "models/piano-decent.glb", entitySys.textureSetLayout);
     for (int i = 0; i < piano->meshes.size(); i++)
       entities.emplace_back(
-          vkh::EntitySys::Transform{.position = {10.f, 10.f, 10.f}},
+          vkh::EntitySys::Transform{.position{10.f, 10.f, 10.f}},
           vkh::EntitySys::RigidBody{}, piano, i);
 
     auto base = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-        context, "models/base.glb", entitySys.setLayout);
+        context, "models/base.glb", entitySys.textureSetLayout);
     for (int i = 0; i < base->meshes.size(); i++)
-      entities.emplace_back(vkh::EntitySys::Transform{.position = {}},
-                                      vkh::EntitySys::RigidBody{}, base, i);
+      entities.emplace_back(vkh::EntitySys::Transform{.position{}},
+                            vkh::EntitySys::RigidBody{}, base, i);
+    // auto surf = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+    // context, "models/surf.glb", entitySys.textureSetLayout);
+    // for (int i = 0; i < base->meshes.size(); i++)
+    // entities.emplace_back(vkh::EntitySys::Transform{.position{5.f}},
+    // vkh::EntitySys::RigidBody{}, surf, i);
+    entitySys.setEntities(entities);
 
     vkh::FreezeAnimationSys freezeAnimationSys(context);
     vkh::HudSys hudSys(context);
@@ -342,6 +294,8 @@ void run() {
             frameTime,
             commandBuffer,
         };
+        // network.send(std::to_string(context.frameInfo.frameIndex));
+        // network.receive();
 
         vkh::GlobalUbo ubo{};
         ubo.proj = context.camera.projectionMatrix;

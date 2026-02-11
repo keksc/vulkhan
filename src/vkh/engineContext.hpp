@@ -1,6 +1,5 @@
 #pragma once
 
-#include <random>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan_core.h>
@@ -80,7 +79,7 @@ struct EngineContext {
     VkCommandPool commandPool;
     std::unique_ptr<SwapChain> swapChain;
     uint32_t maxFramesInFlight;
-    std::unique_ptr<DescriptorAllocatorGrowable> globalDescriptorAllocator;
+    std::unique_ptr<DescriptorAllocatorGrowable> globalDescriptorAllocator{};
     VkDescriptorSetLayout globalDescriptorSetLayout;
     std::vector<Buffer<GlobalUbo>> globalUBOs;
     std::vector<VkDescriptorSet> globalDescriptorSets;
