@@ -5,8 +5,10 @@
 #include "../system.hpp"
 #include <algorithm>
 #include <memory>
+#include <vector>
 
 namespace vkh {
+
 class EntitySys : public System {
 public:
   struct Vertex {
@@ -36,6 +38,7 @@ public:
       return attributeDescriptions;
     }
   };
+
   struct Transform {
     glm::vec3 position{};
     glm::vec3 scale{1.f, 1.f, 1.f};
@@ -44,44 +47,64 @@ public:
     glm::mat4 mat4() const;
     glm::mat3 normalMatrix();
   };
+
   struct RigidBody {
     glm::vec3 velocity{0.f};
     float mass{1.f};
     const glm::vec3 computeWeight() const { return {0, mass * 9.81f, 0}; }
   };
+
   struct Entity {
     Transform transform;
     RigidBody rigidBody;
     std::shared_ptr<Scene<Vertex>> scene;
     std::size_t meshIndex;
+
     inline Scene<Vertex>::Mesh &getMesh() { return scene->meshes[meshIndex]; }
-    inline Scene<Vertex>::Mesh::Primitive &getPrimitive(std::size_t index) {
-      return getMesh().primitives[index];
-    }
-    inline Scene<Vertex>::Material &
-    getPrimitiveMaterial(std::size_t primitiveIndex) {
-      return scene->materials[getPrimitive(primitiveIndex).materialIndex];
-    }
   };
 
-  struct Batch {
-    Entity& entity;
-    uint32_t count;
+  struct GPUInstanceData {
+    glm::mat4 modelMatrix;
+    glm::mat4 normalMatrix;
   };
+
+  struct GPUMaterialData {
+    glm::vec4 baseColorFactor{1.f};
+    int32_t textureIndex; // -1 if no texture
+    uint32_t padding[3];
+  };
+
+  struct IndirectBatch {
+    std::shared_ptr<Scene<Vertex>> scene;
+    size_t materialIndex;
+    uint32_t indirectOffset;
+    bool useTexture;
+    glm::vec4 baseColorFactor;
+  };
+
+  EntitySys(EngineContext &context);
+  ~EntitySys();
 
   void setEntities(std::vector<Entity> &entities);
-
-  EntitySys(EngineContext &context, SkyboxSys &skyboxSys);
-  ~EntitySys();
-  void createSetLayout();
   void render();
 
-  VkDescriptorSetLayout setLayout;
+  VkDescriptorSetLayout textureSetLayout;
+  VkDescriptorSetLayout instanceSetLayout;
 
 private:
-  std::vector<Batch> batches;
+  void createSetLayouts();
+  void createPipeline();
+  void updateBuffers(std::vector<Entity> &sortedEntities);
+
   std::unique_ptr<GraphicsPipeline> pipeline;
-  SkyboxSys &skyboxSys;
-  VkDescriptorSet dummySet;
+
+  std::unique_ptr<Buffer<GPUInstanceData>> instanceBuffer;
+  std::unique_ptr<Buffer<VkDrawIndexedIndirectCommand>> indirectDrawBuffer;
+  
+  std::vector<IndirectBatch> renderBatches;
+
+  VkDescriptorSet instanceDescriptorSet;
+  VkDescriptorSet dummyTextureSet;
 };
+
 } // namespace vkh

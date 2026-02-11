@@ -228,8 +228,10 @@ void createLogicalDevice(EngineContext &context) {
       findQueueFamilies(context, context.vulkan.physicalDevice);
 
   std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-  std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily,
-                                            indices.presentFamily};
+  std::set<uint32_t> uniqueQueueFamilies = {
+      indices.graphicsFamily,
+      indices.presentFamily,
+  };
 
   float queuePriority = 1.0f;
   for (uint32_t queueFamily : uniqueQueueFamilies) {
@@ -237,21 +239,35 @@ void createLogicalDevice(EngineContext &context) {
                                   nullptr, 0, queueFamily, 1, &queuePriority);
   }
 
+  VkPhysicalDeviceVulkan12Features vulkan12Features{
+      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+      .shaderSampledImageArrayNonUniformIndexing = VK_TRUE,
+      .descriptorBindingSampledImageUpdateAfterBind = VK_TRUE,
+      .descriptorBindingPartiallyBound = VK_TRUE,
+      .runtimeDescriptorArray = VK_TRUE,
+  };
   VkPhysicalDeviceRobustness2FeaturesKHR robustness2Features{
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_KHR,
-      .nullDescriptor = VK_TRUE};
+      .pNext = &vulkan12Features,
+      .nullDescriptor = VK_TRUE,
+  };
   VkPhysicalDeviceDescriptorIndexingFeatures deviceDescriptorIndexingFeatures{
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES,
       .pNext = &robustness2Features,
-      .descriptorBindingPartiallyBound = true};
+      .descriptorBindingPartiallyBound = true,
+  };
 
-  VkPhysicalDeviceFeatures deviceFeatures{.tessellationShader = VK_TRUE,
-                                          .fillModeNonSolid = VK_TRUE,
-                                          .samplerAnisotropy = VK_TRUE};
+  VkPhysicalDeviceFeatures deviceFeatures{
+      .tessellationShader = VK_TRUE,
+      .multiDrawIndirect = VK_TRUE,
+      .fillModeNonSolid = VK_TRUE,
+      .samplerAnisotropy = VK_TRUE,
+  };
   VkPhysicalDeviceFeatures2 deviceFeatures2{
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
       .pNext = &deviceDescriptorIndexingFeatures,
-      .features = deviceFeatures};
+      .features = deviceFeatures,
+  };
 
   VkDeviceCreateInfo createInfo = {.sType =
                                        VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
@@ -451,7 +467,9 @@ void init(EngineContext &context) {
                       &context.vulkan.defaultSampler) != VK_SUCCESS) {
     throw std::runtime_error("failed to create texture sampler!");
   }
-  debug::setObjName(context, VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<uint64_t>(context.vulkan.defaultSampler), "default sampler");
+  debug::setObjName(context, VK_OBJECT_TYPE_SAMPLER,
+                    reinterpret_cast<uint64_t>(context.vulkan.defaultSampler),
+                    "default sampler");
 
   setupGlobResources(context);
 }

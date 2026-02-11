@@ -1,7 +1,7 @@
 #include <enet/enet.h>
 
-#include <print>
 #include <cstring>
+#include <print>
 
 int main() {
   if (enet_initialize() != 0) {
@@ -36,20 +36,20 @@ int main() {
                      event.peer->address.port);
         break;
 
-      case ENET_EVENT_TYPE_RECEIVE:
-        std::println("Message received: {}",
-                     reinterpret_cast<char *>(event.packet->data));
+      case ENET_EVENT_TYPE_RECEIVE: {
+        std::string_view msg(reinterpret_cast<char *>(event.packet->data),
+                             event.packet->dataLength);
 
-        {
-          const char *reply = "Hello from server!";
-          ENetPacket *packet = enet_packet_create(reply, std::strlen(reply) + 1,
-                                                  ENET_PACKET_FLAG_RELIABLE);
-          enet_peer_send(event.peer, 0, packet);
-          enet_host_flush(server);
-        }
+        std::println("Message received: {}", msg);
 
+        const char *reply = "Hello from server!";
+        ENetPacket *packet = enet_packet_create(reply, std::strlen(reply) + 1,
+                                                ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+        enet_peer_send(event.peer, 0, packet);
+        enet_host_flush(server);
         enet_packet_destroy(event.packet);
         break;
+      }
 
       case ENET_EVENT_TYPE_DISCONNECT:
         std::println("Client disconnected");

@@ -15,16 +15,16 @@ enum CellType { Empty, Room, Corridor };
 enum RoomModel {
   Bottom = 5,
   Front = 0,
-  Left = 3,
-  Back = 1,
-  Right = 2,
+  Left = 1,
+  Back = 2,
+  Right = 3,
   Top = 4
 };
 
 void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys,
                      std::vector<vkh::EntitySys::Entity> &entities) {
   auto westWingAssets = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-      context, "models/westwingassets.glb", entitySys.setLayout);
+      context, "models/westwingassets.glb", entitySys.textureSetLayout);
 
   glm::ivec2 maxRoomSize{10, 10};
   int maxRooms = 10;

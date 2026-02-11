@@ -63,12 +63,12 @@ void main() {
   float currentFoam = imageLoad(displacements, ivec2(gid)).a;
 
   // foam(t) = foam(0) * e^(-decayRate * t)
-  const float decayRate = 3.0; 
+  const float decayRate = 4.0; 
   currentFoam *= exp(-decayRate * pc.dt);
 
-  const float foamThreshold = 0.3;
+  const float foamThreshold = 0.7;
   if (J < foamThreshold) {
-    currentFoam += (foamThreshold - J) * 2.5 * pc.dt;
+    currentFoam += (foamThreshold - J) * 3.0 * pc.dt;
     currentFoam = min(currentFoam, 1.0);
   }
   imageStore(displacements, ivec2(gid), vec4(x_FT * lambda, h_FT, z_FT * lambda, currentFoam));
