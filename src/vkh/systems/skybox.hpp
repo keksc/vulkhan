@@ -37,6 +37,7 @@ public:
   };
   SkyboxSys(EngineContext &context);
   ~SkyboxSys();
+  // This system should be the first to be rendered
   void render();
 
   VkDescriptorSetLayout setLayout;

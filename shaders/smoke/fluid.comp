@@ -1,0 +1,45 @@
+#version 450
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// Bindings for buffers replacing the CPU vectors
+layout(set = 0, binding = 0) buffer Pressure { float p[]; };
+layout(set = 0, binding = 1) buffer Divergence { float div[]; };
+layout(set = 0, binding = 2) buffer SolidMap { uint solid[]; };
+
+layout(push_constant) uniform PushConstants {
+    uint width;
+    uint height;
+    uint isBlackPass; // 0 for Red, 1 for Black
+    float dt;
+    float h; // cellSize
+} pc;
+
+void main() {
+    ivec2 coords = ivec2(gl_GlobalInvocationID.xy);
+    if (coords.x >= pc.width || coords.y >= pc.height) return;
+
+    uint index = coords.x + coords.y * pc.width;
+    
+    // RBGS parity check
+    uint parity = (coords.x + coords.y) % 2;
+    if (parity != pc.isBlackPass) return;
+
+    if (solid[index] == 1) {
+        p[index] = 0.0;
+        return;
+    }
+
+    // Neighbors
+    int l = (coords.x > 0) ? int(index) - 1 : -1;
+    int r = (coords.x < pc.width - 1) ? int(index) + 1 : -1;
+    int d = (coords.y > 0) ? int(index) - int(pc.width) : -1;
+    int u = (coords.y < pc.height - 1) ? int(index) + int(pc.width) : -1;
+
+    float pL = (l != -1 && solid[l] == 0) ? p[l] : p[index];
+    float pR = (r != -1 && solid[r] == 0) ? p[r] : p[index];
+    float pD = (d != -1 && solid[d] == 0) ? p[d] : p[index];
+    float pU = (u != -1 && solid[u] == 0) ? p[u] : p[index];
+
+    // Red-Black update rule
+    p[index] = (pL + pR + pD + pU - div[index]) / 4.0;
+}

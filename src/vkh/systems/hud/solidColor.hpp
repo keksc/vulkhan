@@ -62,9 +62,10 @@ public:
   void render(size_t lineVerticesSize, size_t triangleIndicesSize);
 
   std::unique_ptr<Buffer<LineVertex>> linesVertexBuffer;
+  std::unique_ptr<Buffer<uint32_t>> linesIndexBuffer;
   std::unique_ptr<Buffer<TriangleVertex>> trianglesVertexBuffer;
   std::unique_ptr<Buffer<uint32_t>> trianglesIndexBuffer;
-  unsigned short addTextureFromMemory(unsigned char *pixels, glm::uvec2 size);
+  unsigned short addTextureFromPNGMemory(void *data, size_t size);
 
   std::vector<Image> images;
 
@@ -74,9 +75,9 @@ private:
   void createPipelines();
   void updateDescriptors();
 
-  const int maxLineCount = 160;
-  const int maxLineVertexCount =
-      2 * maxLineCount; // 4 vertices = 1 quad = 1 glyph
+  const int maxLineCount = 200;
+  const int maxLineVertexCount = 2 * maxLineCount;
+  const int maxLineIndexCount = 2 * maxLineCount;
   const VkDeviceSize maxLineVertexSize =
       sizeof(LineVertex) * maxLineVertexCount;
 

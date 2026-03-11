@@ -3,7 +3,6 @@
 #include <vulkan/vulkan_core.h>
 
 #include <memory>
-#include <print>
 #include <vector>
 
 #include "../../buffer.hpp"
@@ -21,12 +20,12 @@ void HudSys::setView(hud::View *newView) {
 hud::View *HudSys::getView() { return view; }
 
 void HudSys::addToDraw(std::vector<std::shared_ptr<hud::Element>> &elements,
-                       float &depth) {
+                       float &depth, float oneOverElementCount) {
   for (const auto &element : elements) {
     element->addToDrawInfo(drawInfo, depth);
-    float child_depth = depth + 1.f / view->elementCount;
-    addToDraw(element->children, child_depth);
-    depth += 1.f / view->elementCount;
+    float child_depth = depth + oneOverElementCount;
+    addToDraw(element->children, child_depth, oneOverElementCount);
+    depth += oneOverElementCount;
   }
 }
 
@@ -36,10 +35,11 @@ void HudSys::update() {
   drawInfo.textVertices.clear();
   drawInfo.textIndices.clear();
   drawInfo.solidColorLineVertices.clear();
+  drawInfo.solidColorLineIndices.clear();
   // float oneOverViewSize =
   //     view->elementCount > 0 ? 1.f / view->elementCount : 0.1f;
   float depth = 0.f;
-  addToDraw(view->elements, depth);
+  addToDraw(view->elements, depth, 1.f / view->elementCount);
   textSys.vertexBuffer->write(drawInfo.textVertices.data(),
                               drawInfo.textVertices.size() *
                                   sizeof(TextSys::Vertex));
@@ -49,6 +49,9 @@ void HudSys::update() {
       drawInfo.solidColorLineVertices.data(),
       drawInfo.solidColorLineVertices.size() *
           sizeof(SolidColorSys::LineVertex));
+  solidColorSys.linesIndexBuffer->write(drawInfo.solidColorLineIndices.data(),
+                                        drawInfo.solidColorLineIndices.size() *
+                                            sizeof(uint32_t));
   solidColorSys.trianglesVertexBuffer->write(
       drawInfo.solidColorTriangleVertices.data(),
       drawInfo.solidColorTriangleVertices.size() *
@@ -63,7 +66,10 @@ void HudSys::render() {
     return;
   if (view->empty())
     return;
-  update();
+  if (forceUpdate) {
+    update();
+    forceUpdate = false;
+  }
 
   debug::beginLabel(context, context.frameInfo.cmd, "HudSys rendering",
                     glm::vec4{1.f, 1.f, 1.f, 1.f});
@@ -80,7 +86,7 @@ void HudSys::render() {
   vkCmdClearAttachments(context.frameInfo.cmd, 1, &clearAttachment, 1,
                         &clearRect);
 
-  solidColorSys.render(drawInfo.solidColorLineVertices.size(),
+  solidColorSys.render(drawInfo.solidColorLineIndices.size(),
                        drawInfo.solidColorTriangleIndices.size());
 
   textSys.render(drawInfo.textIndices.size());

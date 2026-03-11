@@ -117,13 +117,13 @@ void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys,
       if (grid[x][y] == CellType::Empty)
         continue;
       glm::vec3 pos{x, 0.f, y};
-      entities.emplace_back(
-          vkh::EntitySys::Transform{.position = pos},
-          vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Bottom);
+      entities.emplace_back(vkh::EntitySys::Transform{.position = pos},
+                            vkh::EntitySys::RigidBody{}, westWingAssets,
+                            RoomModel::Bottom);
 
-      entities.emplace_back(
-          vkh::EntitySys::Transform{.position = pos},
-          vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Top);
+      entities.emplace_back(vkh::EntitySys::Transform{.position = pos},
+                            vkh::EntitySys::RigidBody{}, westWingAssets,
+                            RoomModel::Top);
 
       if (x == 0 || grid[x - 1][y] == CellType::Empty) {
         entities.emplace_back(
@@ -144,9 +144,9 @@ void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys,
             vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Right);
       }
       if (y == gridSize.y - 1 || grid[x][y + 1] == CellType::Empty) {
-        entities.emplace_back(
-            vkh::EntitySys::Transform{.position = pos},
-            vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Left);
+        entities.emplace_back(vkh::EntitySys::Transform{.position = pos},
+                              vkh::EntitySys::RigidBody{}, westWingAssets,
+                              RoomModel::Left);
       }
     }
   }

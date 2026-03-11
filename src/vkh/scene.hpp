@@ -79,7 +79,7 @@ public:
   }
   Scene(EngineContext &context, const SceneCreateInfo<VertexType> &createInfo)
       : context{context}, disableMaterial{true} {
-    ImageCreateInfo imageInfo{};
+    ImageCreateInfo_color imageInfo{};
     imageInfo.size = {1, 1};
     glm::vec4 color = {1.0f, 1.0f, 1.0f, 1.0f}; // White
     color.r = std::pow(color.r, 1.0f / 2.2f);
@@ -94,6 +94,8 @@ public:
     imageInfo.usage =
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    std::string name = std::format("{:#x} color image", imageInfo.color);
+    imageInfo.name = name.c_str();
     images.emplace_back(context, imageInfo);
 
     // VkDescriptorSet set =
@@ -249,11 +251,16 @@ public:
                       fastgltf::visitor{
                           [](auto &arg) {},
                           [&](fastgltf::sources::Array &vector) {
-                            auto &image = images.emplace_back(
-                                context,
-                                reinterpret_cast<void *>(vector.bytes.data() +
-                                                         bufferView.byteOffset),
-                                static_cast<size_t>(bufferView.byteLength));
+                            ImageCreateInfo_PNGdata createInfo;
+                            createInfo.data = reinterpret_cast<void *>(
+                                vector.bytes.data() + bufferView.byteOffset);
+                            createInfo.dataSize =
+                                static_cast<size_t>(bufferView.byteLength);
+                            std::string name =
+                                std::format("image {} for scene {}", image.name,
+                                            createInfo.name);
+                            auto &image =
+                                images.emplace_back(context, createInfo);
                             auto &set = imageDescriptorSets.emplace_back();
                             set = context.vulkan.globalDescriptorAllocator
                                       ->allocate(setLayout);

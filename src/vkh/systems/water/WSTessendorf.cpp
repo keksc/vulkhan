@@ -31,7 +31,8 @@ void WSTessendorf::createDescriptors() {
           .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
           .descriptorCount = 1,
           .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-      }};
+      },
+  };
   preFFTSetLayout = buildDescriptorSetLayout(context, bindings);
   debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
                     reinterpret_cast<uint64_t>(preFFTSetLayout),
@@ -94,11 +95,14 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
       VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, tileSizeSquared);
 
-  displacementFoamMap = std::make_unique<Image>(
-      context, glm::uvec2{tileSize}, VK_FORMAT_R16G16B16A16_SFLOAT,
-      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-          VK_IMAGE_USAGE_STORAGE_BIT,
-      VK_IMAGE_LAYOUT_GENERAL, "water displacement map");
+  ImageCreateInfo_empty createInfo{};
+  createInfo.size = glm::uvec2{tileSize};
+  createInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+  createInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                     VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+  createInfo.layout = VK_IMAGE_LAYOUT_GENERAL;
+  createInfo.name = "water displacement map";
+  displacementFoamMap = std::make_unique<Image>(context, createInfo);
 
   VkFFTConfiguration config{};
   config.physicalDevice = &context.vulkan.physicalDevice;

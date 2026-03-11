@@ -1,11 +1,19 @@
 #pragma once
 
 #include <glm/glm.hpp>
+
+#include "../../image.hpp"
+#include "../../pipeline.hpp"
+#include "../system.hpp"
+
 #include <vector>
 
 namespace vkh {
-class FluidGrid {
+class FluidGrid : public System {
 public:
+  FluidGrid(EngineContext &context, glm::uvec2 cellCount, float cellSize);
+  ~FluidGrid();
+
   std::vector<float> velocitiesX;
   std::vector<float> velocitiesY;
   std::vector<float> prevVelocitiesX;
@@ -17,29 +25,33 @@ public:
   std::vector<float> smokeMap;
   std::vector<float> targetSmoke;
 
+  std::vector<uint8_t> solidCellMap;
+
   float cellSize;
-  glm::ivec2 cellCount;
+  glm::uvec2 cellCount;
 
   const float density = 1.f;
   const float dt = 1.f / 60.f;
 
-  FluidGrid(glm::ivec2 cellCount, float cellSize);
-
-  inline float &velX(int i, int j) { return velocitiesX[i * cellCount.y + j]; }
-  inline const float &velX(int i, int j) const {
-    return velocitiesX[i * cellCount.y + j];
+  inline float &velX(int x, int y) {
+    return velocitiesX[x + y * (cellCount.x + 1)];
   }
+  inline float &velY(int x, int y) { return velocitiesY[x + y * cellCount.x]; }
+  inline float &smoke(int x, int y) { return smokeMap[x + y * cellCount.x]; }
 
-  inline float &velY(int i, int j) {
-    return velocitiesY[i * (cellCount.y + 1) + j];
+  inline float &prevVelX(int x, int y) {
+    return prevVelocitiesX[x + y * (cellCount.x + 1)];
   }
-  inline const float &velY(int i, int j) const {
-    return velocitiesY[i * (cellCount.y + 1) + j];
+  inline float &prevVelY(int x, int y) {
+    return prevVelocitiesY[x + y * cellCount.x];
   }
-
-  inline float &smoke(int i, int j) { return smokeMap[i * cellCount.y + j]; }
-  inline const float &smoke(int i, int j) const {
-    return smokeMap[i * cellCount.y + j];
+  inline float &tSmoke(int x, int y) {
+    return targetSmoke[x + y * cellCount.x];
+  }
+  bool isSolid(glm::uvec2 cell) {
+    if (cell.x >= cellCount.x || cell.y >= cellCount.y)
+      return true;
+    return solidCellMap[cell.x + cell.y * cellCount.x];
   }
 
   void solvePressure();
@@ -47,17 +59,21 @@ public:
   void advectVelocities();
   void advectSmoke();
 
-  std::vector<bool> solidCellMap;
-  bool isSolid(glm::ivec2 cell);
-  float calculateVelocityDivergence(glm::ivec2 cell);
+  void update();
+
+  float calculateVelocityDivergence(glm::uvec2 cell);
 
   // Sampling / Interpolation
   glm::vec2 getVelocityAtWorldPos(glm::vec2 worldPos);
   float getSmokeAtWorldPos(glm::vec2 worldPos);
 
+  // std::unique_ptr<ComputePipeline> updatePipeline;
+  VkDescriptorSetLayout updateSetLayout;
+  std::unique_ptr<Image> dyeImage;
+  VkDescriptorSet dyeImageSet;
+
 private:
-  float getPressure(glm::ivec2 cell);
-  float pressureSolveCell(glm::ivec2 cell);
+  float getPressure(glm::uvec2 cell);
 
   // Generic bilinear sampler
   float sampleField(const std::vector<float> &field, float x, float y,

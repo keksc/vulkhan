@@ -1,36 +1,12 @@
 #pragma once
-//
-// Cross-platform clipboard image retrieval
-// Supports: Windows, macOS, Linux (X11 + Wayland)
-// Works with GLFW or any C++ app
-//
-// Dependencies:
-//   - Windows: none
-//   - macOS: Cocoa framework
-//   - Linux: wl-paste or xclip utilities, stb_image.h (included below)
-//
-// Usage:
-//   ClipboardImage img = GetClipboardImage();
-//   if (img.valid()) { /* use img.pixels (RGBA8) */ }
-//
 
 #include <glm/glm.hpp>
 
 #include <string>
 #include <vector>
 
-struct ClipboardImage {
-  glm::ivec2 size{};
-  std::vector<unsigned char> pixels; // RGBA8
+inline std::vector<unsigned char> GetClipboardImagePNGData();
 
-  bool valid() const { return size.x > 0 && size.y > 0 && !pixels.empty(); }
-};
-
-inline ClipboardImage GetClipboardImage();
-
-// -----------------------------------------------------------------------------
-// 🪟 WINDOWS IMPLEMENTATION
-// -----------------------------------------------------------------------------
 #ifdef _WIN32
 #include <iostream>
 #include <windows.h>
@@ -86,9 +62,6 @@ inline ClipboardImage GetClipboardImage() {
 
 #endif // _WIN32
 
-// -----------------------------------------------------------------------------
-// 🍎 MACOS IMPLEMENTATION
-// -----------------------------------------------------------------------------
 #ifdef __APPLE__
 #import <Cocoa/Cocoa.h>
 #include <vector>
@@ -118,9 +91,6 @@ inline ClipboardImage GetClipboardImage() {
 }
 #endif // __APPLE__
 
-// -----------------------------------------------------------------------------
-// 🐧 LINUX IMPLEMENTATION (X11 + Wayland)
-// -----------------------------------------------------------------------------
 #ifdef __linux__
 #include <cstdio>
 #include <cstdlib>
@@ -128,11 +98,8 @@ inline ClipboardImage GetClipboardImage() {
 #include <vector>
 
 #include <stb/stb_image.h>
-// ---------------------------------------------
 
-inline ClipboardImage GetClipboardImage() {
-  ClipboardImage img;
-
+inline std::vector<unsigned char> GetClipboardImagePNGData() {
   // Try wl-paste first (Wayland)
   FILE *pipe = popen("wl-paste --type image/png 2>/dev/null", "r");
   if (!pipe) {
@@ -140,11 +107,9 @@ inline ClipboardImage GetClipboardImage() {
     pipe = popen("xclip -selection clipboard -t image/png -o 2>/dev/null", "r");
   }
 
-  if (!pipe) {
-    std::cerr
-        << "[Clipboard] No clipboard utility found (need wl-paste or xclip).\n";
-    return img;
-  }
+  if (!pipe)
+    throw std::runtime_error(
+        "No clipboard utility found (need wl-paste or xclip)");
 
   std::vector<unsigned char> pngData;
   unsigned char buffer[4096];
@@ -155,21 +120,10 @@ inline ClipboardImage GetClipboardImage() {
   pclose(pipe);
 
   if (pngData.empty())
-    return img;
+    throw std::runtime_error(
+        "No PNG data in clipboard");
 
-  int w, h, c;
-  unsigned char *data =
-      stbi_load_from_memory(pngData.data(), (int)pngData.size(), &w, &h, &c, 4);
-  if (!data) {
-    std::cerr << "[Clipboard] Failed to decode image data.\n";
-    return img;
-  }
-
-  img.size.x = w;
-  img.size.y = h;
-  img.pixels.assign(data, data + (w * h * 4));
-  stbi_image_free(data);
-  return img;
+  return pngData;
 }
 
 #endif // __linux__

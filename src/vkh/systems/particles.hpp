@@ -7,12 +7,13 @@ namespace vkh {
 class ParticleSys : public System {
 public:
   ParticleSys(EngineContext &context);
+  ~ParticleSys();
   void update();
   void render();
 
   struct Vertex {
-    glm::vec3 pos{};
-    glm::vec3 col{};
+    glm::vec4 pos{};
+    glm::vec4 col{};
 
     static std::vector<VkVertexInputBindingDescription>
     getBindingDescriptions() {
@@ -26,30 +27,32 @@ public:
     getAttributeDescriptions() {
       std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
 
-      attributeDescriptions.emplace_back(
-          0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, pos));
-      attributeDescriptions.emplace_back(
-          1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, col));
+      attributeDescriptions.emplace_back(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                         offsetof(Vertex, pos));
+      attributeDescriptions.emplace_back(1, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                         offsetof(Vertex, col));
 
       return attributeDescriptions;
     }
   };
 
-  struct Particle {
-    glm::vec3 pos{};
-    glm::vec3 col{};
-    glm::vec3 velocity{};
-  };
+  static const size_t maxParticles = 65'536;
 
-  std::vector<Particle> particles;
-
-  static const int maxParticles = 10000;
 private:
+  struct PushConstantData {
+    glm::vec3 attractorPos{};
+    float dt{};
+  };
 
   void createPipeline();
   void createBuffer();
+  void setupDescriptors();
 
-  std::unique_ptr<GraphicsPipeline> pipeline;
+  std::unique_ptr<GraphicsPipeline> graphicsPipeline;
+  std::unique_ptr<ComputePipeline> computePipeline;
+
   std::unique_ptr<Buffer<Vertex>> vertexBuffer;
+  VkDescriptorSetLayout setLayout;
+  VkDescriptorSet set;
 }; // namespace particlesSys
 } // namespace vkh

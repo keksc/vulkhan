@@ -18,10 +18,11 @@ public:
   TextSys textSys;
   SolidColorSys solidColorSys;
 
+  bool forceUpdate{true};
 private:
   void createPipeline();
   void addToDraw(std::vector<std::shared_ptr<hud::Element>> &elements,
-                 float &depth);
+                 float &depth, float oneOverElementCount);
   void update();
 
   std::unique_ptr<GraphicsPipeline> pipeline;

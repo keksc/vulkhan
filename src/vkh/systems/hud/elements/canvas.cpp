@@ -1,8 +1,10 @@
 #include "canvas.hpp"
 
 #include <GLFW/glfw3.h>
+
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <memory>
 #include <print>
 #include <ranges>
@@ -48,15 +50,17 @@ bool Canvas::handleKey(int key, int scancode, int action, int mods) {
     return false;
   if (key == GLFW_KEY_V && mods == GLFW_MOD_CONTROL) {
     // Try to get an image from the system clipboard
-    ClipboardImage img = GetClipboardImage();
+    std::vector<unsigned char> pngData = GetClipboardImagePNGData();
+    int w, h, texChannels;
 
-    if (img.valid()) {
-      // maybe use hashes to prevent loading the same image twice
-      auto texIndex = view.hudSys.solidColorSys.addTextureFromMemory(
-          img.pixels.data(), img.size);
+    if (stbi_info_from_memory(pngData.data(), pngData.size(), &w, &h,
+                              &texChannels)) {
+      // TODO: use hashes to prevent loading the same image twice
+      auto texIndex = view.hudSys.solidColorSys.addTextureFromPNGMemory(
+          pngData.data(), pngData.size());
       const auto &cursorPos = view.context.input.cursorPos;
       glm::vec2 newPos = (cursorPos - position) / size;
-      glm::vec2 newSize{static_cast<glm::vec2>(img.size) /
+      glm::vec2 newSize{glm::vec2{w, h} /
                         static_cast<glm::vec2>(view.context.window.size)};
       addChild<hud::Rect>(newPos, newSize, texIndex);
     } else {
@@ -446,36 +450,23 @@ void Canvas::loadFromFile(const std::filesystem::path &path) {
     return str;
   };
 
-  // --- Read Texture Count ---
   uint32_t textureCount = readBinary.operator()<uint32_t>();
   std::vector<unsigned short> loadedTextureIndices;
   loadedTextureIndices.reserve(textureCount);
 
-  // --- Load Textures from PNG ---
   for (uint32_t i = 0; i < textureCount; ++i) {
     uint32_t pngSize = readBinary.operator()<uint32_t>();
     if (offset + pngSize > data.size())
       throw std::runtime_error("PNG data exceeds file");
 
-    const unsigned char *pngData =
-        reinterpret_cast<const unsigned char *>(data.data() + offset);
+    void *pngData = data.data() + offset;
     offset += pngSize;
 
-    int w, h, c;
-    unsigned char *pixels = stbi_load_from_memory(
-        pngData, static_cast<int>(pngSize), &w, &h, &c, 4);
-    if (!pixels)
-      throw std::runtime_error("Failed to decode PNG");
-
-    glm::uvec2 texSize(w, h);
     unsigned short texIndex =
-        view.hudSys.solidColorSys.addTextureFromMemory(pixels, texSize);
+        view.hudSys.solidColorSys.addTextureFromPNGMemory(pngData, pngSize);
     loadedTextureIndices.push_back(texIndex);
-
-    stbi_image_free(pixels);
   }
 
-  // --- Read Elements ---
   while (offset < data.size()) {
     char type = data[offset++];
     switch (type) {

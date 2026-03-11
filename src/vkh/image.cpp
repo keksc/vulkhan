@@ -200,19 +200,19 @@ void Image::createImageFromData(void *pixels, const size_t dataSize,
 
   view = createImageView(context, img, format);
 }
-Image::Image(EngineContext &context, void *data, size_t dataSize,
-             const char *name)
+Image::Image(EngineContext &context, const ImageCreateInfo_PNGdata &createInfo)
     : context{context} {
   format = VK_FORMAT_R8G8B8A8_SRGB;
   int w, h, texChannels;
-  stbi_uc *pixels = stbi_load_from_memory((const stbi_uc *)data, dataSize, &w,
-                                          &h, &texChannels, STBI_rgb_alpha);
+  stbi_uc *pixels = stbi_load_from_memory((const stbi_uc *)createInfo.data,
+                                          createInfo.dataSize, &w, &h,
+                                          &texChannels, STBI_rgb_alpha);
   size.x = static_cast<unsigned int>(w);
   size.y = static_cast<unsigned int>(h);
   createImageFromData(pixels, size.x * size.y * 4, size);
   stbi_image_free(pixels);
 
-  setDbgInfo(name);
+  setDbgInfo(createInfo.name);
   // ktxTexture *texture;
   // ktxResult result = ktxTexture_CreateFromMemory(
   //     reinterpret_cast<ktx_uint8_t *>(data),
@@ -272,7 +272,10 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     // This flag is required for cube map images
     imageCreateInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 
-    vkCreateImage(context.vulkan.device, &imageCreateInfo, nullptr, &img);
+    if (vkCreateImage(context.vulkan.device, &imageCreateInfo, nullptr, &img) !=
+        VK_SUCCESS) {
+      throw std::runtime_error("failed to create KTX image!");
+    }
 
     vkGetImageMemoryRequirements(context.vulkan.device, img, &memReqs);
 
@@ -280,9 +283,15 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     memAllocInfo.memoryTypeIndex = findMemoryType(
         context, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    vkAllocateMemory(context.vulkan.device, &memAllocInfo, nullptr, &memory);
-    vkBindImageMemory(context.vulkan.device, img, memory, 0);
-    layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkAllocateMemory(context.vulkan.device, &memAllocInfo, nullptr,
+                         &memory) != VK_SUCCESS) {
+      throw std::runtime_error("failed to allocate KTX image memory!");
+    }
+
+    if (vkBindImageMemory(context.vulkan.device, img, memory, 0) !=
+        VK_SUCCESS) {
+      throw std::runtime_error("failed to bind KTX image memory!");
+    }
 
     VkCommandBuffer cmd = beginSingleTimeCommands(context);
 
@@ -348,9 +357,11 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     // Set number of mip levels
     viewInfo.subresourceRange.levelCount = mipLevels;
     viewInfo.image = img;
-    vkCreateImageView(context.vulkan.device, &viewInfo, nullptr, &view);
+    if (vkCreateImageView(context.vulkan.device, &viewInfo, nullptr, &view) !=
+        VK_SUCCESS) {
+      throw std::runtime_error("failed to create KTX image view!");
+    }
 
-    // Clean up staging resources
     ktxTexture_Destroy(texture);
     return;
   }
@@ -364,30 +375,15 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
   stbi_image_free(pixels);
   setDbgInfo(path.c_str());
 }
-Image::Image(EngineContext &context, glm::uvec2 size, VkFormat format,
-             uint32_t usage, VkImageLayout layout, const char *name)
-    : context{context}, size{size}, format{format} {
-  createImage(context, size, usage);
-  view = createImageView(context, img, format);
-  transitionLayout(layout);
-  setDbgInfo(name);
-}
-Image::Image(EngineContext &context, const ImageCreateInfo &createInfo)
+Image::Image(EngineContext &context, const ImageCreateInfo_color &createInfo)
     : context{context}, format{createInfo.format}, size{createInfo.size},
       layout{createInfo.layout} {
   createImage(context, createInfo.size, createInfo.usage);
   view = createImageView(context, img, format);
 
-  void *data;
-  VkDeviceSize size;
-  if (createInfo.data) {
-    data = createInfo.data;
-    size = createInfo.size.x * createInfo.size.y * Image::getFormatSize(format);
-  } else {
-    uint32_t color = createInfo.color;
-    data = static_cast<void *>(&color);
-    size = sizeof(uint32_t);
-  }
+  uint32_t color = createInfo.color;
+  void *data = static_cast<void *>(&color);
+  VkDeviceSize size = sizeof(uint32_t);
   Buffer<std::byte> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -402,9 +398,38 @@ Image::Image(EngineContext &context, const ImageCreateInfo &createInfo)
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
   setDbgInfo(createInfo.name);
 }
+Image::Image(EngineContext &context, const ImageCreateInfo_empty &createInfo)
+    : context{context}, size{createInfo.size}, format{createInfo.format} {
+  createImage(context, size, createInfo.usage);
+  view = createImageView(context, img, format);
+  transitionLayout(createInfo.layout);
+  setDbgInfo(createInfo.name);
+}
+Image::Image(EngineContext &context, const ImageCreateInfo_data &createInfo)
+    : context{context}, format{createInfo.format}, size{createInfo.size},
+      layout{createInfo.layout} {
+  createImage(context, createInfo.size, createInfo.usage);
+  view = createImageView(context, img, format);
+
+  VkDeviceSize size =
+      createInfo.size.x * createInfo.size.y * Image::getFormatSize(format);
+  Buffer<std::byte> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                                  size);
+  stagingBuffer.map();
+  stagingBuffer.write(createInfo.data);
+
+  auto cmd = beginSingleTimeCommands(context);
+  recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  recordCopyFromBuffer(cmd, stagingBuffer, 0);
+  recordTransitionLayout(cmd, createInfo.layout);
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+  setDbgInfo(createInfo.name);
+}
 Image::~Image() {
-  vkDestroyImage(context.vulkan.device, img, nullptr);
   vkDestroyImageView(context.vulkan.device, view, nullptr);
+  vkDestroyImage(context.vulkan.device, img, nullptr);
   vkFreeMemory(context.vulkan.device, memory, nullptr);
 }
 void Image::recordCopyFromBuffer(VkCommandBuffer cmd, VkBuffer buffer,
@@ -429,7 +454,12 @@ void Image::recordCopyFromBuffer(VkCommandBuffer cmd, VkBuffer buffer,
 }
 void Image::copyFromBuffer(VkBuffer buffer, uint32_t bufferOffset) {
   auto cmd = beginSingleTimeCommands(context);
+  VkImageLayout oldLayout = layout;
+  if (layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
   recordCopyFromBuffer(cmd, buffer, bufferOffset);
+  if (oldLayout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+    recordTransitionLayout(cmd, oldLayout);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 }
 void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel) {

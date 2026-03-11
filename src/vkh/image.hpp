@@ -5,30 +5,44 @@
 
 #include <filesystem>
 
-#include "engineContext.hpp"
 #include "debug.hpp"
+#include "engineContext.hpp"
 
 namespace vkh {
+constexpr char defaultName[] = "Unnamed image";
 struct ImageCreateInfo {
   VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
   VkImageUsageFlags usage =
       VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-  glm::uvec2 size{};
-  void *data = nullptr;
-  uint32_t color;
   VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  const char* name = "Unnamed image";
+  const char *name = defaultName;
+};
+struct ImageCreateInfo_empty : public ImageCreateInfo {
+  glm::uvec2 size{};
+};
+struct ImageCreateInfo_PNGdata : public ImageCreateInfo {
+  void *data = nullptr;
+  size_t dataSize;
+};
+struct ImageCreateInfo_data : public ImageCreateInfo {
+  void *data = nullptr;
+  glm::uvec2 size{};
+};
+struct ImageCreateInfo_color : public ImageCreateInfo {
+  uint32_t color;
+  glm::uvec2 size{};
 };
 class Image {
 public:
-  Image(EngineContext &context, glm::uvec2 size, VkFormat format,
-        uint32_t usage, VkImageLayout layout, const char* name = "Unnamed image");
-  Image(EngineContext &context, const ImageCreateInfo &createInfo);
+  Image(EngineContext &context, const ImageCreateInfo_PNGdata &createInfo);
+  Image(EngineContext &context, const ImageCreateInfo_data &createInfo);
+  Image(EngineContext &context, const ImageCreateInfo_color &createInfo);
+  Image(EngineContext &context, const ImageCreateInfo_empty &createInfo);
   Image(EngineContext &context, const std::filesystem::path &path);
-  Image(EngineContext &context, void *data, size_t dataSize, const char* name = "Unnamed image");
   Image(Image &&other) noexcept
       : context{other.context}, img{other.img}, view{other.view},
-        memory{other.memory}, format{other.format}, layout{other.layout} {
+        memory{other.memory}, format{other.format}, layout{other.layout},
+        size{other.size}, mipLevels{other.mipLevels} {
     other.img = VK_NULL_HANDLE;
     other.view = VK_NULL_HANDLE;
     other.memory = VK_NULL_HANDLE;
@@ -85,20 +99,20 @@ private:
   };
   TransitionParams getTransitionParams(VkImageLayout oldLayout,
                                        VkImageLayout newLayout);
-  inline void setDbgInfo(const char* name) {
-  std::string str = std::format("{} image", name);
-  debug::setObjName(context, VK_OBJECT_TYPE_IMAGE,
-                    reinterpret_cast<uint64_t>(img), str.c_str());
-  str = std::format("image view for image {}", name);
-  debug::setObjName(context, VK_OBJECT_TYPE_IMAGE_VIEW,
-                    reinterpret_cast<uint64_t>(view), str.c_str());
+  inline void setDbgInfo(const char *name) {
+    std::string str = std::format("{} image", name);
+    debug::setObjName(context, VK_OBJECT_TYPE_IMAGE,
+                      reinterpret_cast<uint64_t>(img), str.c_str());
+    str = std::format("image view for image {}", name);
+    debug::setObjName(context, VK_OBJECT_TYPE_IMAGE_VIEW,
+                      reinterpret_cast<uint64_t>(view), str.c_str());
   }
 
   EngineContext &context;
 
-  VkImage img;
-  VkImageView view;
-  VkDeviceMemory memory;
+  VkImage img = VK_NULL_HANDLE;
+  VkImageView view = VK_NULL_HANDLE;
+  VkDeviceMemory memory = VK_NULL_HANDLE;
   VkFormat format;
   VkImageLayout layout;
 };
