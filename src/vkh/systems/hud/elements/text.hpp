@@ -20,12 +20,12 @@ public:
   // Assignment
   AutoUpdateString &operator=(const std::string &newStr) {
     data = newStr;
-    flushSizeInOwner();
+    updateOwner();
     return *this;
   }
   AutoUpdateString &operator=(const char *newStr) {
     data = newStr;
-    flushSizeInOwner();
+    updateOwner();
     return *this;
   }
   operator std::string_view() const noexcept { return data; }
@@ -48,12 +48,12 @@ public:
 
   // Access
   char &operator[](size_t i) {
-    flushSizeInOwner();
+    updateOwner();
     return data[i];
   }
   const char &operator[](size_t i) const { return data[i]; }
   char &at(size_t i) {
-    flushSizeInOwner();
+    updateOwner();
     return data.at(i);
   }
   const char &at(size_t i) const { return data.at(i); }
@@ -68,29 +68,29 @@ public:
   // Modifiers
   void clear() {
     data.clear();
-    flushSizeInOwner();
+    updateOwner();
   }
   void push_back(char c) {
     data.push_back(c);
-    flushSizeInOwner();
+    updateOwner();
   }
   void pop_back() {
     data.pop_back();
-    flushSizeInOwner();
+    updateOwner();
   }
   AutoUpdateString &operator+=(const std::string &rhs) {
     data += rhs;
-    flushSizeInOwner();
+    updateOwner();
     return *this;
   }
   AutoUpdateString &operator+=(const char *rhs) {
     data += rhs;
-    flushSizeInOwner();
+    updateOwner();
     return *this;
   }
   AutoUpdateString &operator+=(char c) {
     data += c;
-    flushSizeInOwner();
+    updateOwner();
     return *this;
   }
 
@@ -107,14 +107,14 @@ public:
   // Mutating example: replace
   AutoUpdateString &replace(size_t pos, size_t count, const std::string &str) {
     data.replace(pos, count, str);
-    flushSizeInOwner();
+    updateOwner();
     return *this;
   }
 
 private:
-  void flushSizeInOwner() {
+  void updateOwner() {
     if (owner)
-      owner->flushSize();
+      owner->update();
   }
 
   Owner *owner;
@@ -132,6 +132,7 @@ protected:
 
 private:
   void flushSize();
+  void update();
   friend AutoUpdateString<Text>;
 };
 } // namespace hud

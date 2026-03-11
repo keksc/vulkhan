@@ -102,7 +102,7 @@ void TextSys::createGlyphs() {
   }
   stbtt_PackEnd(&packContext);
 
-  ImageCreateInfo imageInfo{};
+  ImageCreateInfo_data imageInfo{};
   imageInfo.format = VK_FORMAT_R8_UNORM;
   imageInfo.size = bitmapExtent;
   imageInfo.data = atlasData;

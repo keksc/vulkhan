@@ -89,15 +89,14 @@ float QDispersion(float k) {
 }
 
 void main() {
-    uint x = gl_GlobalInvocationID.x;
-    uint y = gl_GlobalInvocationID.y;
-    uint idx = y * tileSize + x;
+    uvec2 id = gl_GlobalInvocationID.xy;
+    uint idx = id.y * tileSize + id.x;
 
     const WaveVector kWaveVec = waveVectors[idx];
     const float k = length(kWaveVec.vec);
     BaseWaveHeight h0;
     if (k > 0.00001) {
-        vec2 gaussRandom = gaussian(uvec2(x, y));
+        vec2 gaussRandom = gaussian(id);
         h0.heightAmp = baseWaveHeightFT(gaussRandom, kWaveVec.unit, k);
         h0.heightAmp_conj = conj(baseWaveHeightFT(gaussRandom, -kWaveVec.unit, k));
         h0.dispersion = QDispersion(k);

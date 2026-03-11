@@ -11,6 +11,7 @@ struct DrawInfo {
   std::vector<TextSys::Vertex> textVertices;
   std::vector<uint32_t> textIndices;
   std::vector<SolidColorSys::LineVertex> solidColorLineVertices;
+  std::vector<uint32_t> solidColorLineIndices;
   std::vector<SolidColorSys::TriangleVertex> solidColorTriangleVertices;
   std::vector<uint32_t> solidColorTriangleIndices;
 };

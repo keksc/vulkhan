@@ -19,6 +19,14 @@ void SolidColorSys::createBuffers() {
           VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
       maxLineVertexCount);
   linesVertexBuffer->map();
+
+  linesIndexBuffer = std::make_unique<Buffer<uint32_t>>(
+      context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      maxLineIndexCount);
+  linesIndexBuffer->map();
+
   trianglesVertexBuffer = std::make_unique<Buffer<TriangleVertex>>(
       context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
@@ -111,12 +119,11 @@ void SolidColorSys::updateDescriptors() {
 
   vkUpdateDescriptorSets(context.vulkan.device, 1, &write, 0, nullptr);
 }
-unsigned short SolidColorSys::addTextureFromMemory(unsigned char *pixels,
-                                                   glm::uvec2 size) {
-  ImageCreateInfo info{};
+unsigned short SolidColorSys::addTextureFromPNGMemory(void *data, size_t size) {
+  ImageCreateInfo_PNGdata info{};
   info.format = VK_FORMAT_R8G8B8A8_UNORM;
-  info.size = size;
-  info.data = reinterpret_cast<void *>(pixels);
+  info.dataSize = size;
+  info.data = data;
 
   images.emplace_back(context, info);
 
@@ -125,7 +132,7 @@ unsigned short SolidColorSys::addTextureFromMemory(unsigned char *pixels,
   return static_cast<unsigned short>(images.size() - 1);
 }
 SolidColorSys::SolidColorSys(EngineContext &context) : System(context) {
-  // 1. Load the HUD image, it becomes index 0 and fallback for unused texture
+  // Load the HUD image, it becomes index 0 and fallback for unused texture
   // indexes
   images.emplace_back(context, "textures/hud.png");
 
@@ -142,24 +149,29 @@ SolidColorSys::~SolidColorSys() {
   vkDestroyDescriptorSetLayout(context.vulkan.device, setLayout, nullptr);
 }
 
-void SolidColorSys::render(size_t lineVerticesSize,
-                           size_t triangleIndicesSize) {
+void SolidColorSys::render(size_t lineIndicesSize, size_t triangleIndicesSize) {
   debug::beginLabel(context, context.frameInfo.cmd, "SolidColorSys rendering",
                     glm::vec4{.9f, .1f, .1f, 1.f});
+
   debug::beginLabel(context, context.frameInfo.cmd, "lines",
                     glm::vec4{.9f, .1f, .1f, 1.f});
   VkDeviceSize offsets[] = {0};
-  if (lineVerticesSize) {
+  if (lineIndicesSize) {
     linesPipeline->bind(context.frameInfo.cmd);
     VkBuffer linesBuffers[] = {*linesVertexBuffer};
     vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, linesBuffers, offsets);
+    vkCmdBindIndexBuffer(context.frameInfo.cmd, *linesIndexBuffer, 0,
+                         VK_INDEX_TYPE_UINT32);
+
     vkCmdBindDescriptorSets(
         context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *linesPipeline,
         0, 1,
         &context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], 0,
         nullptr);
-    vkCmdDraw(context.frameInfo.cmd, static_cast<uint32_t>(lineVerticesSize), 1,
-              0, 0);
+
+    // Switch to Indexed Draw
+    vkCmdDrawIndexed(context.frameInfo.cmd,
+                     static_cast<uint32_t>(lineIndicesSize), 1, 0, 0, 0);
   }
   debug::endLabel(context, context.frameInfo.cmd);
 

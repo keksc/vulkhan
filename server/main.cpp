@@ -1,7 +1,7 @@
 #include <enet/enet.h>
 
-#include <cstring>
 #include <print>
+#include <string>
 
 int main() {
   if (enet_initialize() != 0) {
@@ -37,14 +37,13 @@ int main() {
         break;
 
       case ENET_EVENT_TYPE_RECEIVE: {
-        std::string_view msg(reinterpret_cast<char *>(event.packet->data),
-                             event.packet->dataLength);
+        std::string msg(reinterpret_cast<char *>(event.packet->data),
+                        event.packet->dataLength);
 
         std::println("Message received: {}", msg);
 
-        const char *reply = "Hello from server!";
-        ENetPacket *packet = enet_packet_create(reply, std::strlen(reply) + 1,
-                                                ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+        ENetPacket *packet = enet_packet_create(
+            msg.c_str(), msg.size(), ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
         enet_peer_send(event.peer, 0, packet);
         enet_host_flush(server);
         enet_packet_destroy(event.packet);

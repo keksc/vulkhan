@@ -1,0 +1,45 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer PressureBuffer   { float pressure[]; };
+layout(set = 0, binding = 1) readonly buffer DivBuffer { float tempPressure[]; }; // Contains precalculated divergence
+layout(set = 0, binding = 2) readonly buffer SolidMap  { uint solidCellMap[]; };
+
+layout(push_constant) uniform PushConstants {
+  uint width;
+  uint height;
+  uint isBlackPass; // 0 for Red pass, 1 for Black pass
+} pc;
+
+void main() {
+  uvec2 gid = uvec2(gl_GlobalInvocationID.xy);
+  
+  // Bounds check - skip outer boundary
+  if (gid.x <= 0 || gid.x >= pc.width - 1 || gid.y <= 0 || gid.y >= pc.height - 1) {
+      return;
+  }
+
+  uint idx = gid.x + gid.y * pc.width;
+
+  // The Red-Black Checkerboard logic:
+  // Red cells have (x + y) % 2 == 0
+  // Black cells have (x + y) % 2 == 1
+  if (((gid.x + gid.y) % 2) != pc.isBlackPass) {
+      return; // Skip thread if it's not this color's turn
+  }
+
+  // Skip solid cells
+  if (solidCellMap[idx] != 0) {
+      return;
+  }
+
+  float pLeft   = pressure[idx - 1];
+  float pRight  = pressure[idx + 1];
+  float pBottom = pressure[idx - pc.width];
+  float pTop    = pressure[idx + pc.width];
+  float div     = tempPressure[idx];
+
+  // Compute new pressure (scale = 0.25)
+  pressure[idx] = (pLeft + pRight + pBottom + pTop - div) * 0.25;
+}

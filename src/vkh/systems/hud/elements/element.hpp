@@ -16,7 +16,7 @@ namespace hud {
 class Element {
 public:
   Element(View &view, Element *parent, glm::vec2 position, glm::vec2 size)
-      : position{position}, size{size}, view{view} {
+      : position{position}, size{size}, view{view}, parent{parent} {
     if (parent) {
       this->position = parent->position + position * parent->size;
       this->size = parent->size * size;
@@ -93,6 +93,7 @@ public:
 
 protected:
   View &view;
+  Element *parent;
 
 private:
   // Store handlers using std::any for type safety

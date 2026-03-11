@@ -1,4 +1,5 @@
 #include "text.hpp"
+#include "../hud.hpp"
 
 namespace vkh::hud {
 Text::Text(View &view, Element *parent, glm::vec2 position,
@@ -55,6 +56,10 @@ void Text::addToDrawInfo(DrawInfo &drawInfo, float depth) {
   }
   size = glm::vec2{maxX, cursor.y + maxSizeY} - position;
 }
+void Text::update() {
+  flushSize();
+  view.hudSys.forceUpdate = true;
+}
 void Text::flushSize() {
   float maxSizeY = TextSys::glyphRange.maxSizeY;
   size = glm::vec2{0.f, maxSizeY};
@@ -75,5 +80,4 @@ void Text::flushSize() {
   }
   size.x = glm::max(size.x, maxX);
 }
-
 } // namespace vkh::hud
