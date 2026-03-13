@@ -18,11 +18,6 @@
 
 namespace vkh {
 
-struct PushConstantData {
-  alignas(16) glm::vec4 color;
-  alignas(4) uint32_t useColorTexture;
-};
-
 void EntitySys::createSetLayouts() {
   {
     VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{
@@ -38,7 +33,7 @@ void EntitySys::createSetLayouts() {
         {VkDescriptorSetLayoutBinding{
             .binding = 0,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
+            .descriptorCount = 256, // Max textures per scene array
             .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
         }},
         0, &bindingFlagsInfo);
@@ -72,11 +67,6 @@ EntitySys::EntitySys(EngineContext &context) : System(context) {
 }
 
 void EntitySys::createPipeline() {
-  VkPushConstantRange pushConstantRange{};
-  pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-  pushConstantRange.offset = 0;
-  pushConstantRange.size = sizeof(PushConstantData);
-
   std::vector<VkDescriptorSetLayout> setLayouts{
       context.vulkan.globalDescriptorSetLayout, textureSetLayout,
       instanceSetLayout};
@@ -85,8 +75,8 @@ void EntitySys::createPipeline() {
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
   pipelineLayoutInfo.pSetLayouts = setLayouts.data();
-  pipelineLayoutInfo.pushConstantRangeCount = 1;
-  pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+  pipelineLayoutInfo.pushConstantRangeCount = 0; // Removed Push Constants!
+  pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
   PipelineCreateInfo pipelineInfo{};
   pipelineInfo.layoutInfo = pipelineLayoutInfo;
@@ -119,68 +109,77 @@ void EntitySys::setEntities(std::vector<Entity> &entities) {
 }
 
 void EntitySys::updateBuffers(std::vector<Entity> &sortedEntities) {
-  renderBatches.clear();
+  sceneBatches.clear();
   if (sortedEntities.empty())
     return;
 
   std::vector<GPUInstanceData> instanceData;
   std::vector<VkDrawIndexedIndirectCommand> drawCommands;
 
-  instanceData.reserve(sortedEntities.size());
-  drawCommands.reserve(sortedEntities.size() * 2);
+  size_t totalInstancesEst = 0;
+  for (auto& e : sortedEntities) totalInstancesEst += e.getMesh().primitives.size();
+  instanceData.reserve(totalInstancesEst);
+  drawCommands.reserve(totalInstancesEst);
 
   uint32_t currentInstanceIndex = 0;
 
   for (size_t i = 0; i < sortedEntities.size();) {
-    size_t j = i + 1;
-    while (j < sortedEntities.size() &&
-           sortedEntities[j].scene == sortedEntities[i].scene &&
-           sortedEntities[j].meshIndex == sortedEntities[i].meshIndex) {
-      j++;
+    auto currentScene = sortedEntities[i].scene;
+    uint32_t firstDrawOffset = static_cast<uint32_t>(drawCommands.size());
+    uint32_t drawCount = 0;
+
+    size_t j = i;
+    while (j < sortedEntities.size() && sortedEntities[j].scene == currentScene) {
+      size_t k = j;
+      while (k < sortedEntities.size() &&
+             sortedEntities[k].scene == currentScene &&
+             sortedEntities[k].meshIndex == sortedEntities[j].meshIndex) {
+        k++;
+      }
+
+      uint32_t instanceCount = static_cast<uint32_t>(k - j);
+      auto &entity = sortedEntities[j];
+      auto &mesh = entity.getMesh();
+
+      for (const auto &primitive : mesh.primitives) {
+        VkDrawIndexedIndirectCommand cmd{};
+        cmd.indexCount = primitive.indexCount;
+        cmd.instanceCount = instanceCount;
+        cmd.firstIndex = primitive.indexOffset;
+        cmd.vertexOffset = 0;
+        cmd.firstInstance = currentInstanceIndex;
+
+        drawCommands.push_back(cmd);
+        drawCount++;
+
+        auto &mat = currentScene->materials[primitive.materialIndex];
+        int32_t texIdx = mat.baseColorTextureIndex.has_value() 
+            ? static_cast<int32_t>(mat.baseColorTextureIndex.value()) 
+            : -1;
+
+        for (size_t inst = j; inst < k; ++inst) {
+          GPUInstanceData data;
+          data.modelMatrix = sortedEntities[inst].transform.mat4() * mesh.transform;
+          data.normalMatrix = glm::mat4(sortedEntities[inst].transform.normalMatrix());
+          data.color = mat.baseColorFactor;
+          data.textureIndex = texIdx;
+          instanceData.push_back(data);
+        }
+        currentInstanceIndex += instanceCount;
+      }
+      j = k;
     }
 
-    uint32_t instanceCount = static_cast<uint32_t>(j - i);
+    SceneBatch batch{};
+    batch.scene = currentScene;
+    batch.firstDrawCommandOffset = firstDrawOffset;
+    batch.drawCommandCount = drawCount;
+    sceneBatches.push_back(batch);
 
-    for (size_t k = i; k < j; k++) {
-      instanceData.push_back(
-          {.modelMatrix = sortedEntities[k].transform.mat4() *
-                          sortedEntities[k].getMesh().transform,
-           .normalMatrix =
-               glm::mat4(sortedEntities[k].transform.normalMatrix())});
-    }
-
-    auto &entity = sortedEntities[i];
-    auto &mesh = entity.getMesh();
-
-    for (const auto &primitive : mesh.primitives) {
-      VkDrawIndexedIndirectCommand cmd{};
-      cmd.indexCount = primitive.indexCount;
-      cmd.instanceCount = instanceCount;
-      cmd.firstIndex = primitive.indexOffset;
-      cmd.vertexOffset = 0;
-      cmd.firstInstance = currentInstanceIndex;
-
-      uint32_t cmdOffset = static_cast<uint32_t>(
-          drawCommands.size() * sizeof(VkDrawIndexedIndirectCommand));
-      drawCommands.push_back(cmd);
-
-      auto &mat = entity.scene->materials[primitive.materialIndex];
-      IndirectBatch batch{};
-      batch.scene = entity.scene;
-      batch.materialIndex = primitive.materialIndex;
-      batch.indirectOffset = cmdOffset;
-      batch.baseColorFactor = mat.baseColorFactor;
-      batch.useTexture = mat.baseColorTextureIndex.has_value();
-
-      renderBatches.push_back(batch);
-    }
-
-    currentInstanceIndex += instanceCount;
     i = j;
   }
 
-  VkDeviceSize instanceBufferSize =
-      instanceData.size() * sizeof(GPUInstanceData);
+  VkDeviceSize instanceBufferSize = instanceData.size() * sizeof(GPUInstanceData);
 
   if (!instanceBuffer || instanceBuffer->getSize() < instanceBufferSize) {
     instanceBuffer = std::make_unique<Buffer<GPUInstanceData>>(
@@ -203,8 +202,7 @@ void EntitySys::updateBuffers(std::vector<Entity> &sortedEntities) {
     instanceBuffer->unmap();
   }
 
-  VkDeviceSize cmdBufferSize =
-      drawCommands.size() * sizeof(VkDrawIndexedIndirectCommand);
+  VkDeviceSize cmdBufferSize = drawCommands.size() * sizeof(VkDrawIndexedIndirectCommand);
   if (!indirectDrawBuffer || indirectDrawBuffer->getSize() < cmdBufferSize) {
     indirectDrawBuffer = std::make_unique<Buffer<VkDrawIndexedIndirectCommand>>(
         context,
@@ -222,7 +220,7 @@ void EntitySys::updateBuffers(std::vector<Entity> &sortedEntities) {
 }
 
 void EntitySys::render() {
-  if (renderBatches.empty())
+  if (sceneBatches.empty())
     return;
 
   auto cmd = context.frameInfo.cmd;
@@ -238,33 +236,23 @@ void EntitySys::render() {
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 2, 1,
                           &instanceDescriptorSet, 0, nullptr);
 
-  std::shared_ptr<Scene<Vertex>> currentScene = nullptr;
+  for (const auto &batch : sceneBatches) {
+    batch.scene->bind(context, cmd, *pipeline);
 
-  for (const auto &batch : renderBatches) {
-    if (batch.scene != currentScene) {
-      currentScene = batch.scene;
-      currentScene->bind(context, cmd, *pipeline);
+    VkDescriptorSet texSet = batch.scene->sceneTextureSet;
+    if (texSet == VK_NULL_HANDLE) {
+        texSet = dummyTextureSet;
     }
 
-    auto &mat = currentScene->materials[batch.materialIndex];
-    if (batch.useTexture && mat.baseColorTextureIndex.has_value()) {
-      vkCmdBindDescriptorSets(
-          cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1, 1,
-          &currentScene->imageDescriptorSets[mat.baseColorTextureIndex.value()],
-          0, nullptr);
-    } else {
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline,
-                              1, 1, &dummyTextureSet, 0, nullptr);
-    }
+    vkCmdBindDescriptorSets(
+        cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1, 1,
+        &texSet, 0, nullptr);
 
-    PushConstantData push{};
-    push.color = batch.baseColorFactor;
-    push.useColorTexture = batch.useTexture ? 1 : 0;
-    vkCmdPushConstants(cmd, *pipeline, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                       sizeof(PushConstantData), &push);
-
-    vkCmdDrawIndexedIndirect(cmd, *indirectDrawBuffer, batch.indirectOffset, 1,
-                             sizeof(VkDrawIndexedIndirectCommand));
+    vkCmdDrawIndexedIndirect(
+        cmd, *indirectDrawBuffer, 
+        batch.firstDrawCommandOffset * sizeof(VkDrawIndexedIndirectCommand), 
+        batch.drawCommandCount,
+        sizeof(VkDrawIndexedIndirectCommand));
   }
 
   debug::endLabel(context, cmd);

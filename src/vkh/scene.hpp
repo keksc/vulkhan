@@ -77,6 +77,7 @@ public:
       : context{context}, disableMaterial{disableMaterial} {
     loadModel(path, setLayout);
   }
+  
   Scene(EngineContext &context, const SceneCreateInfo<VertexType> &createInfo)
       : context{context}, disableMaterial{true} {
     ImageCreateInfo_color imageInfo{};
@@ -97,17 +98,6 @@ public:
     std::string name = std::format("{:#x} color image", imageInfo.color);
     imageInfo.name = name.c_str();
     images.emplace_back(context, imageInfo);
-
-    // VkDescriptorSet set =
-    // context.vulkan.globalDescriptorAllocator->allocate(context.vulkan.sceneDescriptorSetLayout);
-    // DescriptorWriter writer(context);
-    // writer.writeImage(
-    //     0, images[0].getDescriptorInfo(context.vulkan.defaultSampler),
-    //     VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-    // writer.updateSet(set);
-    // imageDescriptorSets.emplace_back(set);
-    //
-    // materials.emplace_back();
 
     createBuffers(createInfo.vertices, createInfo.indices);
   }
@@ -259,18 +249,7 @@ public:
                             std::string name =
                                 std::format("image {} for scene {}", image.name,
                                             createInfo.name);
-                            auto &image =
-                                images.emplace_back(context, createInfo);
-                            auto &set = imageDescriptorSets.emplace_back();
-                            set = context.vulkan.globalDescriptorAllocator
-                                      ->allocate(setLayout);
-                            DescriptorWriter writer(context);
-                            writer.writeImage(
-                                0,
-                                image.getDescriptorInfo(
-                                    context.vulkan.defaultSampler),
-                                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-                            writer.updateSet(set);
+                            images.emplace_back(context, createInfo);
                           }},
                       buffer.data);
                 },
@@ -299,13 +278,35 @@ public:
         }
         materials.emplace_back(mat);
       }
+
+      // One descriptor set for the entire scene's texture array
+      if (!images.empty()) {
+        sceneTextureSet = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
+        
+        std::vector<VkDescriptorImageInfo> imageInfos;
+        imageInfos.reserve(images.size());
+        for (auto& img : images) {
+            imageInfos.push_back(img.getDescriptorInfo(context.vulkan.defaultSampler));
+        }
+
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = sceneTextureSet;
+        write.dstBinding = 0;
+        write.dstArrayElement = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = static_cast<uint32_t>(imageInfos.size());
+        write.pImageInfo = imageInfos.data();
+
+        vkUpdateDescriptorSets(context.vulkan.device, 1, &write, 0, nullptr);
+      }
     }
 
     createBuffers(vertices, indices);
   }
 
   std::vector<Image> images;
-  std::vector<VkDescriptorSet> imageDescriptorSets;
+  VkDescriptorSet sceneTextureSet = VK_NULL_HANDLE;
   std::vector<Material> materials;
 
   size_t getIndicesSize() const { return indexCount; }
