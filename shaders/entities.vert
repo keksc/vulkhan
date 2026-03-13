@@ -7,12 +7,19 @@ layout(location = 2) in vec2 uv;
 layout(location = 0) out vec3 fragPosWorld;
 layout(location = 1) out vec3 fragNormalWorld;
 layout(location = 2) out vec2 fragUV;
+layout(location = 3) flat out vec4 fragColor;
+layout(location = 4) flat out int fragTexIndex;
 
 #include "globalUbo.glsl"
 
 struct ObjectData {
   mat4 model;
   mat4 normal;
+  vec4 color;
+  int textureIndex;
+  int pad0;
+  int pad1;
+  int pad2;
 };
 
 layout(std430, set = 2, binding = 0) readonly buffer ObjectBuffer {
@@ -24,9 +31,12 @@ void main() {
   mat3 normalMatrix = mat3(objectBuffer.objects[gl_InstanceIndex].normal);
 
   vec4 positionWorld = modelMatrix * vec4(position, 1.0);
-  
+
   gl_Position = ubo.projView * positionWorld;
   fragNormalWorld = normalize(normalMatrix * normal);
   fragPosWorld = positionWorld.xyz;
   fragUV = uv;
+  
+  fragColor = objectBuffer.objects[gl_InstanceIndex].color;
+  fragTexIndex = objectBuffer.objects[gl_InstanceIndex].textureIndex;
 }

@@ -66,20 +66,15 @@ public:
   struct GPUInstanceData {
     glm::mat4 modelMatrix;
     glm::mat4 normalMatrix;
-  };
-
-  struct GPUMaterialData {
-    glm::vec4 baseColorFactor{1.f};
+    glm::vec4 color;
     int32_t textureIndex; // -1 if no texture
-    uint32_t padding[3];
+    int32_t padding[3];   // Pad to 16-byte alignment
   };
 
-  struct IndirectBatch {
+  struct SceneBatch {
     std::shared_ptr<Scene<Vertex>> scene;
-    size_t materialIndex;
-    uint32_t indirectOffset;
-    bool useTexture;
-    glm::vec4 baseColorFactor;
+    uint32_t firstDrawCommandOffset;
+    uint32_t drawCommandCount;
   };
 
   EntitySys(EngineContext &context);
@@ -100,8 +95,8 @@ private:
 
   std::unique_ptr<Buffer<GPUInstanceData>> instanceBuffer;
   std::unique_ptr<Buffer<VkDrawIndexedIndirectCommand>> indirectDrawBuffer;
-  
-  std::vector<IndirectBatch> renderBatches;
+
+  std::vector<SceneBatch> sceneBatches;
 
   VkDescriptorSet instanceDescriptorSet;
   VkDescriptorSet dummyTextureSet;
