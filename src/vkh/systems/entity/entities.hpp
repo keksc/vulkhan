@@ -15,6 +15,8 @@ public:
     glm::vec3 pos{};
     glm::vec3 normal{};
     glm::vec2 uv{};
+    glm::uvec4 jointIndices{};
+    glm::vec4 jointWeights{};
 
     static std::vector<VkVertexInputBindingDescription>
     getBindingDescriptions() {
@@ -34,6 +36,10 @@ public:
                                          offsetof(Vertex, normal));
       attributeDescriptions.emplace_back(2, 0, VK_FORMAT_R32G32_SFLOAT,
                                          offsetof(Vertex, uv));
+      attributeDescriptions.emplace_back(3, 0, VK_FORMAT_R32G32B32A32_UINT,
+                                         offsetof(Vertex, jointIndices));
+      attributeDescriptions.emplace_back(4, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                         offsetof(Vertex, uv));
 
       return attributeDescriptions;
     }
@@ -51,7 +57,9 @@ public:
   struct RigidBody {
     glm::vec3 velocity{0.f};
     float mass{1.f};
-    const glm::vec3 computeWeight() const { return {0, mass * 9.81f, 0}; }
+    const glm::vec3 computeWeight() const {
+      return glm::vec3{0, mass * 9.81f, 0};
+    }
   };
 
   struct Entity {
@@ -68,7 +76,8 @@ public:
     glm::mat4 normalMatrix;
     glm::vec4 color;
     int32_t textureIndex; // -1 if no texture
-    int32_t padding[3];   // Pad to 16-byte alignment
+    int32_t jointOffset;
+    int32_t padding[2]; // Pad to 16-byte alignment
   };
 
   struct SceneBatch {
@@ -81,6 +90,7 @@ public:
   ~EntitySys();
 
   void setEntities(std::vector<Entity> &entities);
+  void updateJoints(std::vector<Entity> &sortedEntities);
   void render();
 
   VkDescriptorSetLayout textureSetLayout;
@@ -95,11 +105,11 @@ private:
 
   std::unique_ptr<Buffer<GPUInstanceData>> instanceBuffer;
   std::unique_ptr<Buffer<VkDrawIndexedIndirectCommand>> indirectDrawBuffer;
+  std::unique_ptr<Buffer<glm::mat4>> jointBuffer;
 
   std::vector<SceneBatch> sceneBatches;
 
   VkDescriptorSet instanceDescriptorSet;
   VkDescriptorSet dummyTextureSet;
 };
-
 } // namespace vkh

@@ -86,6 +86,11 @@ void run() {
     for (int i = 0; i < surf->meshes.size(); i++)
       entities.emplace_back(vkh::EntitySys::Transform{.position{5.f}},
                             vkh::EntitySys::RigidBody{}, surf, i);
+    auto animTest = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+        context, "models/animTest.glb", entitySys.textureSetLayout);
+    entities.emplace_back(vkh::EntitySys::Transform{.position{0.f}},
+                          vkh::EntitySys::RigidBody{}, animTest, 0);
+
     entitySys.setEntities(entities);
 
     // vkh::FreezeAnimationSys freezeAnimationSys(context);
@@ -301,7 +306,7 @@ void run() {
       context.camera.projectionMatrix =
           glm::perspective(1.919'862'177f /*human FOV*/,
                            context.window.aspectRatio, .1f, 1000.f);
-      context.camera.projectionMatrix[1][1] *= -1.f; // Flip Y for Vulkan
+      context.camera.projectionMatrix[1][1] *= -1.f; // Flip Y
       vkh::camera::calcViewYXZ(context);
 
       if (auto commandBuffer = vkh::renderer::beginFrame(context)) {
@@ -330,8 +335,15 @@ void run() {
         if (hudSys.getView() == &worldView) {
           waterSys.update();
           particleSys.update();
+
+          if (!animTest->animations.empty()) {
+            float animTime =
+                std::fmod(context.time, animTest->animations[2].end);
+            animTest->updateAnimation(2, animTime);
+
+            entitySys.updateJoints(entities);
+          }
         }
-        // entitySys.entities[0].transform.position.x += .2f;
         if (hudSys.getView() == &smokeView) {
           smokeSys.update();
         }

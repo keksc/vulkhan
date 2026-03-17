@@ -1,4 +1,5 @@
 #include "textInput.hpp"
+#include <GLFW/glfw3.h>
 
 namespace vkh::hud {
 
@@ -41,6 +42,17 @@ bool TextInput::handleKey(int key, int scancode, int action, int mods) {
       (action == GLFW_PRESS || action == GLFW_REPEAT)) {
     if (text->content.empty())
       return true;
+
+    if (mods & GLFW_MOD_CONTROL) {
+      size_t lastSpace = text->content.find_last_of(' ');
+      if (lastSpace == std::string::npos) {
+        text->content.clear();
+      } else {
+        text->content.erase(lastSpace);
+      }
+      size = text->size;
+      return true;
+    }
     text->content.pop_back();
     size = text->size;
     return true;
@@ -58,7 +70,7 @@ bool TextInput::handleKey(int key, int scancode, int action, int mods) {
   return false;
 }
 bool TextInput::handleMouseButton(int button, int action, int mods) {
-  if(button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
+  if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
     return false;
   selected = isCursorInside();
   return selected;

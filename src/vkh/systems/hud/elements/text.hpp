@@ -94,7 +94,25 @@ public:
     return *this;
   }
 
-  // Forward read-only operations directly
+  AutoUpdateString &erase(size_t pos = 0, size_t len = std::string::npos) {
+    data.erase(pos, len);
+    updateOwner();
+    return *this;
+  }
+
+  size_t find_last_of(const std::string &str,
+                      size_t pos = std::string::npos) const noexcept {
+    return data.find_last_of(str, pos);
+  }
+
+  size_t find_last_of(const char *s, size_t pos = std::string::npos) const {
+    return data.find_last_of(s, pos);
+  }
+
+  size_t find_last_of(char c, size_t pos = std::string::npos) const noexcept {
+    return data.find_last_of(c, pos);
+  }
+
   size_t find(const std::string &s, size_t pos = 0) const {
     return data.find(s, pos);
   }
