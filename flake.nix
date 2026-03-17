@@ -30,7 +30,12 @@
 
           nativeBuildInputs = with pkgs; [
             cmake
+          ];
+          buildInputs = with pkgs; [
             simdjson
+          ];
+          cmakeFlags = [
+            "-DFASTGLTF_USE_SYSTEM_SIMDJSON=ON"
           ];
         };
       in
@@ -60,7 +65,6 @@
             spirv-headers
             spirv-tools
             shaderc
-            # stdenv.cc.cc.lib
           ];
 
           shellHook = ''
@@ -68,15 +72,16 @@
             export CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH:${fastgltf}:${pkgs.simdjson}
           '';
         };
+
         defaultPackage = pkgs.stdenv.mkDerivation {
-          name = "vulkhan";
+          pname = "vulkhan";
+          version = "0.0.0";
           src = ./.;
-          configurePhase = "cmake -B build -DCMAKE_BUILD_TYPE=Release";
-          buildPhase = "cmake --build build";
-          installPhase = "cmake --install build --prefix $out";
 
           nativeBuildInputs = with pkgs; [
             cmake
+            makeWrapper
+            copyDesktopItems
           ];
 
           buildInputs = with pkgs; [
@@ -98,6 +103,24 @@
             pkg-config
             shaderc
           ];
+
+          desktopItems = [
+            (pkgs.makeDesktopItem {
+              name = "vulkhan";
+              exec = "vulkhan";
+              icon = "vulkhan";
+              comment = "lovely vulkan graphics engine";
+              desktopName = "Vulkhan";
+              categories = [ "Game" "Development" ];
+            })
+          ];
+
+          postInstall = ''
+            install -Dm644 $src/icon.png $out/share/icons/hicolor/256x256/apps/vulkhan.png
+
+            wrapProgram $out/bin/vulkhan \
+              --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ]}"
+          '';
         };
       }
     );
