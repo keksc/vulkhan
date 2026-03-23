@@ -217,7 +217,7 @@ void WSTessendorf::computeWaveVectors(std::vector<WaveVector> &waveVecs) {
 }
 
 void WSTessendorf::recordComputeWaves(VkCommandBuffer &cmd, float t) {
-  debug::beginLabel(context, cmd, "record compute waves", {.2f, .2f, 1.f, 1.f});
+  debug::beginLabel(context, cmd, "Compute waves", {.2f, .2f, 1.f, 1.f});
   {
     PushConstantData data{.t = t, .dt = context.frameInfo.dt};
     debug::beginLabel(context, cmd, "pre FFT", {.2f, .2f, 1.f, 1.f});

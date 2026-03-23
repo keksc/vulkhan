@@ -18,6 +18,19 @@
 #include "deviceHelpers.hpp"
 
 namespace vkh {
+
+void Image::recordTransitionLayout(VkCommandBuffer cmd,
+                                   VkImageLayout newLayout) {
+  if (newLayout == layout)
+    return;
+  VkImageSubresourceRange range = {.aspectMask = aspectMask,
+                                   .baseMipLevel = 0,
+                                   .levelCount = mipLevels,
+                                   .baseArrayLayer = 0,
+                                   .layerCount = 1};
+  recordTransitionLayout(cmd, newLayout, range);
+}
+
 void Image::recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout,
                                    VkImageSubresourceRange subresourceRange) {
   VkImageMemoryBarrier imageMemoryBarrier{
@@ -56,6 +69,19 @@ void Image::recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout,
                    VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
     break;
+
+  case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+    imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    break;
+
+  case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+    imageMemoryBarrier.srcAccessMask =
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    break;
+
   default:
     break;
   }
@@ -77,6 +103,21 @@ void Image::recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout,
     imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
     break;
+
+  case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+    imageMemoryBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                       VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+    dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    break;
+
+  case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+    imageMemoryBarrier.dstAccessMask =
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    break;
+
   default:
     break;
   }
@@ -85,6 +126,7 @@ void Image::recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout,
                        nullptr, 1, &imageMemoryBarrier);
   layout = newLayout;
 }
+
 uint32_t Image::getFormatSize(VkFormat format) {
   switch (format) {
   case VK_FORMAT_R8_SINT:
@@ -129,11 +171,33 @@ uint32_t Image::getFormatSize(VkFormat format) {
     throw std::runtime_error("Unsupported format for formatSize");
   }
 }
+
 void Image::transitionLayout(VkImageLayout newLayout) {
+  if (newLayout == layout)
+    return;
   auto cmd = beginSingleTimeCommands(context);
   recordTransitionLayout(cmd, newLayout);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 }
+
+void Image::createView() {
+  VkImageViewCreateInfo viewInfo{.sType =
+                                     VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+  viewInfo.image = img;
+  viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  viewInfo.format = format;
+  viewInfo.subresourceRange.aspectMask = aspectMask;
+  viewInfo.subresourceRange.baseMipLevel = 0;
+  viewInfo.subresourceRange.levelCount = mipLevels;
+  viewInfo.subresourceRange.baseArrayLayer = 0;
+  viewInfo.subresourceRange.layerCount = 1;
+
+  if (vkCreateImageView(context.vulkan.device, &viewInfo, nullptr, &view) !=
+      VK_SUCCESS) {
+    throw std::runtime_error("failed to create image view!");
+  }
+}
+
 void Image::createImage(EngineContext &context, glm::uvec2 size,
                         VkImageUsageFlags usage) {
   const VkImageLayout initLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -142,7 +206,7 @@ void Image::createImage(EngineContext &context, glm::uvec2 size,
                               .format = format,
                               .mipLevels = mipLevels,
                               .arrayLayers = 1,
-                              .samples = VK_SAMPLE_COUNT_1_BIT,
+                              .samples = numSamples,
                               .tiling = VK_IMAGE_TILING_OPTIMAL,
                               .usage = usage,
                               .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
@@ -176,6 +240,7 @@ void Image::createImage(EngineContext &context, glm::uvec2 size,
     throw std::runtime_error("failed to bind image memory!");
   }
 }
+
 void Image::createImageFromData(void *pixels, const size_t dataSize,
                                 glm::uvec2 size) {
   if (!pixels) {
@@ -198,11 +263,16 @@ void Image::createImageFromData(void *pixels, const size_t dataSize,
   recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 
-  view = createImageView(context, img, format);
+  createView();
 }
+
 Image::Image(EngineContext &context, const ImageCreateInfo_PNGdata &createInfo)
     : context{context} {
   format = VK_FORMAT_R8G8B8A8_SRGB;
+  numSamples = createInfo.samples;
+  mipLevels = createInfo.mipLevels;
+  aspectMask = createInfo.aspect;
+
   int w, h, texChannels;
   stbi_uc *pixels = stbi_load_from_memory((const stbi_uc *)createInfo.data,
                                           createInfo.dataSize, &w, &h,
@@ -213,22 +283,8 @@ Image::Image(EngineContext &context, const ImageCreateInfo_PNGdata &createInfo)
   stbi_image_free(pixels);
 
   setDbgInfo(createInfo.name);
-  // ktxTexture *texture;
-  // ktxResult result = ktxTexture_CreateFromMemory(
-  //     reinterpret_cast<ktx_uint8_t *>(data),
-  //     reinterpret_cast<ktx_size_t>(dataSize),
-  //     KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture);
-  // std::println("result = {}", (int)result);
-  // assert(result == KTX_SUCCESS);
-  // format = ktxTexture_GetVkFormat(texture);
-  // w = texture->baseWidth;
-  // h = texture->baseHeight;
-  // mipLevels = texture->numLevels;
-  // ktx_uint8_t *imgData = ktxTexture_GetData(texture);
-  // ktx_size_t imgDataSize = ktxTexture_GetDataSize(texture);
-  // createImageFromData(imgData, imgDataSize);
-  // ktxTexture_Destroy(texture);
 }
+
 Image::Image(EngineContext &context, const std::filesystem::path &path)
     : context{context} {
   if (path.extension() == ".ktx2") {
@@ -254,7 +310,6 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     stagingBuffer.write(ktxData);
     stagingBuffer.unmap();
 
-    // Create optimal tiled target image
     VkImageCreateInfo imageCreateInfo{.sType =
                                           VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -267,9 +322,7 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     imageCreateInfo.extent = {size.x, size.y, 1};
     imageCreateInfo.usage =
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    // Cube faces count as array layers in Vulkan
     imageCreateInfo.arrayLayers = 6;
-    // This flag is required for cube map images
     imageCreateInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 
     if (vkCreateImage(context.vulkan.device, &imageCreateInfo, nullptr, &img) !=
@@ -295,14 +348,9 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
 
     VkCommandBuffer cmd = beginSingleTimeCommands(context);
 
-    // Setup buffer copy regions for each face including all of its miplevels
     std::vector<VkBufferImageCopy> bufferCopyRegions;
-    uint32_t offset = 0;
-
     for (uint32_t face = 0; face < 6; face++) {
       for (uint32_t level = 0; level < mipLevels; level++) {
-        // Calculate offset into staging buffer for the current mip level and
-        // face
         ktx_size_t offset;
         KTX_error_code ret =
             ktxTexture_GetImageOffset(texture, level, 0, face, &offset);
@@ -319,10 +367,7 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
       }
     }
 
-    // Image barrier for optimal image (target)
-    // Set initial layout for all array layers (faces) of the optimal (target)
-    // tiled texture
-    VkImageSubresourceRange subresourceRange = {};
+    VkImageSubresourceRange subresourceRange{};
     subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     subresourceRange.baseMipLevel = 0;
     subresourceRange.levelCount = mipLevels;
@@ -331,30 +376,21 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            subresourceRange);
 
-    // Copy the cube map faces from the staging buffer to the optimal tiled
-    // image
     vkCmdCopyBufferToImage(cmd, stagingBuffer, img,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            static_cast<uint32_t>(bufferCopyRegions.size()),
                            bufferCopyRegions.data());
 
-    // Change texture image layout to shader read after all faces have been
-    // copied
     recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                            subresourceRange);
-
     endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 
-    // Create image view
     VkImageViewCreateInfo viewInfo{
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    // Cube map view type
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
     viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
     viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    // 6 array layers (faces)
     viewInfo.subresourceRange.layerCount = 6;
-    // Set number of mip levels
     viewInfo.subresourceRange.levelCount = mipLevels;
     viewInfo.image = img;
     if (vkCreateImageView(context.vulkan.device, &viewInfo, nullptr, &view) !=
@@ -365,6 +401,7 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     ktxTexture_Destroy(texture);
     return;
   }
+
   format = VK_FORMAT_R8G8B8A8_UNORM;
   int w, h, texChannels;
   stbi_uc *pixels =
@@ -375,11 +412,16 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
   stbi_image_free(pixels);
   setDbgInfo(path.c_str());
 }
+
 Image::Image(EngineContext &context, const ImageCreateInfo_color &createInfo)
     : context{context}, format{createInfo.format}, size{createInfo.size},
       layout{createInfo.layout} {
+  numSamples = createInfo.samples;
+  mipLevels = createInfo.mipLevels;
+  aspectMask = createInfo.aspect;
+
   createImage(context, createInfo.size, createInfo.usage);
-  view = createImageView(context, img, format);
+  createView();
 
   uint32_t color = createInfo.color;
   void *data = static_cast<void *>(&color);
@@ -398,18 +440,32 @@ Image::Image(EngineContext &context, const ImageCreateInfo_color &createInfo)
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
   setDbgInfo(createInfo.name);
 }
+
 Image::Image(EngineContext &context, const ImageCreateInfo_empty &createInfo)
     : context{context}, size{createInfo.size}, format{createInfo.format} {
+  numSamples = createInfo.samples;
+  mipLevels = createInfo.mipLevels;
+  aspectMask = createInfo.aspect;
+
   createImage(context, size, createInfo.usage);
-  view = createImageView(context, img, format);
-  transitionLayout(createInfo.layout);
+  createView();
+
+  layout = VK_IMAGE_LAYOUT_UNDEFINED;
+  if (createInfo.layout != VK_IMAGE_LAYOUT_UNDEFINED) {
+    transitionLayout(createInfo.layout);
+  }
   setDbgInfo(createInfo.name);
 }
+
 Image::Image(EngineContext &context, const ImageCreateInfo_data &createInfo)
     : context{context}, format{createInfo.format}, size{createInfo.size},
       layout{createInfo.layout} {
+  numSamples = createInfo.samples;
+  mipLevels = createInfo.mipLevels;
+  aspectMask = createInfo.aspect;
+
   createImage(context, createInfo.size, createInfo.usage);
-  view = createImageView(context, img, format);
+  createView();
 
   VkDeviceSize size =
       createInfo.size.x * createInfo.size.y * Image::getFormatSize(format);
@@ -427,11 +483,16 @@ Image::Image(EngineContext &context, const ImageCreateInfo_data &createInfo)
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
   setDbgInfo(createInfo.name);
 }
+
 Image::~Image() {
-  vkDestroyImageView(context.vulkan.device, view, nullptr);
-  vkDestroyImage(context.vulkan.device, img, nullptr);
-  vkFreeMemory(context.vulkan.device, memory, nullptr);
+  if (view != VK_NULL_HANDLE)
+    vkDestroyImageView(context.vulkan.device, view, nullptr);
+  if (img != VK_NULL_HANDLE)
+    vkDestroyImage(context.vulkan.device, img, nullptr);
+  if (memory != VK_NULL_HANDLE)
+    vkFreeMemory(context.vulkan.device, memory, nullptr);
 }
+
 void Image::recordCopyFromBuffer(VkCommandBuffer cmd, VkBuffer buffer,
                                  uint32_t bufferOffset) {
   assert(layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
@@ -452,6 +513,7 @@ void Image::recordCopyFromBuffer(VkCommandBuffer cmd, VkBuffer buffer,
   vkCmdCopyBufferToImage(cmd, buffer, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                          1, &region);
 }
+
 void Image::copyFromBuffer(VkBuffer buffer, uint32_t bufferOffset) {
   auto cmd = beginSingleTimeCommands(context);
   VkImageLayout oldLayout = layout;
@@ -462,6 +524,7 @@ void Image::copyFromBuffer(VkBuffer buffer, uint32_t bufferOffset) {
     recordTransitionLayout(cmd, oldLayout);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 }
+
 void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel) {
   if (format != VK_FORMAT_R8G8B8A8_UNORM && format != VK_FORMAT_R8G8B8A8_SRGB) {
     throw std::runtime_error(
@@ -506,8 +569,7 @@ void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel) {
   vkCmdCopyImageToBuffer(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                          stagingBuffer, 1, &region);
 
-  recordTransitionLayout(cmd, oldLayout,
-                         subresourceRange); // Restore original layout
+  recordTransitionLayout(cmd, oldLayout, subresourceRange);
 
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 
@@ -515,6 +577,7 @@ void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel) {
   std::memcpy(dst, stagingBuffer.getMappedAddr(), bufferSize);
   stagingBuffer.unmap();
 }
+
 std::vector<unsigned char> Image::downloadAndSerializeToPNG() {
   std::vector<unsigned char> pixels(size.x * size.y * 4);
   downloadPixels(pixels.data(), 0);
@@ -529,9 +592,8 @@ std::vector<unsigned char> Image::downloadAndSerializeToPNG() {
                              std::string(stbi_failure_reason()));
   }
 
-  // Copy into vector (owns memory, auto-frees)
   std::vector<uint8_t> result(pngData, pngData + len);
-  STBIW_FREE(pngData); // Free stb-allocated memory
+  STBIW_FREE(pngData);
   return result;
 }
 } // namespace vkh

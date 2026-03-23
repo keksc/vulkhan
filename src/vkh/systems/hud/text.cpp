@@ -72,6 +72,7 @@ void TextSys::createPipeline() {
   pipelineInfo.vertpath = "shaders/text.vert.spv";
   pipelineInfo.fragpath = "shaders/text.frag.spv";
   pipelineInfo.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
+  pipelineInfo.subpass = 1;
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "text");
 }
 void TextSys::createGlyphs() {
@@ -107,6 +108,7 @@ void TextSys::createGlyphs() {
   imageInfo.size = bitmapExtent;
   imageInfo.data = atlasData;
   std::string imageName = std::format("font atlas for {}", fontPath.string());
+  imageInfo.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   imageInfo.name = imageName.c_str();
   fontAtlas = std::make_unique<Image>(context, imageInfo);
 

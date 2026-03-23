@@ -2,7 +2,6 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include "../../audio.hpp"
 #include "../../debug.hpp"
 #include "../../pipeline.hpp"
 #include "../../swapChain.hpp"
@@ -49,6 +48,11 @@ void WaterSys::createPipeline() {
   pipelineInfo.fragpath = "shaders/water/water.frag.spv";
   pipelineInfo.tescpath = "shaders/water/water.tesc.spv";
   pipelineInfo.tesepath = "shaders/water/water.tese.spv";
+
+  pipelineInfo.subpass = 0;
+  pipelineInfo.multisampleInfo.rasterizationSamples =
+      context.vulkan.msaaSamples;
+
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "water");
 }
 void WaterSys::createUniformBuffers(const uint32_t bufferCount) {
@@ -126,13 +130,13 @@ std::vector<uint32_t> WaterSys::createGridIndices() {
 }
 void WaterSys::updateDescriptorSet(VkDescriptorSet set) {
   // UBOs
-  VkDescriptorBufferInfo bufferInfos[1] = {};
+  VkDescriptorBufferInfo bufferInfos[1]{};
   bufferInfos[0].buffer = uniformBuffers[context.frameInfo.frameIndex];
   bufferInfos[0].offset = 0;
   bufferInfos[0].range = sizeof(VertexUBO);
 
   // Binding 1: Displacement Map
-  VkDescriptorImageInfo imageInfo = {};
+  VkDescriptorImageInfo imageInfo{};
   imageInfo = modelTess.getDisplacementFoamImage().getDescriptorInfo(
       context.vulkan.defaultSampler);
   imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -215,5 +219,8 @@ void WaterSys::render() {
   scene->meshes.begin()->primitives.begin()->draw(context.frameInfo.cmd);
   debug::endLabel(context, context.frameInfo.cmd);
 }
-void WaterSys::downloadDisplacementAtWorldPos() {}
+
+void WaterSys::downloadDisplacementAtWorldPos() {
+  modelTess.getDisplacementFoamImage();
+}
 } // namespace vkh

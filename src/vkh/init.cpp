@@ -3,6 +3,7 @@
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <magic_enum/magic_enum.hpp>
 #include <vulkan/vulkan_core.h>
 
 #include <print>
@@ -45,6 +46,7 @@ bool checkValidationLayerSupport() {
 
   return true;
 }
+
 static VKAPI_ATTR VkBool32 VKAPI_CALL
 debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
               VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -54,6 +56,7 @@ debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
 
   return VK_FALSE;
 }
+
 void populateDebugMessengerCreateInfo(
     VkDebugUtilsMessengerCreateInfoEXT &createInfo) {
   createInfo = {.sType =
@@ -65,6 +68,7 @@ void populateDebugMessengerCreateInfo(
                            VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
   createInfo.pfnUserCallback = debugCallback;
 }
+
 std::vector<const char *> getRequiredExtensions(EngineContext &context) {
   uint32_t glfwExtensionCount = 0;
   const char **glfwExtensions;
@@ -79,6 +83,7 @@ std::vector<const char *> getRequiredExtensions(EngineContext &context) {
 
   return extensions;
 }
+
 void checkGflwRequiredInstanceExtensions(EngineContext &context) {
   uint32_t extensionCount = 0;
   vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
@@ -98,6 +103,7 @@ void checkGflwRequiredInstanceExtensions(EngineContext &context) {
     }
   }
 }
+
 void createInstance(EngineContext &context) {
 #ifndef NDEBUG
   if (!checkValidationLayerSupport()) {
@@ -136,6 +142,7 @@ void createInstance(EngineContext &context) {
 
   checkGflwRequiredInstanceExtensions(context);
 }
+
 void setupDebugMessenger(EngineContext &context) {
   VkDebugUtilsMessengerCreateInfoEXT createInfo;
   populateDebugMessengerCreateInfo(createInfo);
@@ -147,6 +154,7 @@ void setupDebugMessenger(EngineContext &context) {
     throw std::runtime_error("failed to set up debug messenger!");
   }
 }
+
 bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
   uint32_t extensionCount;
   vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount,
@@ -165,6 +173,7 @@ bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
 
   return requiredExtensions.empty();
 }
+
 unsigned int getDeviceScore(EngineContext &context, VkPhysicalDevice device) {
   QueueFamilyIndices indices = findQueueFamilies(context, device);
 
@@ -181,19 +190,45 @@ unsigned int getDeviceScore(EngineContext &context, VkPhysicalDevice device) {
   VkPhysicalDeviceFeatures supportedFeatures;
   vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
 
-  VkPhysicalDeviceProperties properties;
-  vkGetPhysicalDeviceProperties(device, &properties);
-
   if (!(indices.isComplete() && extensionsSupported && swapChainAdequate &&
         supportedFeatures.samplerAnisotropy &&
         supportedFeatures.tessellationShader &&
         supportedFeatures.fillModeNonSolid))
     return 0; // unsuitable
 
+  const auto &props = context.vulkan.physicalDeviceProperties;
   unsigned int score = 1;
-  score += (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
+  score += (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
   return score;
 }
+
+VkSampleCountFlagBits getMaxUsableSampleCount(EngineContext &context) {
+  auto &limits = context.vulkan.physicalDeviceProperties.limits;
+
+  VkSampleCountFlags counts =
+      limits.framebufferColorSampleCounts & limits.framebufferDepthSampleCounts;
+  if (counts & VK_SAMPLE_COUNT_64_BIT) {
+    return VK_SAMPLE_COUNT_64_BIT;
+  }
+  if (counts & VK_SAMPLE_COUNT_32_BIT) {
+    return VK_SAMPLE_COUNT_32_BIT;
+  }
+  if (counts & VK_SAMPLE_COUNT_16_BIT) {
+    return VK_SAMPLE_COUNT_16_BIT;
+  }
+  if (counts & VK_SAMPLE_COUNT_8_BIT) {
+    return VK_SAMPLE_COUNT_8_BIT;
+  }
+  if (counts & VK_SAMPLE_COUNT_4_BIT) {
+    return VK_SAMPLE_COUNT_4_BIT;
+  }
+  if (counts & VK_SAMPLE_COUNT_2_BIT) {
+    return VK_SAMPLE_COUNT_2_BIT;
+  }
+
+  return VK_SAMPLE_COUNT_1_BIT;
+}
+
 void pickPhysicalDevice(EngineContext &context) {
   uint32_t deviceCount = 0;
   vkEnumeratePhysicalDevices(context.vulkan.instance, &deviceCount, nullptr);
@@ -222,7 +257,15 @@ void pickPhysicalDevice(EngineContext &context) {
 
   vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice,
                                 &context.vulkan.physicalDeviceProperties);
+
+  VkSampleCountFlagBits maxUsable = getMaxUsableSampleCount(context);
+  context.vulkan.msaaSamples = VK_SAMPLE_COUNT_4_BIT;
+  if (context.vulkan.msaaSamples == 0 ||
+      context.vulkan.msaaSamples > maxUsable) {
+    context.vulkan.msaaSamples = maxUsable;
+  }
 }
+
 void createLogicalDevice(EngineContext &context) {
   QueueFamilyIndices indices =
       findQueueFamilies(context, context.vulkan.physicalDevice);
@@ -239,12 +282,9 @@ void createLogicalDevice(EngineContext &context) {
                                   nullptr, 0, queueFamily, 1, &queuePriority);
   }
 
-  VkPhysicalDeviceFeatures deviceFeatures{
-      .tessellationShader = VK_TRUE,
-      .multiDrawIndirect = VK_TRUE,
-      .fillModeNonSolid = VK_TRUE,
-      .samplerAnisotropy = VK_TRUE,
-  };
+  VkPhysicalDeviceMultisampledRenderToSingleSampledFeaturesEXT
+      multisampledRenderToSingleSampledFeatures{};
+
   VkPhysicalDeviceRobustness2FeaturesKHR robustness2Features{
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_KHR,
       .nullDescriptor = VK_TRUE,
@@ -257,7 +297,12 @@ void createLogicalDevice(EngineContext &context) {
       .descriptorBindingPartiallyBound = VK_TRUE,
       .runtimeDescriptorArray = VK_TRUE,
   };
-
+  VkPhysicalDeviceFeatures deviceFeatures{
+      .tessellationShader = VK_TRUE,
+      .multiDrawIndirect = VK_TRUE,
+      .fillModeNonSolid = VK_TRUE,
+      .samplerAnisotropy = VK_TRUE,
+  };
   VkPhysicalDeviceFeatures2 deviceFeatures2{
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
       .pNext = &vulkan12Features,
@@ -323,6 +368,7 @@ void createLogicalDevice(EngineContext &context) {
                     reinterpret_cast<uint64_t>(context.vulkan.presentQueue),
                     "present queue");
 }
+
 void createCommandPool(EngineContext &context) {
   QueueFamilyIndices queueFamilyIndices =
       findQueueFamilies(context, context.vulkan.physicalDevice);
@@ -338,6 +384,7 @@ void createCommandPool(EngineContext &context) {
     throw std::runtime_error("failed to create command pool!");
   }
 }
+
 std::string deviceTypeToString(VkPhysicalDeviceType type) {
   switch (type) {
   case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
@@ -352,26 +399,31 @@ std::string deviceTypeToString(VkPhysicalDeviceType type) {
     return "Other";
   }
 }
+
 void displayInitInfo(EngineContext &context) {
-  std::println("{:=<60}", ""); // Table border
+  const auto &props = context.vulkan.physicalDeviceProperties;
+  std::println("{:=<70}", ""); // Table border
 
   // Header row
   std::println("{:<30} {:<25}", "Property", "Value");
-  std::println("{:-<60}", ""); // Divider
+  std::println("{:-<70}", ""); // Divider
 
   // Device Info
   std::println("{:<30} {:<25}", "Selected GPU",
                context.vulkan.physicalDeviceProperties.deviceName);
   std::println(
-      "{:<30} {}.{}.{}", "API Version",
-      VK_VERSION_MAJOR(context.vulkan.physicalDeviceProperties.apiVersion),
-      VK_VERSION_MINOR(context.vulkan.physicalDeviceProperties.apiVersion),
-      VK_VERSION_PATCH(context.vulkan.physicalDeviceProperties.apiVersion));
+      "{:<30} {}.{}.{}", "API Version", VK_VERSION_MAJOR(props.apiVersion),
+      VK_VERSION_MINOR(props.apiVersion), VK_VERSION_PATCH(props.apiVersion));
 
-  std::println("Max frames in flight: {}", context.vulkan.maxFramesInFlight);
+  std::println("{:<30} {:<25}", "Max frames in flight",
+               context.vulkan.maxFramesInFlight);
 
-  std::println("{:=<60}", ""); // Table border
+  std::println("{:<30} {:<25}", "MSAA",
+               magic_enum::enum_name(context.vulkan.msaaSamples));
+
+  std::println("{:=<70}", ""); // Table border
 }
+
 void setupGlobResources(EngineContext &context) {
   std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> poolSizeRatios = {
       {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
@@ -410,6 +462,7 @@ void setupGlobResources(EngineContext &context) {
     writer.updateSet(set);
   }
 }
+
 void init(EngineContext &context) {
   createInstance(context);
 
@@ -439,9 +492,7 @@ void init(EngineContext &context) {
   createCommandPool(context);
   displayInitInfo(context);
 
-  VkPhysicalDeviceProperties properties{};
-  vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice, &properties);
-
+  const auto &props = context.vulkan.physicalDeviceProperties;
   VkSamplerCreateInfo samplerInfo{.sType =
                                       VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
   samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -450,7 +501,7 @@ void init(EngineContext &context) {
   samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   samplerInfo.anisotropyEnable = VK_TRUE;
-  samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
+  samplerInfo.maxAnisotropy = props.limits.maxSamplerAnisotropy;
   samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
   samplerInfo.unnormalizedCoordinates = VK_FALSE;
   samplerInfo.compareEnable = VK_FALSE;

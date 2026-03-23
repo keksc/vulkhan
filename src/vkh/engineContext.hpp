@@ -84,6 +84,7 @@ struct EngineContext {
     std::vector<Buffer<GlobalUbo>> globalUBOs;
     std::vector<VkDescriptorSet> globalDescriptorSets;
     VkSampler defaultSampler;
+    VkSampleCountFlagBits msaaSamples;
   } vulkan;
   struct {
     int frameIndex;

@@ -35,6 +35,7 @@ void SmokeSys::createPipeline() {
   pipelineInfo.fragpath = "shaders/smoke/smoke.frag.spv";
   pipelineInfo.depthStencilInfo.depthTestEnable = VK_TRUE;
   pipelineInfo.depthStencilInfo.depthWriteEnable = VK_TRUE;
+  pipelineInfo.subpass = 1;
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "smoke");
 }
 

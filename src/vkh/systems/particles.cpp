@@ -66,6 +66,7 @@ void ParticleSys::createPipeline() {
   GraphicsPipeline::enableAlphaBlending(graphicsPipelineInfo);
   graphicsPipelineInfo.vertpath = "shaders/particles.vert.spv";
   graphicsPipelineInfo.fragpath = "shaders/particles.frag.spv";
+  graphicsPipelineInfo.subpass = 1;
   graphicsPipeline = std::make_unique<GraphicsPipeline>(
       context, graphicsPipelineInfo, "particles graphics pipeline");
 

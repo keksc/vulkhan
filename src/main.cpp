@@ -11,10 +11,8 @@
 #include "vkh/renderer.hpp"
 #include "vkh/swapChain.hpp"
 #include "vkh/systems/entity/entities.hpp"
-#include "vkh/systems/freezeAnimation.hpp"
 #include "vkh/systems/hud/hud.hpp"
 #include "vkh/systems/particles.hpp"
-#include "vkh/systems/postProcessing.hpp"
 #include "vkh/systems/skybox.hpp"
 #include "vkh/systems/smoke/smoke.hpp"
 #include "vkh/systems/water/water.hpp"
@@ -26,6 +24,7 @@
 #include "vkh/systems/hud/elements/text.hpp"
 #include "vkh/systems/hud/elements/textInput.hpp"
 
+#include "../server/packet.hpp"
 #include "dungeonGenerator.hpp"
 #include "network.hpp"
 
@@ -61,39 +60,43 @@ void run() {
     vkh::WaterSys waterSys(context, skyboxSys);
     vkh::ParticleSys particleSys(context);
 
-    // auto cross = entitySys.entities.emplace_back(
-    //     std::make_shared<vkh::EntitySys::Entity>(
-    //         vkh::EntitySys::Transform{.position = {}},
-    //         vkh::EntitySys::RigidBody{},
-    //         std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-    //             context, "models/cross.glb", entitySys.setLayout)));
     std::vector<vkh::EntitySys::Entity> entities;
     generateDungeon(context, entitySys, entities);
     auto piano = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
         context, "models/piano-decent.glb", entitySys.textureSetLayout);
-    for (int i = 0; i < piano->meshes.size(); i++)
+    for (size_t i = 0; i < piano->meshes.size(); i++)
       entities.emplace_back(
           vkh::EntitySys::Transform{.position{10.f, 10.f, 10.f}},
           vkh::EntitySys::RigidBody{}, piano, i);
 
-    // auto base = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-    //     context, "models/base.glb", entitySys.textureSetLayout);
-    // for (int i = 0; i < base->meshes.size(); i++)
-    //   entities.emplace_back(vkh::EntitySys::Transform{.position{}},
-    //                         vkh::EntitySys::RigidBody{}, base, i);
     auto surf = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
         context, "models/surf.glb", entitySys.textureSetLayout);
-    for (int i = 0; i < surf->meshes.size(); i++)
+    for (size_t i = 0; i < surf->meshes.size(); i++)
       entities.emplace_back(vkh::EntitySys::Transform{.position{5.f}},
                             vkh::EntitySys::RigidBody{}, surf, i);
-    auto animTest = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-        context, "models/animTest.glb", entitySys.textureSetLayout);
-    entities.emplace_back(vkh::EntitySys::Transform{.position{0.f}},
-                          vkh::EntitySys::RigidBody{}, animTest, 0);
+    waterSys.downloadDisplacementAtWorldPos();
+    auto hugo = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+        context, "models/hugo.glb", entitySys.textureSetLayout);
+    float hugoAnimTimeOfBeginning = context.time;
+    bool hugoAnimPlaying = false;
+
+    auto shoe = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+        context, "models/MaterialsVariantsShoe.glb",
+        entitySys.textureSetLayout);
+    auto playerModel = shoe;
+
+    std::unordered_map<uint32_t, uint32_t> playersIndices;
+
+    // vkh::audio::Sound hugoSong("sounds/gamesong-015.opus");
+    // hugoSong.play();
+    vkh::audio::Sound boringSpeech("sounds/Rhorhorho.opus");
+    boringSpeech.play();
+
+    entities.emplace_back(vkh::EntitySys::Transform{.position{0.f, 10.f, 0.f}},
+                          vkh::EntitySys::RigidBody{}, hugo, 0);
 
     entitySys.setEntities(entities);
 
-    // vkh::FreezeAnimationSys freezeAnimationSys(context);
     vkh::HudSys hudSys(context);
 
     vkh::hud::View canvasView(context, hudSys);
@@ -112,7 +115,8 @@ void run() {
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
             static std::uniform_real_distribution<float> dis(.7f, 1.3f);
-            paperSound.play(AL_FALSE, AL_FALSE, dis(rng));
+            paperSound.setPitch(dis(rng));
+            paperSound.play();
             hudSys.setView(&canvasView);
           }
         },
@@ -142,7 +146,8 @@ void run() {
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
             static std::uniform_real_distribution<float> dis(.7f, 1.3f);
-            paperSound.play(AL_FALSE, AL_FALSE, dis(rng));
+            paperSound.setPitch(dis(rng));
+            paperSound.play();
             hudSys.setView(&settingsView);
           }
         },
@@ -170,15 +175,6 @@ void run() {
             network = nullptr;
         },
         "Disonnect");
-    pauseView.addElement<vkh::hud::Button>(
-        glm::vec2{-1.f, 0.4f}, glm::vec2{.2f}, 0,
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            network->send(addr->getContent().c_str());
-            std::println("{}", network->receive(500));
-          }
-        },
-        "Send");
 
     std::shared_ptr<KeybindEdit> selectedButton;
 
@@ -200,7 +196,7 @@ void run() {
             selectedButton->label->content =
                 static_cast<std::string>(
                     magic_enum::enum_name(selectedButton->action)) +
-                ":" + glfwGetKeyName(key, 0);
+                ":" + vkh::input::getKeyName(key);
             vkh::input::keybinds[selectedButton->action] = key;
             selectedButton = nullptr;
           }
@@ -226,12 +222,13 @@ void run() {
       auto kbEdit = settingsView.addElement<KeybindEdit>(
           glm::vec2{0.f, -1.f + .2f * i}, glm::vec2{.2f}, 0,
           [&](int button, int action, int) {},
-          static_cast<std::string>(magic_enum::enum_name(action)) + ":" +
-              glfwGetKeyName(bind, 0));
+          std::string(magic_enum::enum_name(action)) + ":" +
+              vkh::input::getKeyName(bind));
       kbEdit->setCallback([&, kbEdit](int button, int action, int) {
         if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
           static std::uniform_real_distribution<float> dis(.7f, 1.3f);
-          paperSound.play(AL_FALSE, AL_FALSE, dis(rng));
+          paperSound.setPitch(dis(rng));
+          paperSound.play();
           selectedButton = kbEdit;
         }
       });
@@ -251,6 +248,10 @@ void run() {
             glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             hudSys.setView(&pauseView);
             return true;
+          }
+          if (key == GLFW_KEY_L && action == GLFW_PRESS) {
+            hugoAnimTimeOfBeginning = context.time;
+            hugoAnimPlaying = true;
           }
           return false;
         });
@@ -272,9 +273,6 @@ void run() {
     auto orientationtxt =
         worldView.addElement<vkh::hud::Text>(glm::vec2{1.f, -1.f});
 
-    context.camera.position = {0.f, 0.f, 0.f};
-    // context.camera.yaw = 1.5f * glm::pi<float>();
-
     auto currentTime = std::chrono::high_resolution_clock::now();
     auto initTime = currentTime;
     while (!glfwWindowShouldClose(context.window)) {
@@ -295,11 +293,72 @@ void run() {
       orientationtxt->content = std::format(
           "Yaw: {}\nPitch:{}", context.camera.yaw, context.camera.pitch);
 
-      // cross->transform.position.y = .7f + .2f * sin(glfwGetTime());
-
       currentTime = newTime;
 
-      vkh::input::update(context);
+      if (hugoAnimPlaying) {
+        hugo->updateAnimation(0, context.time - hugoAnimTimeOfBeginning);
+        if (context.time - hugoAnimTimeOfBeginning >
+            hugo->animations[0].end - hugo->animations[0].start) {
+          hugoAnimTimeOfBeginning = 0.f;
+          hugoAnimPlaying = false;
+        }
+      }
+
+      if (network) {
+        bool needUpdate = false;
+
+        std::vector<uint8_t> pktData;
+        while (network->receive(pktData)) {
+          if (pktData.size() >= sizeof(Packet)) {
+            needUpdate = true;
+            Packet *p = reinterpret_cast<Packet *>(pktData.data());
+
+            if (p->type == PacketType::Join) {
+              playersIndices[p->id] = entities.size();
+              for (size_t i = 0; i < playerModel->meshes.size(); i++)
+                entities.emplace_back(vkh::EntitySys::Transform{.position{5.f}},
+                                      vkh::EntitySys::RigidBody{}, playerModel,
+                                      i);
+            } else if (p->type == PacketType::Leave) {
+              if (playersIndices.contains(p->id)) {
+                auto begin = entities.begin() + playersIndices[p->id];
+                entities.erase(begin, begin + playerModel->meshes.size());
+
+                for (auto &[id, index] : playersIndices) {
+                  if (index > playersIndices[p->id]) {
+                    index -= playerModel->meshes.size();
+                  }
+                }
+                playersIndices.erase(p->id);
+              }
+            } else if (p->type == PacketType::Update &&
+                       pktData.size() >= sizeof(UpdatePacket)) {
+              UpdatePacket *up =
+                  reinterpret_cast<UpdatePacket *>(pktData.data());
+              if (playersIndices.contains(up->id)) {
+                auto begin = entities.begin() + playersIndices[up->id];
+                for (size_t i = 0; i < playerModel->meshes.size(); i++) {
+                  (begin + i)->transform.position = up->position;
+                  (begin + i)->transform.orientation = up->orientation;
+                }
+              }
+            }
+          }
+        }
+
+        // Send local player position to the server
+        UpdatePacket myUpdate;
+        myUpdate.type = PacketType::Update;
+        myUpdate.id = 0; // Overwritten by server
+        myUpdate.position = context.camera.position;
+        myUpdate.orientation = context.camera.orientation;
+
+        network->send(&myUpdate, sizeof(myUpdate));
+        if (needUpdate)
+          entitySys.setEntities(entities);
+      }
+
+      vkh::input::update(context, entities);
 
       vkh::audio::update(context);
 
@@ -316,10 +375,6 @@ void run() {
             frameTime,
             commandBuffer,
         };
-        // if (network) {
-        //   network->send(std::to_string(context.frameInfo.frameIndex));
-        // std::println("{}", network->receive());
-        // }
 
         vkh::GlobalUbo ubo{};
         ubo.proj = context.camera.projectionMatrix;
@@ -336,13 +391,7 @@ void run() {
           waterSys.update();
           particleSys.update();
 
-          if (!animTest->animations.empty()) {
-            float animTime =
-                std::fmod(context.time, animTest->animations[2].end);
-            animTest->updateAnimation(2, animTime);
-
-            entitySys.updateJoints(entities);
-          }
+          entitySys.updateJoints(entities);
         }
         if (hudSys.getView() == &smokeView) {
           smokeSys.update();
@@ -350,10 +399,17 @@ void run() {
 
         vkh::renderer::beginSwapChainRenderPass(context, commandBuffer);
 
+        // MSAA subpass
         if (hudSys.getView() == &worldView) {
           skyboxSys.render();
-          waterSys.render();
           entitySys.render();
+          waterSys.render();
+        }
+
+        vkCmdNextSubpass(commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
+
+        // 1x subpass
+        if (hudSys.getView() == &worldView) {
           particleSys.render();
         }
         if (hudSys.getView() == &smokeView) {

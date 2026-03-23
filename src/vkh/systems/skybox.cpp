@@ -47,7 +47,8 @@ SkyboxSys::SkyboxSys(EngineContext &context)
     : System(context), cubeMap(context, "textures/skybox.ktx2") {
   createSetLayout();
 
-  cubeScene = std::make_unique<Scene<Vertex>>(context, "models/cube.glb", setLayout, true);
+  cubeScene = std::make_unique<Scene<Vertex>>(context, "models/cube.glb",
+                                              setLayout, true);
 
   VkPushConstantRange pushConstantRange{};
   pushConstantRange.stageFlags =
@@ -70,10 +71,16 @@ SkyboxSys::SkyboxSys(EngineContext &context)
   pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.attributeDescriptions = Vertex::getAttributeDescriptions();
   pipelineInfo.bindingDescriptions = Vertex::getBindingDescriptions();
-  pipelineInfo.depthStencilInfo.depthTestEnable = VK_FALSE;
+  pipelineInfo.depthStencilInfo.depthTestEnable = VK_TRUE;
+  pipelineInfo.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
   pipelineInfo.depthStencilInfo.depthWriteEnable = VK_FALSE;
   pipelineInfo.vertpath = "shaders/skybox.vert.spv";
   pipelineInfo.fragpath = "shaders/skybox.frag.spv";
+
+  pipelineInfo.subpass = 0;
+  pipelineInfo.multisampleInfo.rasterizationSamples =
+      context.vulkan.msaaSamples;
+
   pipeline =
       std::make_unique<GraphicsPipeline>(context, pipelineInfo, "skybox");
 }

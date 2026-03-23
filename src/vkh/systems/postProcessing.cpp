@@ -118,7 +118,7 @@ void PostProcessingSys::run(VkCommandBuffer cmd, uint32_t imageIndex) {
     recreateDescriptors();
   }
 
-  VkImageMemoryBarrier barriers[2] = {};
+  VkImageMemoryBarrier barriers[2]{};
 
   // Swap chain image: UNDEFINED -> GENERAL
   barriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;

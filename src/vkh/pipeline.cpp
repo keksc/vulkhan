@@ -160,10 +160,11 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
                     reinterpret_cast<uint64_t>(pipeline), str.c_str());
 }
 
-ComputePipeline::ComputePipeline(
-    EngineContext &context, const std::filesystem::path &shaderpath,
-    VkPipelineLayoutCreateInfo layoutInfo, const char *name,
-    VkSpecializationInfo *specializationInfo)
+ComputePipeline::ComputePipeline(EngineContext &context,
+                                 const std::filesystem::path &shaderpath,
+                                 VkPipelineLayoutCreateInfo layoutInfo,
+                                 const char *name,
+                                 VkSpecializationInfo *specializationInfo)
     : Pipeline{context, VK_PIPELINE_BIND_POINT_COMPUTE} {
   VkComputePipelineCreateInfo pipelineInfo{};
   if (vkCreatePipelineLayout(context.vulkan.device, &layoutInfo, nullptr,

@@ -96,6 +96,10 @@ void EntitySys::createPipeline() {
   pipelineInfo.vertpath = "shaders/entities.vert.spv";
   pipelineInfo.fragpath = "shaders/entities.frag.spv";
 
+  pipelineInfo.subpass = 0;
+  pipelineInfo.multisampleInfo.rasterizationSamples =
+      context.vulkan.msaaSamples;
+
   pipeline =
       std::make_unique<GraphicsPipeline>(context, pipelineInfo, "entities");
 }
@@ -107,7 +111,7 @@ EntitySys::~EntitySys() {
                                nullptr);
 }
 
-void EntitySys::setEntities(std::vector<Entity> &entities) {
+void EntitySys::setEntities(std::vector<Entity> entities) {
   std::sort(entities.begin(), entities.end(),
             [](const Entity &a, const Entity &b) {
               if (a.scene != b.scene)
