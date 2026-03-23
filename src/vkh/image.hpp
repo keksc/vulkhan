@@ -14,7 +14,10 @@ struct ImageCreateInfo {
   VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
   VkImageUsageFlags usage =
       VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-  VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+  VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
+  VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+  uint32_t mipLevels = 1;
   const char *name = defaultName;
 };
 struct ImageCreateInfo_empty : public ImageCreateInfo {
@@ -42,7 +45,8 @@ public:
   Image(Image &&other) noexcept
       : context{other.context}, img{other.img}, view{other.view},
         memory{other.memory}, format{other.format}, layout{other.layout},
-        size{other.size}, mipLevels{other.mipLevels} {
+        size{other.size}, mipLevels{other.mipLevels},
+        numSamples{other.numSamples}, aspectMask{other.aspectMask} {
     other.img = VK_NULL_HANDLE;
     other.view = VK_NULL_HANDLE;
     other.memory = VK_NULL_HANDLE;
@@ -69,18 +73,18 @@ public:
   glm::uvec2 size{};
   unsigned int mipLevels = 1;
 
+  void recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout);
   void recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout,
-                              VkImageSubresourceRange subresourceRange = {
-                                  .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                                  .baseMipLevel = 0,
-                                  .levelCount = 1,
-                                  .baseArrayLayer = 0,
-                                  .layerCount = 1});
+                              VkImageSubresourceRange subresourceRange);
 
   std::vector<unsigned char> downloadAndSerializeToPNG();
   void downloadPixels(unsigned char *dst, uint32_t mipLevel);
 
+  VkImageView getView() const { return view; }
+
 private:
+  void createView();
+
   void RecordImageBarrier(VkCommandBuffer cmd,
                           VkPipelineStageFlags srcStageMask,
                           VkPipelineStageFlags dstStageMask,
@@ -115,5 +119,7 @@ private:
   VkDeviceMemory memory = VK_NULL_HANDLE;
   VkFormat format;
   VkImageLayout layout;
+  VkSampleCountFlagBits numSamples = VK_SAMPLE_COUNT_1_BIT;
+  VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 };
 } // namespace vkh

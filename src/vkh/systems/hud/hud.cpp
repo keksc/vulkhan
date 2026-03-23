@@ -73,12 +73,12 @@ void HudSys::render() {
 
   debug::beginLabel(context, context.frameInfo.cmd, "HudSys rendering",
                     glm::vec4{1.f, 1.f, 1.f, 1.f});
-  VkClearAttachment clearAttachment = {};
+  VkClearAttachment clearAttachment{};
   clearAttachment.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
   clearAttachment.clearValue.depthStencil = {0.0f, 0};
 
   // clear depth buffer
-  VkClearRect clearRect = {};
+  VkClearRect clearRect{};
   clearRect.rect.offset = {0, 0};
   clearRect.rect.extent = context.vulkan.swapChain->swapChainExtent;
   clearRect.layerCount = 1;

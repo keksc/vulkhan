@@ -39,7 +39,7 @@ public:
       attributeDescriptions.emplace_back(3, 0, VK_FORMAT_R32G32B32A32_UINT,
                                          offsetof(Vertex, jointIndices));
       attributeDescriptions.emplace_back(4, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
-                                         offsetof(Vertex, uv));
+                                         offsetof(Vertex, jointWeights));
 
       return attributeDescriptions;
     }
@@ -89,7 +89,7 @@ public:
   EntitySys(EngineContext &context);
   ~EntitySys();
 
-  void setEntities(std::vector<Entity> &entities);
+  void setEntities(std::vector<Entity> entities);
   void updateJoints(std::vector<Entity> &sortedEntities);
   void render();
 

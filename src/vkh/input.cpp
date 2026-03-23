@@ -10,42 +10,42 @@
 
 #include <limits>
 
-#include "AxisAlignedBoundingBox.hpp"
-#include "systems/entity/entities.hpp"
-
 namespace vkh {
 namespace input {
 std::unordered_map<Action, unsigned int> keybinds;
 float moveSpeed{5.f};
 float lookSpeed{1.5f};
 
-AABB getEntityAABB(const EntitySys::Entity &entity) {
-  const auto &mesh = entity.scene->meshes[entity.meshIndex];
-  glm::vec3 modelMin = mesh.aabb.min;
-  glm::vec3 modelMax = mesh.aabb.max;
-
-  glm::mat4 fullTransform = entity.transform.mat4() * mesh.transform;
-
-  // Transform AABB to world space
-  glm::vec3 corners[8] = {{modelMin.x, modelMin.y, modelMin.z},
-                          {modelMax.x, modelMin.y, modelMin.z},
-                          {modelMin.x, modelMax.y, modelMin.z},
-                          {modelMax.x, modelMax.y, modelMin.z},
-                          {modelMin.x, modelMin.y, modelMax.z},
-                          {modelMax.x, modelMin.y, modelMax.z},
-                          {modelMin.x, modelMax.y, modelMax.z},
-                          {modelMax.x, modelMax.y, modelMax.z}};
-
-  glm::vec3 worldMin{std::numeric_limits<float>::max()};
-  glm::vec3 worldMax{-std::numeric_limits<float>::max()};
-
-  for (const auto &corner : corners) {
-    glm::vec4 worldCorner = fullTransform * glm::vec4(corner, 1.0f);
-    worldMin = glm::min(worldMin, glm::vec3(worldCorner));
-    worldMax = glm::max(worldMax, glm::vec3(worldCorner));
+std::string getKeyName(int key) {
+  char const *str = glfwGetKeyName(key, 0);
+  if (str)
+    return std::string(str);
+  switch (key) {
+  case GLFW_KEY_SPACE:
+    return "space";
+  case GLFW_KEY_ESCAPE:
+    return "escape";
+  case GLFW_KEY_ENTER:
+    return "enter";
+  case GLFW_KEY_LEFT_CONTROL:
+    return "left control";
+  case GLFW_KEY_RIGHT_CONTROL:
+    return "right control";
+  case GLFW_KEY_LEFT_SHIFT:
+    return "left shift";
+  case GLFW_KEY_RIGHT_SHIFT:
+    return "right shift";
+  case GLFW_KEY_LEFT_ALT:
+    return "left alt";
+  case GLFW_KEY_RIGHT_ALT:
+    return "right alt";
+  case GLFW_KEY_LEFT_SUPER:
+    return "left super";
+  case GLFW_KEY_RIGHT_SUPER:
+    return "right super";
+  default:
+    return "unknown";
   }
-
-  return {worldMin, worldMax};
 }
 
 void keyCallback(GLFWwindow *window, int key, int scancode, int action,
@@ -119,13 +119,16 @@ void init(EngineContext &context) {
   keybinds[MoveBackward] = GLFW_KEY_S;
   keybinds[MoveLeft] = GLFW_KEY_A;
   keybinds[MoveRight] = GLFW_KEY_D;
+  keybinds[MoveUp] = GLFW_KEY_SPACE;
+  keybinds[MoveDown] = GLFW_KEY_LEFT_CONTROL;
   keybinds[PlaceRect] = GLFW_KEY_R;
   keybinds[PlaceText] = GLFW_KEY_T;
   keybinds[PlaceLine] = GLFW_KEY_L;
 }
 
 glm::dvec2 lastPos;
-void update(EngineContext &context) {
+void update(EngineContext &context,
+            std::vector<vkh::EntitySys::Entity> &entities) {
   glm::dvec2 currentPos;
   glfwGetCursorPos(context.window, &currentPos.x, &currentPos.y);
 
@@ -163,9 +166,9 @@ void update(EngineContext &context) {
     moveDir += rightDir;
   if (glfwGetKey(context.window, keybinds[MoveLeft]) == GLFW_PRESS)
     moveDir -= rightDir;
-  if (glfwGetKey(context.window, GLFW_KEY_SPACE) == GLFW_PRESS)
+  if (glfwGetKey(context.window, keybinds[MoveUp]) == GLFW_PRESS)
     moveDir += up;
-  if (glfwGetKey(context.window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS)
+  if (glfwGetKey(context.window, keybinds[MoveDown]) == GLFW_PRESS)
     moveDir -= up;
 
   if (glm::length2(moveDir) > std::numeric_limits<float>::epsilon()) {
@@ -174,7 +177,64 @@ void update(EngineContext &context) {
                                                                         : 2.0f;
     glm::vec3 velocity =
         glm::normalize(moveDir) * sprint * moveSpeed * context.frameInfo.dt;
-    glm::vec3 newPosition = context.camera.position + velocity;
+
+    // Helper lambda to check if a specific position collides with any entity
+    auto checkCollision = [&](const glm::vec3 &testPos) {
+      // Shrunk the player slightly so they don't scrape the walls in 1x1
+      // corridors
+      const AABB playerAABB{testPos + glm::vec3{-0.2f, -0.4f, -0.2f},
+                            testPos + glm::vec3{0.2f, 0.4f, 0.2f}};
+
+      for (auto &entity : entities) {
+        // Get the raw AABB from the vertex data
+        glm::vec3 min = entity.getMesh().aabb.min;
+        glm::vec3 max = entity.getMesh().aabb.max;
+
+        // Define the 8 local corners of the raw AABB
+        glm::vec3 corners[8] = {{min.x, min.y, min.z}, {min.x, min.y, max.z},
+                                {min.x, max.y, min.z}, {min.x, max.y, max.z},
+                                {max.x, min.y, min.z}, {max.x, min.y, max.z},
+                                {max.x, max.y, min.z}, {max.x, max.y, max.z}};
+
+        AABB worldAABB; // Initializes to proper min/max limits
+        for (int i = 0; i < 8; ++i) {
+          // 1. Apply the glTF Node Transform (fixes models that are
+          // rotated/offset in Blender)
+          glm::vec3 localPos = glm::vec3(entity.getMesh().transform *
+                                         glm::vec4(corners[i], 1.0f));
+
+          // 2. Apply Entity Scale
+          localPos *= entity.transform.scale;
+
+          // 3. Apply Entity Rotation & Position
+          glm::vec3 worldPos = entity.transform.orientation * localPos +
+                               entity.transform.position;
+
+          // Re-find the absolute minimums and maximums for the new world
+          // orientation
+          worldAABB.min = glm::min(worldAABB.min, worldPos);
+          worldAABB.max = glm::max(worldAABB.max, worldPos);
+        }
+
+        if (worldAABB.intersects(playerAABB)) {
+          return true; // Collision detected!
+        }
+      }
+      return false;
+    };
+
+    // Apply sliding collision by testing each axis independently
+    glm::vec3 newPosition = context.camera.position;
+
+    if (!checkCollision(newPosition + glm::vec3{velocity.x, 0.f, 0.f})) {
+      newPosition.x += velocity.x;
+    }
+    if (!checkCollision(newPosition + glm::vec3{0.f, velocity.y, 0.f})) {
+      newPosition.y += velocity.y;
+    }
+    if (!checkCollision(newPosition + glm::vec3{0.f, 0.f, velocity.z})) {
+      newPosition.z += velocity.z;
+    }
 
     context.camera.position = newPosition;
   }

@@ -8,8 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(GLFW_INCLUDE_VULKAN)
 set(FASTGLTF_COMPILE_AS_CPP20)
-# set(FASTGLTF_ENABLE_CPP_MODULES)
-# set(FASTGLTF_USE_STD_MODULE)
+# set(FASTGLTF_ENABLE_CPP_MODULES) set(FASTGLTF_USE_STD_MODULE)
 
 project("vulkhan")
 
@@ -24,6 +23,13 @@ find_package(fastgltf REQUIRED)
 find_package(glslang REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ENET REQUIRED libenet)
+if(WIN32)
+  # vcpkg usually provides a cmake config for opusfile
+  find_package(opusfile CONFIG REQUIRED)
+else()
+  # On Linux/macOS, use PkgConfig
+  pkg_check_modules(OPUSFILE REQUIRED opusfile)
+endif()
 
 add_library(VkFFT INTERFACE)
 target_compile_definitions(VkFFT INTERFACE -DVKFFT_BACKEND=0
@@ -31,7 +37,11 @@ target_compile_definitions(VkFFT INTERFACE -DVKFFT_BACKEND=0
 link_directories(3rdparty/lib)
 include_directories(3rdparty/include PUBLIC
                     ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/vkFFT/)
-link_libraries(
+
+file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
+add_executable(vulkhan ${FLAGS} ${SOURCES})
+target_link_libraries(
+  vulkhan
   Vulkan::Vulkan
   glfw
   OpenAL::OpenAL
@@ -40,16 +50,16 @@ link_libraries(
   glslang
   VkFFT
   ktx
-  enet)
+  enet
+  $<$<BOOL:${WIN32}>:opusfile::opusfile>
+  $<$<NOT:$<BOOL:${WIN32}>>:${OPUSFILE_LIBRARIES}>)
 
-file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   set(FLAGS WIN32)
 else()
   set(FLAGS)
 endif()
 
-add_executable(vulkhan ${FLAGS} ${SOURCES})
 target_precompile_headers(vulkhan INTERFACE src/vkh/engineContext.hpp)
 
 file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/shaders")
@@ -103,8 +113,13 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach()
 
-add_custom_target(Shaders DEPENDS ${SPIRV_BINARY_FILES})
-add_dependencies(vulkhan Shaders)
+add_custom_target(shaders DEPENDS ${SPIRV_BINARY_FILES})
+
+file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/server/*.cpp)
+add_executable(vulkhanServer ${SOURCES})
+target_link_libraries(vulkhanServer enet)
+
+add_dependencies(vulkhan shaders vulkhanServer)
 
 file(COPY "${PROJECT_SOURCE_DIR}/models" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/fonts" DESTINATION "${PROJECT_BINARY_DIR}")
@@ -121,6 +136,3 @@ endif()
 install(DIRECTORY ${PROJECT_BINARY_DIR}/shaders ${PROJECT_BINARY_DIR}/fonts
                   ${PROJECT_BINARY_DIR}/sounds ${PROJECT_BINARY_DIR}/models
                   ${PROJECT_BINARY_DIR}/textures DESTINATION bin)
-
-file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/server/*.cpp)
-add_executable(vulkhanServer ${SOURCES})

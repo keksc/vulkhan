@@ -3,151 +3,195 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include "rng.hpp"
+#include "vkh/systems/entity/entities.hpp"
+
 #include <memory>
 #include <random>
 #include <vector>
 
-#include "vkh/systems/entity/entities.hpp"
+enum class CellType {
+  Empty,
+  Room,
+  Corridor,
+};
 
-#include "rng.hpp"
-
-enum CellType { Empty, Room, Corridor };
 enum RoomModel {
-  Bottom = 5,
-  Front = 0,
-  Left = 1,
-  Back = 2,
-  Right = 3,
-  Top = 4
+  Wall = 0,
+  Ceiling = 1,
+  Floor = 2,
+  PropChest = 3,
+  PropAltar = 4,
+};
+
+struct Room {
+  glm::ivec2 topLeft;
+  glm::ivec2 size;
+  RoomType type = RoomType::Normal;
 };
 
 void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys,
-                     std::vector<vkh::EntitySys::Entity> &entities) {
+                     std::vector<vkh::EntitySys::Entity> &entities,
+                     const DungeonConfig &config) {
+
   auto westWingAssets = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
       context, "models/westwingassets.glb", entitySys.textureSetLayout);
 
-  glm::ivec2 maxRoomSize{10, 10};
-  int maxRooms = 10;
-  glm::ivec2 gridSize{50, 50};
   std::vector<std::vector<CellType>> grid(
-      gridSize.x, std::vector<CellType>(gridSize.y, CellType::Empty));
+      config.gridSize.x,
+      std::vector<CellType>(config.gridSize.y, CellType::Empty));
 
-  std::uniform_int_distribution<> roomPosX(0, gridSize.x - 2);
-  std::uniform_int_distribution<> roomPosY(0, gridSize.y - 2);
-  std::uniform_int_distribution<> roomSizeX(3, maxRoomSize.x);
-  std::uniform_int_distribution<> roomSizeY(3, maxRoomSize.y);
+  // Add buffers to prevent rooms from generating directly on the outer boundary
+  std::uniform_int_distribution<> roomPosX(1, config.gridSize.x -
+                                                  config.maxRoomSize.x - 1);
+  std::uniform_int_distribution<> roomPosY(1, config.gridSize.y -
+                                                  config.maxRoomSize.y - 1);
+  std::uniform_int_distribution<> roomSizeX(config.minRoomSize.x,
+                                            config.maxRoomSize.x);
+  std::uniform_int_distribution<> roomSizeY(config.minRoomSize.y,
+                                            config.maxRoomSize.y);
 
-  struct Room {
-    glm::ivec2 topLeft;
-    glm::ivec2 size;
-  };
   std::vector<Room> rooms;
 
-  for (int i = 0; i < maxRooms; i++) {
+  for (int i = 0; i < config.maxRooms; i++) {
     bool placed = false;
     for (int attempts = 10; attempts > 0; attempts--) {
       glm::ivec2 pos{roomPosX(rng), roomPosY(rng)};
       glm::ivec2 size{roomSizeX(rng), roomSizeY(rng)};
 
-      if (pos.x + size.x >= gridSize.x || pos.y + size.y >= gridSize.y) {
-        continue;
-      }
-
       bool overlap = false;
       for (const auto &room : rooms) {
-        if (!(pos.x + size.x < room.topLeft.x ||
-              pos.x > room.topLeft.x + room.size.x ||
-              pos.y + size.y < room.topLeft.y ||
-              pos.y > room.topLeft.y + room.size.y)) {
+        if (!(pos.x + size.x + 1 < room.topLeft.x ||
+              pos.x > room.topLeft.x + room.size.x + 1 ||
+              pos.y + size.y + 1 < room.topLeft.y ||
+              pos.y > room.topLeft.y + room.size.y + 1)) {
           overlap = true;
           break;
         }
       }
-      if (overlap) {
+      if (overlap)
         continue;
+
+      Room newRoom{pos, size, RoomType::Normal};
+
+      if (rooms.empty()) {
+        newRoom.type = RoomType::Spawn;
+      } else if (i == config.maxRooms - 1) {
+        newRoom.type = RoomType::Boss;
+      } else if (i % 3 == 0) {
+        newRoom.type = RoomType::Treasure;
       }
 
-      // Place room in grid
+      // Claim grid cells
       for (int x = pos.x; x < pos.x + size.x; x++) {
         for (int y = pos.y; y < pos.y + size.y; y++) {
           grid[x][y] = CellType::Room;
         }
       }
-      rooms.emplace_back(pos, size);
+      rooms.push_back(newRoom);
       placed = true;
-      break;
-    }
-    if (!placed) {
       break;
     }
   }
 
-  // Connect rooms with corridors
   for (size_t i = 0; i < rooms.size() - 1; i++) {
-    auto &room1 = rooms[i];
-    auto &room2 = rooms[i + 1];
+    glm::ivec2 p1 = rooms[i].topLeft + rooms[i].size / 2;
+    glm::ivec2 p2 = rooms[i + 1].topLeft + rooms[i + 1].size / 2;
 
-    // Get center points of rooms
-    glm::ivec2 p1 = room1.topLeft + room1.size / 2;
-    glm::ivec2 p2 = room2.topLeft + room2.size / 2;
-
-    // Add corridor (horizontal then vertical)
     int x = p1.x;
     int y = p1.y;
     while (x != p2.x) {
-      if (x >= 0 && x < gridSize.x && y >= 0 && y < gridSize.y) {
-        if (grid[x][y] == CellType::Empty) {
-          grid[x][y] = CellType::Corridor;
-        }
-      }
+      if (grid[x][y] == CellType::Empty)
+        grid[x][y] = CellType::Corridor;
       x += (p2.x > x) ? 1 : -1;
     }
     while (y != p2.y) {
-      if (x >= 0 && x < gridSize.x && y >= 0 && y < gridSize.y) {
-        if (grid[x][y] == CellType::Empty) {
-          grid[x][y] = CellType::Corridor;
-        }
-      }
+      if (grid[x][y] == CellType::Empty)
+        grid[x][y] = CellType::Corridor;
       y += (p2.y > y) ? 1 : -1;
     }
   }
 
-  for (int x = 0; x < gridSize.x; x++) {
-    for (int y = 0; y < gridSize.y; y++) {
+  // Define Wall Rotations (Note: You may need to swap angles depending on which
+  // way your glTF wall faces by default)
+  glm::quat rotNorth = glm::quat(glm::vec3(0, 0, 0));
+  glm::quat rotSouth = glm::quat(glm::vec3(0, glm::radians(180.f), 0));
+  glm::quat rotEast = glm::quat(glm::vec3(0, glm::radians(90.f), 0));
+  glm::quat rotWest = glm::quat(glm::vec3(0, glm::radians(-90.f), 0));
+  glm::quat defaultRot = glm::quat(1, 0, 0, 0);
+
+  // Spawn entities
+  for (int x = 0; x < config.gridSize.x; x++) {
+    for (int y = 0; y < config.gridSize.y; y++) {
       if (grid[x][y] == CellType::Empty)
         continue;
-      glm::vec3 pos{x, 0.f, y};
-      entities.emplace_back(vkh::EntitySys::Transform{.position = pos},
-                            vkh::EntitySys::RigidBody{}, westWingAssets,
-                            RoomModel::Bottom);
 
-      entities.emplace_back(vkh::EntitySys::Transform{.position = pos},
+      glm::vec3 tileCenter{x, 0.f, y};
+
+      entities.emplace_back(vkh::EntitySys::Transform{.position = tileCenter},
                             vkh::EntitySys::RigidBody{}, westWingAssets,
-                            RoomModel::Top);
+                            RoomModel::Floor);
+      entities.emplace_back(vkh::EntitySys::Transform{.position = tileCenter},
+                            vkh::EntitySys::RigidBody{}, westWingAssets,
+                            RoomModel::Ceiling);
 
       if (x == 0 || grid[x - 1][y] == CellType::Empty) {
-        entities.emplace_back(
-
-            vkh::EntitySys::Transform{.position = pos},
-            vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Front);
+        glm::vec3 wallPos = tileCenter + glm::vec3(-0.5f, 0.f, 0.f);
+        entities.emplace_back(vkh::EntitySys::Transform{.position = wallPos,
+                                                        .orientation = rotWest},
+                              vkh::EntitySys::RigidBody{}, westWingAssets,
+                              RoomModel::Wall);
       }
-      if (x == gridSize.x - 1 || grid[x + 1][y] == CellType::Empty) {
-        entities.emplace_back(
-
-            vkh::EntitySys::Transform{.position = pos},
-            vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Back);
+      if (x == config.gridSize.x - 1 || grid[x + 1][y] == CellType::Empty) {
+        glm::vec3 wallPos = tileCenter + glm::vec3(0.5f, 0.f, 0.f);
+        entities.emplace_back(vkh::EntitySys::Transform{.position = wallPos,
+                                                        .orientation = rotEast},
+                              vkh::EntitySys::RigidBody{}, westWingAssets,
+                              RoomModel::Wall);
       }
       if (y == 0 || grid[x][y - 1] == CellType::Empty) {
+        glm::vec3 wallPos = tileCenter + glm::vec3(0.f, 0.f, -0.5f);
         entities.emplace_back(
-
-            vkh::EntitySys::Transform{.position = pos},
-            vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Right);
+            vkh::EntitySys::Transform{.position = wallPos,
+                                      .orientation = rotSouth},
+            vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Wall);
       }
-      if (y == gridSize.y - 1 || grid[x][y + 1] == CellType::Empty) {
-        entities.emplace_back(vkh::EntitySys::Transform{.position = pos},
-                              vkh::EntitySys::RigidBody{}, westWingAssets,
-                              RoomModel::Left);
+      if (y == config.gridSize.y - 1 || grid[x][y + 1] == CellType::Empty) {
+        glm::vec3 wallPos = tileCenter + glm::vec3(0.f, 0.f, 0.5f);
+        entities.emplace_back(
+            vkh::EntitySys::Transform{.position = wallPos,
+                                      .orientation = rotNorth},
+            vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Wall);
       }
     }
   }
+
+  glm::vec3 playerSpawnPos{0.f, 0.f, 0.f};
+
+  for (const auto &room : rooms) {
+    glm::vec3 center{room.topLeft.x + room.size.x / 2.0f, 0.f,
+                     room.topLeft.y + room.size.y / 2.0f};
+
+    switch (room.type) {
+    case RoomType::Treasure:
+      entities.emplace_back(
+          vkh::EntitySys::Transform{.position = center,
+                                    .orientation = defaultRot},
+          vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::PropChest);
+      break;
+    case RoomType::Boss:
+      entities.emplace_back(
+          vkh::EntitySys::Transform{.position = center,
+                                    .orientation = defaultRot},
+          vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::PropAltar);
+      break;
+    case RoomType::Spawn:
+      playerSpawnPos = center;
+      playerSpawnPos.y = .5f;
+      break;
+    default:
+      break;
+    }
+  }
+  context.camera.position = playerSpawnPos;
 }

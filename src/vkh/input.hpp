@@ -1,22 +1,28 @@
 #pragma once
 
 #include "engineContext.hpp"
+#include "systems/entity/entities.hpp"
 
 namespace vkh {
 namespace input {
 void init(EngineContext &context);
-void update(EngineContext &context);
+void update(EngineContext &context,
+            std::vector<vkh::EntitySys::Entity> &entities);
 extern glm::dvec2 lastPos;
 enum Action {
   MoveForward,
   MoveBackward,
   MoveLeft,
   MoveRight,
+  MoveUp,
+  MoveDown,
   PlaceRect,
   PlaceText,
-  PlaceLine
+  PlaceLine,
 };
 extern std::unordered_map<Action, unsigned int> keybinds;
+
+std::string getKeyName(int key);
 
 enum class EventType { MouseButton, Key, CursorPosition, Character, Drop };
 

@@ -52,7 +52,7 @@ public:
     }
   }
   VkResult flush(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0) {
-    VkMappedMemoryRange mappedRange = {};
+    VkMappedMemoryRange mappedRange{};
     mappedRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
     mappedRange.memory = memory;
     mappedRange.offset = offset;
@@ -69,7 +69,7 @@ public:
   }
   VkResult invalidate(VkDeviceSize size = VK_WHOLE_SIZE,
                       VkDeviceSize offset = 0) {
-    VkMappedMemoryRange mappedRange = {};
+    VkMappedMemoryRange mappedRange{};
     mappedRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
     mappedRange.memory = memory;
     mappedRange.offset = offset;

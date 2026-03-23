@@ -65,6 +65,8 @@
             spirv-headers
             spirv-tools
             shaderc
+            opusfile
+            libogg
           ];
 
           shellHook = ''
@@ -102,6 +104,8 @@
             enet
             pkg-config
             shaderc
+            opusfile
+            libogg
           ];
 
           desktopItems = [

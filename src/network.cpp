@@ -1,9 +1,8 @@
 #include "network.hpp"
-
 #include <enet/enet.h>
-
 #include <print>
 #include <stdexcept>
+#include <cstring>
 
 Network::Network(const char* server) {
   if (enet_initialize() != 0) {
@@ -34,33 +33,33 @@ Network::Network(const char* server) {
   }
   enet_host_flush(client);
 }
-void Network::send(std::string_view msg) {
-  ENetPacket *packet = enet_packet_create(msg.data(), msg.length() + 1,
-                                          ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
 
+void Network::send(const void* data, size_t length) {
+  ENetPacket *packet = enet_packet_create(data, length, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
   enet_peer_send(peer, 0, packet);
   enet_host_flush(client);
 }
-std::string Network::receive(unsigned int timeout) {
-  std::string msg = "";
-  // Use a 0 timeout so this doesn't freeze the game
+
+bool Network::receive(std::vector<uint8_t>& outData, unsigned int timeout) {
   while (enet_host_service(client, &event, timeout) > 0) {
     if (event.type == ENET_EVENT_TYPE_RECEIVE) {
-      msg = std::string(reinterpret_cast<char *>(event.packet->data),
-                        event.packet->dataLength);
-
+      outData.resize(event.packet->dataLength);
+      std::memcpy(outData.data(), event.packet->data, event.packet->dataLength);
       enet_packet_destroy(event.packet);
-      return msg; // Return the first message found
+      return true; // Return true on first successful read
     } else if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
       std::println("Server closed the connection.");
     }
   }
-  return msg;
+  return false;
 }
+
 Network::~Network() {
   enet_peer_disconnect(peer, 0);
 
-  receive();
+  std::vector<uint8_t> dump;
+  receive(dump);
+  
   while (enet_host_service(client, &event, 3000) > 0) {
     if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
       std::println("Disconnected cleanly");

@@ -19,19 +19,28 @@ SwapChain::SwapChain(EngineContext &context,
                      std::shared_ptr<SwapChain> previous)
     : context{context}, oldSwapChain{previous} {
   init();
-  oldSwapChain = nullptr;
 }
 
 void SwapChain::init() {
   createSwapChain();
   createImageViews();
   createRenderPass();
+  createColorResources();
   createDepthResources();
   createFramebuffers();
   createSyncObjects();
 }
 
 SwapChain::~SwapChain() {
+  for (auto framebuffer : swapChainFramebuffers) {
+    vkDestroyFramebuffer(context.vulkan.device, framebuffer, nullptr);
+  }
+  swapChainFramebuffers.clear();
+
+  colorImages.clear();
+  depthImages.clear();
+  resolvedDepthImages.clear();
+
   for (auto imageView : swapChainImageViews) {
     vkDestroyImageView(context.vulkan.device, imageView, nullptr);
   }
@@ -42,22 +51,13 @@ SwapChain::~SwapChain() {
     swapChain = nullptr;
   }
 
-  for (int i = 0; i < depthImages.size(); i++) {
-    vkDestroyImageView(context.vulkan.device, depthImageViews[i], nullptr);
-    vkDestroyImage(context.vulkan.device, depthImages[i], nullptr);
-    vkFreeMemory(context.vulkan.device, depthImageMemorys[i], nullptr);
-  }
-
-  for (auto framebuffer : swapChainFramebuffers) {
-    vkDestroyFramebuffer(context.vulkan.device, framebuffer, nullptr);
-  }
-
   vkDestroyRenderPass(context.vulkan.device, renderPass, nullptr);
 
-  // cleanup synchronization objects
-  for (size_t i = 0; i < context.vulkan.maxFramesInFlight; i++) {
+  for (size_t i = 0; i < imageCount(); i++) {
     vkDestroySemaphore(context.vulkan.device, renderFinishedSemaphores[i],
                        nullptr);
+  }
+  for (size_t i = 0; i < context.vulkan.maxFramesInFlight; i++) {
     vkDestroySemaphore(context.vulkan.device, imageAvailableSemaphores[i],
                        nullptr);
     vkDestroyFence(context.vulkan.device, inFlightFences[i], nullptr);
@@ -70,9 +70,7 @@ VkResult SwapChain::acquireNextImage(uint32_t *imageIndex) {
 
   return vkAcquireNextImageKHR(
       context.vulkan.device, swapChain, std::numeric_limits<uint64_t>::max(),
-      imageAvailableSemaphores[currentFrame], // must be a not signaled
-                                              // semaphore
-      VK_NULL_HANDLE, imageIndex);
+      imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, imageIndex);
 }
 
 VkResult SwapChain::submitCommandBuffers(const VkCommandBuffer *buffers,
@@ -83,7 +81,7 @@ VkResult SwapChain::submitCommandBuffers(const VkCommandBuffer *buffers,
   }
   imagesInFlight[*imageIndex] = inFlightFences[currentFrame];
 
-  VkSubmitInfo submitInfo = {};
+  VkSubmitInfo submitInfo{};
   submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
   VkPipelineStageFlags waitStages[] = {
@@ -96,7 +94,7 @@ VkResult SwapChain::submitCommandBuffers(const VkCommandBuffer *buffers,
   submitInfo.pCommandBuffers = buffers;
 
   submitInfo.signalSemaphoreCount = 1;
-  submitInfo.pSignalSemaphores = &renderFinishedSemaphores[currentFrame];
+  submitInfo.pSignalSemaphores = &renderFinishedSemaphores[*imageIndex];
 
   vkResetFences(context.vulkan.device, 1, &inFlightFences[currentFrame]);
   if (vkQueueSubmit(context.vulkan.graphicsQueue, 1, &submitInfo,
@@ -104,11 +102,11 @@ VkResult SwapChain::submitCommandBuffers(const VkCommandBuffer *buffers,
     throw std::runtime_error("failed to submit draw command buffer!");
   }
 
-  VkPresentInfoKHR presentInfo = {};
+  VkPresentInfoKHR presentInfo{};
   presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
   presentInfo.waitSemaphoreCount = 1;
-  presentInfo.pWaitSemaphores = &renderFinishedSemaphores[currentFrame];
+  presentInfo.pWaitSemaphores = &renderFinishedSemaphores[*imageIndex];
 
   presentInfo.swapchainCount = 1;
   presentInfo.pSwapchains = &swapChain;
@@ -129,7 +127,7 @@ void SwapChain::createSwapChain() {
       chooseSwapPresentMode(swapChainSupport.presentModes);
   VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
 
-  VkSwapchainCreateInfoKHR createInfo = {};
+  VkSwapchainCreateInfoKHR createInfo{};
   createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
   createInfo.surface = context.vulkan.surface;
 
@@ -150,8 +148,8 @@ void SwapChain::createSwapChain() {
     createInfo.pQueueFamilyIndices = queueFamilyIndices;
   } else {
     createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    createInfo.queueFamilyIndexCount = 0;     // Optional
-    createInfo.pQueueFamilyIndices = nullptr; // Optional
+    createInfo.queueFamilyIndexCount = 0;
+    createInfo.pQueueFamilyIndices = nullptr;
   }
 
   createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
@@ -168,18 +166,20 @@ void SwapChain::createSwapChain() {
     throw std::runtime_error("failed to create swap chain!");
   }
 
-  // we only specified a minimum number of images in the swap chain, so the
-  // implementation is allowed to create a swap chain with more. That's why
-  // we'll first query the final number of images with vkGetSwapchainImagesKHR,
-  // then resize the container and finally call it again to retrieve the
-  // handles.
-  swapChainImages.resize(context.vulkan.maxFramesInFlight);
-  vkGetSwapchainImagesKHR(context.vulkan.device, swapChain,
-                          &context.vulkan.maxFramesInFlight,
+  uint32_t actualImageCount;
+  vkGetSwapchainImagesKHR(context.vulkan.device, swapChain, &actualImageCount,
+                          nullptr);
+  swapChainImages.resize(actualImageCount);
+  vkGetSwapchainImagesKHR(context.vulkan.device, swapChain, &actualImageCount,
                           swapChainImages.data());
 
   swapChainImageFormat = surfaceFormat.format;
   swapChainExtent = extent;
+  swapChainDepthFormat = findSupportedFormat(
+      context,
+      {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT,
+       VK_FORMAT_D24_UNORM_S8_UINT},
+      VK_IMAGE_TILING_OPTIMAL, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
 }
 
 void SwapChain::createImageViews() {
@@ -191,77 +191,171 @@ void SwapChain::createImageViews() {
 }
 
 void SwapChain::createRenderPass() {
-  VkAttachmentDescription depthAttachment{};
-  depthAttachment.format = findDepthFormat();
-  depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-  depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  depthAttachment.finalLayout =
+  VkSampleCountFlagBits msaa = context.vulkan.msaaSamples;
+
+  // ATTACHMENT 0: 1x Swapchain Color (Final Output)
+  VkAttachmentDescription2 colorResolveAttachment{
+      .sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
+  colorResolveAttachment.format = getSwapChainImageFormat();
+  colorResolveAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+  colorResolveAttachment.loadOp =
+      VK_ATTACHMENT_LOAD_OP_DONT_CARE; // Clear it to black first
+  colorResolveAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  colorResolveAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  colorResolveAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  colorResolveAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  colorResolveAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+  // ATTACHMENT 1: 1x Depth (Resolved from MSAA)
+  VkAttachmentDescription2 depthResolveAttachment{
+      .sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
+  depthResolveAttachment.format = getSwapChainDepthFormat();
+  depthResolveAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+  depthResolveAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  depthResolveAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  depthResolveAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  depthResolveAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  depthResolveAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  depthResolveAttachment.finalLayout =
       VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-  VkAttachmentReference depthAttachmentRef{};
-  depthAttachmentRef.attachment = 1;
-  depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+  // ATTACHMENT 2: MSAA Color
+  VkAttachmentDescription2 msaaColorAttachment{
+      .sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
+  msaaColorAttachment.format = getSwapChainImageFormat();
+  msaaColorAttachment.samples = msaa;
+  msaaColorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  msaaColorAttachment.storeOp =
+      VK_ATTACHMENT_STORE_OP_DONT_CARE; // We only care about the resolved image
+  msaaColorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  msaaColorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  msaaColorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  msaaColorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-  VkAttachmentDescription colorAttachment = {};
-  colorAttachment.format = getSwapChainImageFormat();
-  colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-  colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-  colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-  colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+  // ATTACHMENT 3: MSAA Depth
+  VkAttachmentDescription2 msaaDepthAttachment{
+      .sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2};
+  msaaDepthAttachment.format = getSwapChainDepthFormat();
+  msaaDepthAttachment.samples = msaa;
+  msaaDepthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  msaaDepthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  msaaDepthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  msaaDepthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  msaaDepthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  msaaDepthAttachment.finalLayout =
+      VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-  VkAttachmentReference colorAttachmentRef = {};
-  colorAttachmentRef.attachment = 0;
-  colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  // REFERENCES
+  VkAttachmentReference2 colorResolveRef{
+      .sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2,
+      .attachment = 0,
+      .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+  VkAttachmentReference2 depthResolveRef{
+      .sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2,
+      .attachment = 1,
+      .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+  VkAttachmentReference2 msaaColorRef{
+      .sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2,
+      .attachment = 2,
+      .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+  VkAttachmentReference2 msaaDepthRef{
+      .sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2,
+      .attachment = 3,
+      .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
 
-  VkSubpassDescription subpass = {};
-  subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-  subpass.colorAttachmentCount = 1;
-  subpass.pColorAttachments = &colorAttachmentRef;
-  subpass.pDepthStencilAttachment = &depthAttachmentRef;
+  // SUBPASS 0: MSAA Pass
+  VkSubpassDescriptionDepthStencilResolve depthResolveStruct{
+      .sType = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_DEPTH_STENCIL_RESOLVE};
+  depthResolveStruct.depthResolveMode =
+      VK_RESOLVE_MODE_SAMPLE_ZERO_BIT; // Pick the first sample for depth
+  depthResolveStruct.stencilResolveMode = VK_RESOLVE_MODE_NONE;
+  depthResolveStruct.pDepthStencilResolveAttachment = &depthResolveRef;
 
-  VkSubpassDependency dependency = {};
-  dependency.dstSubpass = 0;
-  dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                             VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-  dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-  dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-  dependency.srcAccessMask = 0;
-  dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  VkSubpassDescription2 subpass0{.sType =
+                                     VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
+  subpass0.pNext = &depthResolveStruct; // Link depth resolve
+  subpass0.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpass0.colorAttachmentCount = 1;
+  subpass0.pColorAttachments = &msaaColorRef;
+  subpass0.pDepthStencilAttachment = &msaaDepthRef;
+  subpass0.pResolveAttachments = &colorResolveRef; // Link color resolve
 
-  std::array<VkAttachmentDescription, 2> attachments = {colorAttachment,
-                                                        depthAttachment};
-  VkRenderPassCreateInfo renderPassInfo = {};
-  renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+  // SUBPASS 1: 1x Pass (Draws Skybox, Water, Particles, UI)
+  VkSubpassDescription2 subpass1{.sType =
+                                     VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
+  subpass1.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpass1.colorAttachmentCount = 1;
+  subpass1.pColorAttachments =
+      &colorResolveRef; // Draw directly to the 1x color buffer
+  subpass1.pDepthStencilAttachment =
+      &depthResolveRef; // Use the resolved 1x depth buffer
+
+  // DEPENDENCIES
+  std::array<VkSubpassDependency2, 2> dependencies{};
+  // Dependency 0: External -> Subpass 0
+  dependencies[0].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+  dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+  dependencies[0].dstSubpass = 0;
+  dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dependencies[0].srcAccessMask = 0;
+  dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+  // Dependency 1: Subpass 0 -> Subpass 1
+  dependencies[1].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
+  dependencies[1].srcSubpass = 0;
+  dependencies[1].dstSubpass = 1;
+  dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                 VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT |
+                                 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dependencies[1].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                 VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+  dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+  dependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                  VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+
+  // CREATE RENDER PASS
+  std::array<VkAttachmentDescription2, 4> attachments = {
+      colorResolveAttachment, depthResolveAttachment, msaaColorAttachment,
+      msaaDepthAttachment};
+  std::array<VkSubpassDescription2, 2> subpasses = {subpass0, subpass1};
+
+  VkRenderPassCreateInfo2 renderPassInfo{
+      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2};
   renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
   renderPassInfo.pAttachments = attachments.data();
-  renderPassInfo.subpassCount = 1;
-  renderPassInfo.pSubpasses = &subpass;
-  renderPassInfo.dependencyCount = 1;
-  renderPassInfo.pDependencies = &dependency;
+  renderPassInfo.subpassCount = static_cast<uint32_t>(subpasses.size());
+  renderPassInfo.pSubpasses = subpasses.data();
+  renderPassInfo.dependencyCount = static_cast<uint32_t>(dependencies.size());
+  renderPassInfo.pDependencies = dependencies.data();
 
-  if (vkCreateRenderPass(context.vulkan.device, &renderPassInfo, nullptr,
-                         &renderPass) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create render pass!");
+  if (vkCreateRenderPass2(context.vulkan.device, &renderPassInfo, nullptr,
+                          &renderPass) != VK_SUCCESS) {
+    throw std::runtime_error("failed to create multi-subpass render pass!");
   }
 }
 
 void SwapChain::createFramebuffers() {
   swapChainFramebuffers.resize(imageCount());
-  for (size_t i = 0; i < imageCount(); i++) {
-    std::array<VkImageView, 2> attachments = {swapChainImageViews[i],
-                                              depthImageViews[i]};
 
-    VkExtent2D swapChainExtent = getSwapChainExtent();
-    VkFramebufferCreateInfo framebufferInfo = {};
+  for (size_t i = 0; i < imageCount(); i++) {
+    // Order must match RenderPass Attachment Descriptions:
+    // 0: Resolve Color (Swapchain Image)
+    // 1: Resolve Depth (1x Resolved Depth)
+    // 2: MSAA Color (4x)
+    // 3: MSAA Depth (4x)
+    std::array<VkImageView, 4> attachments = {
+        swapChainImageViews[i],           // 0
+        resolvedDepthImages[i].getView(), // 1
+        colorImages[i].getView(),         // 2
+        depthImages[i].getView()          // 3
+    };
+
+    VkFramebufferCreateInfo framebufferInfo{};
     framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     framebufferInfo.renderPass = renderPass;
     framebufferInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
@@ -277,75 +371,91 @@ void SwapChain::createFramebuffers() {
   }
 }
 
-void SwapChain::createDepthResources() {
-  VkFormat depthFormat = findDepthFormat();
-  swapChainDepthFormat = depthFormat;
+void SwapChain::createColorResources() {
+  if (context.vulkan.msaaSamples == VK_SAMPLE_COUNT_1_BIT)
+    return;
+
+  VkFormat colorFormat = swapChainImageFormat;
   VkExtent2D swapChainExtent = getSwapChainExtent();
 
-  depthImages.resize(imageCount());
-  depthImageMemorys.resize(imageCount());
-  depthImageViews.resize(imageCount());
+  colorImages.reserve(imageCount());
 
-  for (int i = 0; i < depthImages.size(); i++) {
-    VkImageCreateInfo imageInfo{};
-    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent.width = swapChainExtent.width;
-    imageInfo.extent.height = swapChainExtent.height;
-    imageInfo.extent.depth = 1;
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.format = depthFormat;
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    imageInfo.flags = 0;
+  for (size_t i = 0; i < imageCount(); i++) {
+    ImageCreateInfo_empty info{};
+    info.size = {swapChainExtent.width, swapChainExtent.height};
+    info.format = colorFormat;
+    info.usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT |
+                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    info.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    info.samples = context.vulkan.msaaSamples;
+    info.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+    info.name = "MSAA Color Target";
 
-    depthImages[i] =
-        createImageWithInfo(context, imageInfo, depthImageMemorys[i]);
+    colorImages.emplace_back(context, info);
+  }
+}
 
-    VkImageViewCreateInfo viewInfo{};
-    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = depthImages[i];
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = depthFormat;
-    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
-    viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = 1;
+void SwapChain::createDepthResources() {
+  VkFormat depthFormat = getSwapChainDepthFormat();
+  VkExtent2D swapChainExtent = getSwapChainExtent();
+  uint32_t count = imageCount();
 
-    if (vkCreateImageView(context.vulkan.device, &viewInfo, nullptr,
-                          &depthImageViews[i]) != VK_SUCCESS) {
-      throw std::runtime_error("failed to create texture image view!");
-    }
+  depthImages.clear();
+  resolvedDepthImages.clear();
+
+  for (size_t i = 0; i < count; i++) {
+    // MSAA Depth Image
+    ImageCreateInfo_empty msaaDepthInfo{};
+    msaaDepthInfo.format = depthFormat;
+    msaaDepthInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                          VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+    msaaDepthInfo.samples = context.vulkan.msaaSamples;
+    msaaDepthInfo.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+    msaaDepthInfo.size = {swapChainExtent.width, swapChainExtent.height};
+    msaaDepthInfo.name = "MSAA Depth";
+    msaaDepthInfo.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthImages.emplace_back(context, msaaDepthInfo);
+
+    // Resolved Depth Image (1x)
+    ImageCreateInfo_empty resolveDepthInfo{};
+    resolveDepthInfo.format = depthFormat;
+    resolveDepthInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    resolveDepthInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    resolveDepthInfo.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+    resolveDepthInfo.size = {swapChainExtent.width, swapChainExtent.height};
+    resolveDepthInfo.name = "Resolved Depth (1x)";
+    resolveDepthInfo.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    resolvedDepthImages.emplace_back(context, resolveDepthInfo);
   }
 }
 
 void SwapChain::createSyncObjects() {
   imageAvailableSemaphores.resize(context.vulkan.maxFramesInFlight);
-  renderFinishedSemaphores.resize(context.vulkan.maxFramesInFlight);
   inFlightFences.resize(context.vulkan.maxFramesInFlight);
   imagesInFlight.resize(imageCount(), VK_NULL_HANDLE);
 
-  VkSemaphoreCreateInfo semaphoreInfo = {};
-  semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+  // Size this to the number of swapchain images, not maxFramesInFlight
+  renderFinishedSemaphores.resize(imageCount());
 
-  VkFenceCreateInfo fenceInfo = {};
-  fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+  VkSemaphoreCreateInfo semaphoreInfo{
+      .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+  VkFenceCreateInfo fenceInfo{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+                              .flags = VK_FENCE_CREATE_SIGNALED_BIT};
 
   for (size_t i = 0; i < context.vulkan.maxFramesInFlight; i++) {
     if (vkCreateSemaphore(context.vulkan.device, &semaphoreInfo, nullptr,
                           &imageAvailableSemaphores[i]) != VK_SUCCESS ||
-        vkCreateSemaphore(context.vulkan.device, &semaphoreInfo, nullptr,
-                          &renderFinishedSemaphores[i]) != VK_SUCCESS ||
         vkCreateFence(context.vulkan.device, &fenceInfo, nullptr,
                       &inFlightFences[i]) != VK_SUCCESS) {
-      throw std::runtime_error(
-          "failed to create synchronization objects for a frame!");
+      throw std::runtime_error("failed to create sync objects!");
+    }
+  }
+
+  // Create a render finished semaphore PER swapchain image
+  for (size_t i = 0; i < imageCount(); i++) {
+    if (vkCreateSemaphore(context.vulkan.device, &semaphoreInfo, nullptr,
+                          &renderFinishedSemaphores[i]) != VK_SUCCESS) {
+      throw std::runtime_error("failed to create render finished semaphores!");
     }
   }
 }
@@ -364,22 +474,6 @@ VkSurfaceFormatKHR SwapChain::chooseSwapSurfaceFormat(
 
 VkPresentModeKHR SwapChain::chooseSwapPresentMode(
     const std::vector<VkPresentModeKHR> &availablePresentModes) {
-  /*for (const auto &availablePresentMode : availablePresentModes) {
-    if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-      std::cout << "Present mode: Mailbox" << std::endl;
-      return availablePresentMode;
-    }
-  }*/
-
-  // for (const auto &availablePresentMode : availablePresentModes) {
-  //   if (availablePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
-  //     std::cout << "Present mode: Immediate" << std::endl;
-  //     return availablePresentMode;
-  //   }
-  // }
-
-  // std::cout << "Present mode: V-Sync" << std::endl;
-  // return VK_PRESENT_MODE_FIFO_KHR;
   return VK_PRESENT_MODE_FIFO_KHR;
 }
 

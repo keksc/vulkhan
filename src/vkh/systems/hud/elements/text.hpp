@@ -122,7 +122,6 @@ public:
     return data.substr(pos, len);
   }
 
-  // Mutating example: replace
   AutoUpdateString &replace(size_t pos, size_t count, const std::string &str) {
     data.replace(pos, count, str);
     updateOwner();

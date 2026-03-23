@@ -176,8 +176,9 @@ public:
                       fastgltf::getErrorMessage(gltfFile.error())));
     }
     fastgltf::Parser parser;
-    auto asset = parser.loadGltfBinary(gltfFile.get(), path.parent_path(),
-                                       fastgltf::Options::LoadExternalBuffers);
+    auto asset = parser.loadGltf(gltfFile.get(), path.parent_path(),
+                                 fastgltf::Options::LoadExternalBuffers |
+                                     fastgltf::Options::LoadExternalImages);
     if (asset.error() != fastgltf::Error::None) {
       throw std::runtime_error(std::format(
           "Failed to parse GLB: {}", fastgltf::getErrorMessage(asset.error())));

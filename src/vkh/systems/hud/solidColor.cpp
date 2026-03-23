@@ -54,6 +54,7 @@ void SolidColorSys::createPipelines() {
   trianglesPipelineInfo.fragpath = "shaders/solidColorTriangles.frag.spv";
   trianglesPipelineInfo.depthStencilInfo.depthCompareOp =
       VK_COMPARE_OP_GREATER_OR_EQUAL;
+  trianglesPipelineInfo.subpass = 1;
   trianglePipeline = std::make_unique<GraphicsPipeline>(
       context, trianglesPipelineInfo, "solid color triangles");
 
@@ -71,6 +72,7 @@ void SolidColorSys::createPipelines() {
       VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
   linesPipelineInfo.depthStencilInfo.depthCompareOp =
       VK_COMPARE_OP_GREATER_OR_EQUAL;
+  linesPipelineInfo.subpass = 1;
   linesPipeline = std::make_unique<GraphicsPipeline>(context, linesPipelineInfo,
                                                      "solid color lines");
 }
