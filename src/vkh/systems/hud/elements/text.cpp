@@ -3,8 +3,9 @@
 
 namespace vkh::hud {
 Text::Text(View &view, Element *parent, glm::vec2 position,
-           const std::string &content)
-    : Element(view, parent, position, {}), content{this, content} {
+           const std::string &content, glm::vec3 color, float sizeMultiplicator)
+    : Element(view, parent, position, {}), content{this, content}, color{color},
+      sizeMultiplicator{sizeMultiplicator} {
   flushSize();
 }
 void Text::addToDrawInfo(DrawInfo &drawInfo, float depth) {
@@ -15,7 +16,7 @@ void Text::addToDrawInfo(DrawInfo &drawInfo, float depth) {
   for (auto &c : content) {
     if (c == '\n') {
       cursor.x = position.x;
-      cursor.y += maxSizeY;
+      cursor.y += maxSizeY * sizeMultiplicator;
       continue;
     }
     if (!TextSys::glyphRange.glyphs.count(c))
@@ -24,23 +25,32 @@ void Text::addToDrawInfo(DrawInfo &drawInfo, float depth) {
     auto &ch = TextSys::glyphRange.glyphs[c];
 
     // Calculate vertex positions for this character
-    float x0 = cursor.x + ch.offset.x;
-    float x1 = x0 + ch.size.x;
-    float y0 = maxSizeY + cursor.y + ch.offset.y;
-    float y1 = y0 + ch.size.y;
+    float x0 = cursor.x + ch.offset.x * sizeMultiplicator;
+    float x1 = x0 + ch.size.x * sizeMultiplicator;
+    float y0 = maxSizeY + cursor.y + ch.offset.y * sizeMultiplicator;
+    float y1 = y0 + ch.size.y * sizeMultiplicator;
 
     // Add four vertices for this character
-    drawInfo.textVertices.emplace_back(glm::vec3{x0, y0, depth},
-                                       glm::vec2{ch.uvOffset.x, ch.uvOffset.y});
-    drawInfo.textVertices.emplace_back(
-        glm::vec3{x1, y0, depth},
-        glm::vec2{ch.uvOffset.x + ch.uvExtent.x, ch.uvOffset.y});
-    drawInfo.textVertices.emplace_back(
-        glm::vec3{x1, y1, depth}, glm::vec2{ch.uvOffset.x + ch.uvExtent.x,
-                                            ch.uvOffset.y + ch.uvExtent.y});
-    drawInfo.textVertices.emplace_back(
-        glm::vec3{x0, y1, depth},
-        glm::vec2{ch.uvOffset.x, ch.uvOffset.y + ch.uvExtent.y});
+    drawInfo.textVertices.emplace_back(glm::vec3{x0, y0, depth}, color,
+                                       glm::vec2{
+                                           ch.uvOffset.x,
+                                           ch.uvOffset.y,
+                                       });
+    drawInfo.textVertices.emplace_back(glm::vec3{x1, y0, depth}, color,
+                                       glm::vec2{
+                                           ch.uvOffset.x + ch.uvExtent.x,
+                                           ch.uvOffset.y,
+                                       });
+    drawInfo.textVertices.emplace_back(glm::vec3{x1, y1, depth}, color,
+                                       glm::vec2{
+                                           ch.uvOffset.x + ch.uvExtent.x,
+                                           ch.uvOffset.y + ch.uvExtent.y,
+                                       });
+    drawInfo.textVertices.emplace_back(glm::vec3{x0, y1, depth}, color,
+                                       glm::vec2{
+                                           ch.uvOffset.x,
+                                           ch.uvOffset.y + ch.uvExtent.y,
+                                       });
 
     // Add indices for this character's quad
     drawInfo.textIndices.emplace_back(baseIndex + 0);
@@ -51,7 +61,7 @@ void Text::addToDrawInfo(DrawInfo &drawInfo, float depth) {
     drawInfo.textIndices.emplace_back(baseIndex + 3);
 
     // Move cursor to next character position
-    cursor.x += ch.advance;
+    cursor.x += ch.advance * sizeMultiplicator;
     maxX = glm::max(cursor.x, maxX);
   }
   size = glm::vec2{maxX, cursor.y + maxSizeY} - position;

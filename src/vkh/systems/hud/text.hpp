@@ -25,6 +25,7 @@ public:
   static GlyphRange glyphRange;
   struct Vertex {
     glm::vec3 position{};
+    glm::vec3 color{};
     glm::vec2 uv{};
     static std::vector<VkVertexInputBindingDescription>
     getBindingDescriptions() {
@@ -40,7 +41,9 @@ public:
 
       attributeDescriptions.emplace_back(0, 0, VK_FORMAT_R32G32B32_SFLOAT,
                                          offsetof(Vertex, position));
-      attributeDescriptions.emplace_back(1, 0, VK_FORMAT_R32G32_SFLOAT,
+      attributeDescriptions.emplace_back(1, 0, VK_FORMAT_R32G32B32_SFLOAT,
+                                         offsetof(Vertex, color));
+      attributeDescriptions.emplace_back(2, 0, VK_FORMAT_R32G32_SFLOAT,
                                          offsetof(Vertex, uv));
 
       return attributeDescriptions;
