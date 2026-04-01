@@ -1,4 +1,5 @@
 #include <GLFW/glfw3.h>
+#include <chrono>
 #include <magic_enum/magic_enum.hpp>
 
 #include "vkh/audio.hpp"
@@ -54,13 +55,23 @@ void run() {
   vkh::renderer::init(context);
 
   {
+    std::chrono::time_point<std::chrono::high_resolution_clock> audioFadeBegin;
+    const float audioFadeSpeed = 2.5f;
+
+    // vkh::audio::Sound hugoSong("sounds/gamesong-015.opus");
+    // hugoSong.play();
+    // vkh::audio::Sound boringSpeech("sounds/Rhorhorho.opus");
+    // boringSpeech.play();
+    vkh::audio::Sound bgm("sounds/Enter Remollon.opus");
+    bgm.play();
+
     vkh::SkyboxSys skyboxSys(context);
     vkh::EntitySys entitySys(context);
     vkh::SmokeSys smokeSys(context);
     vkh::WaterSys waterSys(context, skyboxSys);
     vkh::ParticleSys particleSys(context);
 
-    std::vector<vkh::EntitySys::Entity> entities;
+    auto &entities = entitySys.entities;
     generateDungeon(context, entitySys, entities);
     auto piano = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
         context, "models/piano-decent.glb", entitySys.textureSetLayout);
@@ -69,12 +80,13 @@ void run() {
           vkh::EntitySys::Transform{.position{10.f, 10.f, 10.f}},
           vkh::EntitySys::RigidBody{}, piano, i);
 
-    auto surf = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-        context, "models/surf.glb", entitySys.textureSetLayout);
-    for (size_t i = 0; i < surf->meshes.size(); i++)
-      entities.emplace_back(vkh::EntitySys::Transform{.position{5.f}},
-                            vkh::EntitySys::RigidBody{}, surf, i);
-    waterSys.downloadDisplacementAtWorldPos();
+    auto manorcore = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+        context, "models/manorcore.glb", entitySys.textureSetLayout);
+    for (size_t i = 0; i < manorcore->meshes.size(); i++)
+      entities.emplace_back(
+          vkh::EntitySys::Transform{.position{25.f}, .scale{1.f}},
+          vkh::EntitySys::RigidBody{}, manorcore, i);
+    // waterSys.downloadDisplacementAtWorldPos();
     auto hugo = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
         context, "models/hugo.glb", entitySys.textureSetLayout);
     float hugoAnimTimeOfBeginning = context.time;
@@ -87,15 +99,19 @@ void run() {
 
     std::unordered_map<uint32_t, uint32_t> playersIndices;
 
-    // vkh::audio::Sound hugoSong("sounds/gamesong-015.opus");
-    // hugoSong.play();
-    vkh::audio::Sound boringSpeech("sounds/Rhorhorho.opus");
-    boringSpeech.play();
-
     entities.emplace_back(vkh::EntitySys::Transform{.position{0.f, 10.f, 0.f}},
                           vkh::EntitySys::RigidBody{}, hugo, 0);
 
-    entitySys.setEntities(entities);
+    // Sort to group meshes for indirect drawing
+    std::sort(
+        entities.begin(), entities.end(),
+        [](const vkh::EntitySys::Entity &a, const vkh::EntitySys::Entity &b) {
+          if (a.scene != b.scene)
+            return a.scene < b.scene;
+          return a.meshIndex < b.meshIndex;
+        });
+
+    entitySys.updateBuffers();
 
     vkh::HudSys hudSys(context);
 
@@ -108,15 +124,15 @@ void run() {
     auto canvas = canvasView.addElement<vkh::hud::Canvas>(
         glm::vec2{-1.f, -1.f}, glm::vec2{2.f, 2.f}, 0);
 
-    vkh::audio::Sound uiSound("sounds/ui.wav");
-    vkh::audio::Sound paperSound("sounds/568962__efrane__ripping-paper-10.wav");
+    // vkh::audio::Sound uiSound("sounds/ui.wav");
+    // vkh::audio::Sound paperSound("sounds/568962__efrane__ripping-paper-10.wav");
     auto canvasBtn = pauseView.addElement<vkh::hud::Button>(
         glm::vec2{.8f, -1.f}, glm::vec2{.2f, .2f}, 0,
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            static std::uniform_real_distribution<float> dis(.7f, 1.3f);
-            paperSound.setPitch(dis(rng));
-            paperSound.play();
+            // static std::uniform_real_distribution<float> dis(.7f, 1.3f);
+            // paperSound.setPitch(dis(rng));
+            // paperSound.play();
             hudSys.setView(&canvasView);
           }
         },
@@ -145,9 +161,9 @@ void run() {
         glm::vec2{-1.f}, glm::vec2{.2f, .2f}, 0,
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            static std::uniform_real_distribution<float> dis(.7f, 1.3f);
-            paperSound.setPitch(dis(rng));
-            paperSound.play();
+            // static std::uniform_real_distribution<float> dis(.7f, 1.3f);
+            // paperSound.setPitch(dis(rng));
+            // paperSound.play();
             hudSys.setView(&settingsView);
           }
         },
@@ -226,9 +242,9 @@ void run() {
               vkh::input::getKeyName(bind));
       kbEdit->setCallback([&, kbEdit](int button, int action, int) {
         if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-          static std::uniform_real_distribution<float> dis(.7f, 1.3f);
-          paperSound.setPitch(dis(rng));
-          paperSound.play();
+          // static std::uniform_real_distribution<float> dis(.7f, 1.3f);
+          // paperSound.setPitch(dis(rng));
+          // paperSound.play();
           selectedButton = kbEdit;
         }
       });
@@ -253,6 +269,11 @@ void run() {
             hugoAnimTimeOfBeginning = context.time;
             hugoAnimPlaying = true;
           }
+          return false;
+        });
+    worldViewEventManager->addEventHandler<vkh::input::EventType::WindowFocus>(
+        [&](int focused) {
+          audioFadeBegin = std::chrono::high_resolution_clock::now();
           return false;
         });
 
@@ -283,26 +304,18 @@ void run() {
           std::chrono::duration<float, std::chrono::seconds::period>(
               newTime - currentTime)
               .count();
+
       context.time = std::chrono::duration<float>(newTime - initTime).count();
 
-      fpstxt->content =
-          std::format("FPS: {}", static_cast<int>(1.f / frameTime));
-
-      rect->size = fpstxt->size;
-      orientationtxt->position.x = 1.f - orientationtxt->size.x;
-      orientationtxt->content = std::format(
-          "Yaw: {}\nPitch:{}", context.camera.yaw, context.camera.pitch);
-
-      currentTime = newTime;
-
-      if (hugoAnimPlaying) {
-        hugo->updateAnimation(0, context.time - hugoAnimTimeOfBeginning);
-        if (context.time - hugoAnimTimeOfBeginning >
-            hugo->animations[0].end - hugo->animations[0].start) {
-          hugoAnimTimeOfBeginning = 0.f;
-          hugoAnimPlaying = false;
-        }
+      float deltaTime =
+          std::chrono::duration<float>(newTime - audioFadeBegin).count();
+      float volume;
+      if (context.window.isFocused()) {
+        volume = glm::clamp(deltaTime * audioFadeSpeed, 0.f, 1.f);
+      } else {
+        volume = glm::clamp(1.f - deltaTime * audioFadeSpeed, 0.f, 1.f);
       }
+      vkh::audio::setVolume(volume);
 
       if (network) {
         bool needUpdate = false;
@@ -318,18 +331,15 @@ void run() {
               for (size_t i = 0; i < playerModel->meshes.size(); i++)
                 entities.emplace_back(vkh::EntitySys::Transform{.position{5.f}},
                                       vkh::EntitySys::RigidBody{}, playerModel,
-                                      i);
+                                      i, p->id);
             } else if (p->type == PacketType::Leave) {
-              if (playersIndices.contains(p->id)) {
-                auto begin = entities.begin() + playersIndices[p->id];
-                entities.erase(begin, begin + playerModel->meshes.size());
-
-                for (auto &[id, index] : playersIndices) {
-                  if (index > playersIndices[p->id]) {
-                    index -= playerModel->meshes.size();
-                  }
+              for (int i = 0; i < entities.size();) {
+                if (entities[i].id == p->id) {
+                  entities[i] = entities.back();
+                  entities.pop_back();
+                } else {
+                  ++i;
                 }
-                playersIndices.erase(p->id);
               }
             } else if (p->type == PacketType::Update &&
                        pktData.size() >= sizeof(UpdatePacket)) {
@@ -355,16 +365,41 @@ void run() {
 
         network->send(&myUpdate, sizeof(myUpdate));
         if (needUpdate)
-          entitySys.setEntities(entities);
+          entitySys.updateBuffers();
+      }
+
+      static bool dontDoOnce = true;
+      if (!dontDoOnce) {
+        if (!context.window.isFocused())
+          continue;
+      }
+      dontDoOnce = false;
+
+      fpstxt->content =
+          std::format("FPS: {}", static_cast<int>(1.f / frameTime));
+
+      rect->size = fpstxt->size;
+      orientationtxt->position.x = 1.f - orientationtxt->size.x;
+      orientationtxt->content = std::format(
+          "Yaw: {}\nPitch:{}", context.camera.yaw, context.camera.pitch);
+
+      currentTime = newTime;
+
+      if (hugoAnimPlaying) {
+        hugo->updateAnimation(0, context.time - hugoAnimTimeOfBeginning);
+        if (context.time - hugoAnimTimeOfBeginning >
+            hugo->animations[0].end - hugo->animations[0].start) {
+          hugoAnimTimeOfBeginning = 0.f;
+          hugoAnimPlaying = false;
+        }
       }
 
       vkh::input::update(context, entities);
 
       vkh::audio::update(context);
 
-      context.camera.projectionMatrix =
-          glm::perspective(1.919'862'177f /*human FOV*/,
-                           context.window.aspectRatio, .1f, 1000.f);
+      context.camera.projectionMatrix = glm::perspective(
+          1.919'862'177f /*human FOV*/, context.window.aspectRatio, 100.f, .1f);
       context.camera.projectionMatrix[1][1] *= -1.f; // Flip Y
       vkh::camera::calcViewYXZ(context);
 
@@ -391,7 +426,7 @@ void run() {
           waterSys.update();
           particleSys.update();
 
-          entitySys.updateJoints(entities);
+          entitySys.updateJoints();
         }
         if (hudSys.getView() == &smokeView) {
           smokeSys.update();

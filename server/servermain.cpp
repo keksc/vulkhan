@@ -17,7 +17,6 @@ int main() {
   enet_address_set_host(&address, "0.0.0.0");
   address.port = 1234;
 
-
   ENetHost *server = enet_host_create(&address, 32, 2, 0, 0);
 
   if (!server) {

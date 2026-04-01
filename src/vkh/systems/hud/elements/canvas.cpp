@@ -161,19 +161,19 @@ bool Canvas::handleKey(int key, int scancode, int action, int mods) {
     modeBg->size = modeText->size;
     return true;
   }
-  if (key == input::keybinds[input::PlaceText]) {
+  if (key == input::keybinds[input::Action::PlaceText]) {
     mode = Mode::Text;
     modeText->content = "mode: Text";
     modeBg->size = modeText->size;
     return true;
   }
-  if (key == input::keybinds[input::PlaceRect]) {
+  if (key == input::keybinds[input::Action::PlaceRect]) {
     mode = Mode::Rect;
     modeText->content = "mode: Rect";
     modeBg->size = modeText->size;
     return true;
   }
-  if (key == input::keybinds[input::PlaceLine]) {
+  if (key == input::keybinds[input::Action::PlaceLine]) {
     mode = Mode::Line;
     modeText->content = "mode: Line";
     modeBg->size = modeText->size;

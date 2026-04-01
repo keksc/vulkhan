@@ -10,6 +10,7 @@
 
 #include <limits>
 
+// TODO: add content scaling with glfwGetWindowContentScale
 namespace vkh {
 namespace input {
 std::unordered_map<Action, unsigned int> keybinds;
@@ -105,6 +106,15 @@ void dropCallback(GLFWwindow *window, int count, const char **paths) {
       count, paths);
 }
 
+void windowFocusCallback(GLFWwindow *window, int focused) {
+  auto context =
+      reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
+  if (!context->currentInputCallbackSystemKey)
+    return;
+  context->inputCallbackSystems[context->currentInputCallbackSystemKey]
+      .windowFocus(focused);
+}
+
 void init(EngineContext &context) {
   glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
   glfwSetInputMode(context.window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
@@ -114,16 +124,17 @@ void init(EngineContext &context) {
   glfwSetScrollCallback(context.window, scrollCallback);
   glfwSetMouseButtonCallback(context.window, mouseButtonCallback);
   glfwSetDropCallback(context.window, dropCallback);
+  glfwSetWindowFocusCallback(context.window, windowFocusCallback);
 
-  keybinds[MoveForward] = GLFW_KEY_W;
-  keybinds[MoveBackward] = GLFW_KEY_S;
-  keybinds[MoveLeft] = GLFW_KEY_A;
-  keybinds[MoveRight] = GLFW_KEY_D;
-  keybinds[MoveUp] = GLFW_KEY_SPACE;
-  keybinds[MoveDown] = GLFW_KEY_LEFT_CONTROL;
-  keybinds[PlaceRect] = GLFW_KEY_R;
-  keybinds[PlaceText] = GLFW_KEY_T;
-  keybinds[PlaceLine] = GLFW_KEY_L;
+  keybinds[Action::MoveForward] = GLFW_KEY_W;
+  keybinds[Action::MoveBackward] = GLFW_KEY_S;
+  keybinds[Action::MoveLeft] = GLFW_KEY_A;
+  keybinds[Action::MoveRight] = GLFW_KEY_D;
+  keybinds[Action::MoveUp] = GLFW_KEY_SPACE;
+  keybinds[Action::MoveDown] = GLFW_KEY_LEFT_CONTROL;
+  keybinds[Action::PlaceRect] = GLFW_KEY_R;
+  keybinds[Action::PlaceText] = GLFW_KEY_T;
+  keybinds[Action::PlaceLine] = GLFW_KEY_L;
 }
 
 glm::dvec2 lastPos;
@@ -158,17 +169,17 @@ void update(EngineContext &context,
   glm::vec3 up = glm::vec3(0.f, 1.f, 0.f);
   glm::vec3 moveDir{};
 
-  if (glfwGetKey(context.window, keybinds[MoveForward]) == GLFW_PRESS)
+  if (glfwGetKey(context.window, keybinds[Action::MoveForward]) == GLFW_PRESS)
     moveDir += forward;
-  if (glfwGetKey(context.window, keybinds[MoveBackward]) == GLFW_PRESS)
+  if (glfwGetKey(context.window, keybinds[Action::MoveBackward]) == GLFW_PRESS)
     moveDir -= forward;
-  if (glfwGetKey(context.window, keybinds[MoveRight]) == GLFW_PRESS)
+  if (glfwGetKey(context.window, keybinds[Action::MoveRight]) == GLFW_PRESS)
     moveDir += rightDir;
-  if (glfwGetKey(context.window, keybinds[MoveLeft]) == GLFW_PRESS)
+  if (glfwGetKey(context.window, keybinds[Action::MoveLeft]) == GLFW_PRESS)
     moveDir -= rightDir;
-  if (glfwGetKey(context.window, keybinds[MoveUp]) == GLFW_PRESS)
+  if (glfwGetKey(context.window, keybinds[Action::MoveUp]) == GLFW_PRESS)
     moveDir += up;
-  if (glfwGetKey(context.window, keybinds[MoveDown]) == GLFW_PRESS)
+  if (glfwGetKey(context.window, keybinds[Action::MoveDown]) == GLFW_PRESS)
     moveDir -= up;
 
   if (glm::length2(moveDir) > std::numeric_limits<float>::epsilon()) {

@@ -6,11 +6,30 @@
 
 #include <vector>
 
-enum class RoomType {
-  Normal,
-  Spawn,
-  Boss,
-  Treasure,
+enum class CellType {
+  Empty,
+  Room,
+  Corridor,
+  Connector, // Will have an open side
+};
+
+enum RoomModel {
+  Wall = 0,
+  Ceiling = 1,
+  Floor = 2,
+  PropChest = 3,
+  PropAltar = 4,
+};
+
+struct Room {
+  glm::ivec2 topLeft;
+  glm::ivec2 size;
+  enum class Type {
+    Normal,
+    Boss,
+    Treasure,
+  };
+  Type type = Type::Normal;
 };
 
 struct DungeonConfig {

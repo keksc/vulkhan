@@ -10,7 +10,7 @@ namespace vkh {
 namespace hud {
 class FilePicker : public Element {
 public:
-  enum Mode { Save, Open };
+  enum class Mode { Save, Open };
 
   FilePicker(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
              Mode mode);

@@ -135,9 +135,9 @@ void beginSwapChainRenderPass(EngineContext &context,
   // In renderer.cpp
   std::array<VkClearValue, 4> clearValues{};
   clearValues[0].color = {0.0f, 0.0f, 0.0f, 1.0f}; // Resolve Color (1x)
-  clearValues[1].depthStencil = {1.0f, 0};         // Resolve Depth (1x)
+  clearValues[1].depthStencil = {0.0f, 0};         // Resolve Depth (1x)
   clearValues[2].color = {0.0f, 0.0f, 0.0f, 1.0f}; // MSAA Color (4x)
-  clearValues[3].depthStencil = {1.0f, 0};         // MSAA Depth (4x)
+  clearValues[3].depthStencil = {0.0f, 0};         // MSAA Depth (4x)
 
   renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
   renderPassInfo.pClearValues = clearValues.data();

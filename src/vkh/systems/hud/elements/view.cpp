@@ -43,7 +43,15 @@ View::View(EngineContext &context, HudSys &hudSys)
             break;
           }
         }
-      }};
+      },
+      [this](int focused) {
+        for (auto &elem : elements) {
+          if (elem->dispatchEvent<input::EventType::WindowFocus>(focused)) {
+            break;
+          }
+        }
+      },
+  };
 }
 View::View(View &&other) noexcept
     : context(other.context), elements(std::move(other.elements)),

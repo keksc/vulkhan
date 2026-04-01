@@ -2,8 +2,8 @@
 
 #include "button.hpp"
 #include "element.hpp"
-#include "filePicker.hpp"
 #include "emptyRect.hpp"
+#include "filePicker.hpp"
 #include "rectImg.hpp"
 
 #include <GLFW/glfw3.h>
@@ -36,7 +36,7 @@ private:
 
   std::vector<std::shared_ptr<Button>> fileBtns;
 
-  enum Mode { Select, Text, Rect, Line } mode{Mode::Select};
+  enum class Mode { Select, Text, Rect, Line } mode{Mode::Select};
 };
 } // namespace hud
 } // namespace vkh
