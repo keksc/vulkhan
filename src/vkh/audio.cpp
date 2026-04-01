@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "AudioFile.h"
 #include <AL/al.h>
 #include <AL/alc.h>
 #include <opus/opusfile.h>
@@ -18,23 +17,6 @@
 namespace vkh {
 namespace audio {
 
-std::vector<short>
-convertTo16BitInterleaved(const AudioFile<float> &audioFile) {
-  std::vector<short> result;
-  int numChannels = audioFile.getNumChannels();
-  int numSamples = audioFile.getNumSamplesPerChannel();
-
-  result.reserve(numSamples * numChannels);
-  for (int i = 0; i < numSamples; ++i) {
-    for (int c = 0; c < numChannels; ++c) {
-      float sample = audioFile.samples[c][i];
-      sample = std::max(-1.0f, std::min(1.0f, sample));
-      result.push_back(static_cast<short>(sample * 32767.0f));
-    }
-  }
-  return result;
-}
-
 std::vector<short> loadOpus(const std::string &filepath, int &sampleRate,
                             int &channels) {
   int error;
@@ -45,9 +27,10 @@ std::vector<short> loadOpus(const std::string &filepath, int &sampleRate,
   }
 
   const OpusHead *head = op_head(opusFile, -1);
-  
-  // FIX: op_read automatically downmixes surround sound to stereo. 
-  // We MUST cap channels at 2, otherwise we will read past the end of our buffer.
+
+  // FIX: op_read automatically downmixes surround sound to stereo.
+  // We MUST cap channels at 2, otherwise we will read past the end of our
+  // buffer.
   channels = (head->channel_count > 1) ? 2 : 1;
   sampleRate = 48000;
 
@@ -82,14 +65,6 @@ Sound::Sound(const std::filesystem::path &file) {
 
   if (ext == ".opus") {
     pcmData = loadOpus(file.string(), sampleRate, channels);
-  } else if (ext == ".wav") {
-    AudioFile<float> audioFile;
-    if (!audioFile.load(file.string())) {
-      throw std::runtime_error("Failed to load WAV file: " + file.string());
-    }
-    pcmData = convertTo16BitInterleaved(audioFile);
-    sampleRate = audioFile.getSampleRate();
-    channels = audioFile.getNumChannels();
   } else {
     throw std::runtime_error("Unsupported audio format: " + ext);
   }
@@ -135,7 +110,7 @@ Sound &Sound::operator=(Sound &&other) noexcept {
 Sound::~Sound() {
   if (source) {
     alSourceStop(source);
-    alSourcei(source, AL_BUFFER, 0); 
+    alSourcei(source, AL_BUFFER, 0);
     alDeleteSources(1, &source);
   }
   if (buffer) {
@@ -157,18 +132,16 @@ void Sound::pause() const { alSourcePause(source); }
 void Sound::resume() const { alSourcePlay(source); }
 void Sound::stop() const { alSourceStop(source); }
 
-void Sound::setVolume(float volume) const { alSourcef(source, AL_GAIN, volume); }
-void Sound::setPitch(float pitch) const { alSourcef(source, AL_PITCH, pitch); }
+void Sound::setVolume(float volume) { alSourcef(source, AL_GAIN, volume); }
+void Sound::setPitch(float pitch) { alSourcef(source, AL_PITCH, pitch); }
 
-void Sound::setLooping(bool loop) const {
+void Sound::setLooping(bool loop) {
   alSourcei(source, AL_LOOPING, loop ? AL_TRUE : AL_FALSE);
 }
 
-void Sound::seek(float seconds) const {
-  alSourcef(source, AL_SEC_OFFSET, seconds);
-}
+void Sound::seek(float seconds) { alSourcef(source, AL_SEC_OFFSET, seconds); }
 
-void Sound::setPosition(float x, float y, float z) const {
+void Sound::setPosition(float x, float y, float z) {
   alSource3f(source, AL_POSITION, x, y, z);
 }
 
@@ -210,6 +183,8 @@ void update(EngineContext &context) {
                                up.x,      up.y,      up.z};
   alListenerfv(AL_ORIENTATION, orientationArray);
 }
+
+void setVolume(float volume) { alListenerf(AL_GAIN, volume); }
 
 void cleanup() {
   alcMakeContextCurrent(nullptr);

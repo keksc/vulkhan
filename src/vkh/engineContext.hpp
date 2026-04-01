@@ -1,8 +1,7 @@
 #pragma once
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 #include <vulkan/vulkan_core.h>
+#include <GLFW/glfw3.h>
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <AL/al.h>
@@ -13,6 +12,8 @@
 
 #include <functional>
 #include <memory>
+
+#include "window.hpp"
 
 namespace vkh {
 class DescriptorAllocatorGrowable;
@@ -33,31 +34,7 @@ const int NUM_BUFFERS = 2;
 class SwapChain;
 struct EngineContext {
   EngineContext &operator=(const EngineContext &) = delete;
-  struct {
-    glm::ivec2 size = {800, 600};
-    bool framebufferResized = false;
-    VkExtent2D getExtent() {
-      return {static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y)};
-    };
-    void setFullscreen(bool fullscreen) {
-      if (fullscreen) {
-        glfwSetWindowMonitor(*this, NULL, 100, 100, 800, 600, 0);
-      } else {
-        GLFWmonitor *monitor = glfwGetPrimaryMonitor();
-        const GLFWvidmode *mode = glfwGetVideoMode(monitor);
-        glfwSetWindowMonitor(*this, monitor, 0, 0, mode->width, mode->height,
-                             mode->refreshRate);
-      }
-    }
-
-    float aspectRatio = static_cast<float>(size.x) / static_cast<float>(size.y);
-    operator GLFWwindow *() { return glfwWindow; }
-    GLFWwindow *glfwWindow;
-    struct {
-      GLFWcursor *arrow;
-      GLFWcursor *ibeam;
-    } cursors;
-  } window;
+  Window window;
   struct {
     VkInstance instance;
 #ifndef NDEBUG
@@ -106,6 +83,7 @@ struct EngineContext {
     std::function<void(double, double)> cursorPosition;
     std::function<void(unsigned int)> character;
     std::function<void(int, const char **)> drop;
+    std::function<void(int)> windowFocus;
   };
   std::unordered_map<void *, InputCallbackSystem> inputCallbackSystems;
   void *currentInputCallbackSystemKey;

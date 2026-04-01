@@ -1,5 +1,7 @@
 #include "window.hpp"
 
+#include "engineContext.hpp"
+
 #include <GLFW/glfw3.h>
 #ifdef _WIN32
 #include <stb_image.h>

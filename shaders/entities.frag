@@ -20,12 +20,12 @@ void main() {
       color *= texture(sceneTextures[nonuniformEXT(fragTexIndex)], uv);
   }
   
-  vec3 norm = normalize(normal);
-  vec3 lightDir = normalize(vec3(1.0));
-  const float ambient = 0.1;
-  float diffuse = max(dot(norm, lightDir), 0.0);
-  
-  vec4 result = (ambient + diffuse) * color;
+  // vec3 norm = normalize(normal);
+  // vec3 lightDir = normalize(vec3(1.0));
+  // const float ambient = 0.1;
+  // float diffuse = max(dot(norm, lightDir), 0.0);
+  //
+  // vec4 result = (ambient + diffuse) * color;
 
-  outColor = result;
+  outColor = color;
 }

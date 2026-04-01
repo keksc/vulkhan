@@ -72,7 +72,7 @@ SkyboxSys::SkyboxSys(EngineContext &context)
   pipelineInfo.attributeDescriptions = Vertex::getAttributeDescriptions();
   pipelineInfo.bindingDescriptions = Vertex::getBindingDescriptions();
   pipelineInfo.depthStencilInfo.depthTestEnable = VK_TRUE;
-  pipelineInfo.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+  pipelineInfo.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
   pipelineInfo.depthStencilInfo.depthWriteEnable = VK_FALSE;
   pipelineInfo.vertpath = "shaders/skybox.vert.spv";
   pipelineInfo.fragpath = "shaders/skybox.frag.spv";

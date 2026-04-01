@@ -47,8 +47,8 @@ public:
 
   struct Transform {
     glm::vec3 position{};
-    glm::vec3 scale{1.f, 1.f, 1.f};
     glm::quat orientation{};
+    glm::vec3 scale{1.f, 1.f, 1.f};
 
     glm::mat4 mat4() const;
     glm::mat3 normalMatrix();
@@ -69,6 +69,10 @@ public:
     std::size_t meshIndex;
 
     inline Scene<Vertex>::Mesh &getMesh() { return scene->meshes[meshIndex]; }
+
+    static constexpr uint32_t LOCAL_ENTITY_ID =
+        std::numeric_limits<uint32_t>::max();
+    uint32_t id = LOCAL_ENTITY_ID;
   };
 
   struct GPUInstanceData {
@@ -89,27 +93,36 @@ public:
   EntitySys(EngineContext &context);
   ~EntitySys();
 
-  void setEntities(std::vector<Entity> entities);
-  void updateJoints(std::vector<Entity> &sortedEntities);
+  void updateJoints();
   void render();
+  void updateBuffers();
 
   VkDescriptorSetLayout textureSetLayout;
   VkDescriptorSetLayout instanceSetLayout;
 
+  std::vector<Entity> entities;
+
 private:
   void createSetLayouts();
   void createPipeline();
-  void updateBuffers(std::vector<Entity> &sortedEntities);
 
   std::unique_ptr<GraphicsPipeline> pipeline;
 
-  std::unique_ptr<Buffer<GPUInstanceData>> instanceBuffer;
-  std::unique_ptr<Buffer<VkDrawIndexedIndirectCommand>> indirectDrawBuffer;
-  std::unique_ptr<Buffer<glm::mat4>> jointBuffer;
+  std::vector<std::unique_ptr<Buffer<GPUInstanceData>>> instanceBuffers;
+  std::vector<std::unique_ptr<Buffer<VkDrawIndexedIndirectCommand>>>
+      indirectDrawBuffers;
+  std::vector<std::unique_ptr<Buffer<glm::mat4>>> jointBuffers;
+  std::vector<VkDescriptorSet> instanceDescriptorSets;
 
   std::vector<SceneBatch> sceneBatches;
 
-  VkDescriptorSet instanceDescriptorSet;
   VkDescriptorSet dummyTextureSet;
+
+  std::vector<GPUInstanceData> cpuInstanceData;
+  std::vector<VkDrawIndexedIndirectCommand> cpuDrawCommands;
+  std::vector<glm::mat4> cpuJointData;
+  std::vector<bool> framesDirty;
+
+  void flushBuffers(int frameIndex);
 };
 } // namespace vkh

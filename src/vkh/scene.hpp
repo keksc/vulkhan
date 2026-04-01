@@ -523,15 +523,15 @@ public:
         continue;
 
       float t = std::clamp(time, anim.start, anim.end);
-      size_t keyIndex = 0;
-      for (size_t i = 0; i < sampler.inputs.size() - 1; ++i) {
-        if (t <= sampler.inputs[i + 1]) {
-          keyIndex = i;
-          break;
-        }
+      auto it =
+          std::upper_bound(sampler.inputs.begin(), sampler.inputs.end(), t);
+      size_t nextKey = std::distance(sampler.inputs.begin(), it);
+      size_t keyIndex = (nextKey > 0) ? nextKey - 1 : 0;
+
+      if (nextKey >= sampler.inputs.size()) {
+        nextKey = sampler.inputs.size() - 1;
       }
 
-      size_t nextKey = std::min(keyIndex + 1, sampler.inputs.size() - 1);
       float t1 = sampler.inputs[keyIndex];
       float t2 = sampler.inputs[nextKey];
       float factor =

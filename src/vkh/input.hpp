@@ -9,7 +9,7 @@ void init(EngineContext &context);
 void update(EngineContext &context,
             std::vector<vkh::EntitySys::Entity> &entities);
 extern glm::dvec2 lastPos;
-enum Action {
+enum class Action {
   MoveForward,
   MoveBackward,
   MoveLeft,
@@ -24,7 +24,7 @@ extern std::unordered_map<Action, unsigned int> keybinds;
 
 std::string getKeyName(int key);
 
-enum class EventType { MouseButton, Key, CursorPosition, Character, Drop };
+enum class EventType { MouseButton, Key, CursorPosition, Character, Drop, WindowFocus };
 
 template <EventType E> struct EventTraits;
 
@@ -47,6 +47,9 @@ template <> struct EventTraits<EventType::Character> {
 
 template <> struct EventTraits<EventType::Drop> {
   using CallbackType = std::function<bool(int count, const char **paths)>;
+};
+template <> struct EventTraits<EventType::WindowFocus> {
+  using CallbackType = std::function<bool(int focused)>;
 };
 }; // namespace input
 } // namespace vkh

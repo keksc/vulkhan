@@ -10,6 +10,7 @@ namespace audio {
 void init();
 void cleanup();
 void update(EngineContext &context);
+void setVolume(float volume);
 
 struct Sound {
   Sound(const std::filesystem::path &file);
@@ -28,12 +29,12 @@ struct Sound {
   void resume() const;
   void stop() const;
 
-  void setVolume(float volume) const;
-  void setPitch(float pitch) const;
-  void setLooping(bool loop) const;
-  void seek(float seconds) const;
-  
-  void setPosition(float x, float y, float z) const;
+  void setVolume(float volume);
+  void setPitch(float pitch);
+  void setLooping(bool loop);
+  void seek(float seconds);
+
+  void setPosition(float x, float y, float z);
 
   bool isPlaying() const;
   bool isPaused() const;

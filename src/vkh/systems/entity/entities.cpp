@@ -74,6 +74,13 @@ EntitySys::EntitySys(EngineContext &context) : System(context) {
   writer.updateSet(dummyTextureSet);
 
   createPipeline();
+
+  uint32_t framesInFlight = context.vulkan.maxFramesInFlight;
+  instanceBuffers.resize(framesInFlight);
+  indirectDrawBuffers.resize(framesInFlight);
+  jointBuffers.resize(framesInFlight);
+  instanceDescriptorSets.resize(framesInFlight, VK_NULL_HANDLE);
+  framesDirty.resize(framesInFlight, false); // Initialize dirty flags
 }
 
 void EntitySys::createPipeline() {
@@ -85,7 +92,7 @@ void EntitySys::createPipeline() {
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
   pipelineLayoutInfo.pSetLayouts = setLayouts.data();
-  pipelineLayoutInfo.pushConstantRangeCount = 0; // Removed Push Constants!
+  pipelineLayoutInfo.pushConstantRangeCount = 0;
   pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
   PipelineCreateInfo pipelineInfo{};
@@ -111,27 +118,25 @@ EntitySys::~EntitySys() {
                                nullptr);
 }
 
-void EntitySys::setEntities(std::vector<Entity> entities) {
-  std::sort(entities.begin(), entities.end(),
-            [](const Entity &a, const Entity &b) {
-              if (a.scene != b.scene)
-                return a.scene < b.scene;
-              return a.meshIndex < b.meshIndex;
-            });
+void EntitySys::updateJoints() {
+  if (entities.empty())
+    return;
 
-  updateBuffers(entities);
-}
-void EntitySys::updateJoints(std::vector<Entity> &sortedEntities) {
-  if (!jointBuffer || sortedEntities.empty())
+  int frameIndex = context.frameInfo.frameIndex;
+
+  // Ensure buffers are allocated and up-to-date for this frame
+  // before we try to map them dynamically.
+  flushBuffers(frameIndex);
+
+  if (jointBuffers.empty() || !jointBuffers[frameIndex])
     return;
 
   std::vector<glm::mat4> jointData;
-  for (auto &entity : sortedEntities) {
+  for (auto &entity : entities) {
     auto &mesh = entity.getMesh();
     if (mesh.skinIndex.has_value()) {
       auto &skin = entity.scene->skins[mesh.skinIndex.value()];
       for (size_t i = 0; i < skin.joints.size(); ++i) {
-        // Joint Matrix = Joint Global Transform * Inverse Bind Matrix
         glm::mat4 jointMatrix =
             entity.scene->nodes[skin.joints[i]].globalTransform *
             skin.inverseBindMatrices[i];
@@ -141,45 +146,49 @@ void EntitySys::updateJoints(std::vector<Entity> &sortedEntities) {
   }
 
   if (!jointData.empty()) {
-    jointBuffer->map();
-    jointBuffer->write(jointData.data(), jointData.size() * sizeof(glm::mat4));
-    jointBuffer->unmap();
+    jointBuffers[frameIndex]->map();
+    jointBuffers[frameIndex]->write(jointData.data(),
+                                    jointData.size() * sizeof(glm::mat4));
+    jointBuffers[frameIndex]->unmap();
   }
 }
-void EntitySys::updateBuffers(std::vector<Entity> &sortedEntities) {
+
+void EntitySys::updateBuffers() {
   sceneBatches.clear();
-  if (sortedEntities.empty())
+  cpuInstanceData.clear();
+  cpuDrawCommands.clear();
+  cpuJointData.clear();
+
+  if (entities.empty())
     return;
 
-  std::vector<GPUInstanceData> instanceData;
-  std::vector<VkDrawIndexedIndirectCommand> drawCommands;
-
   size_t totalInstancesEst = 0;
-  for (auto &e : sortedEntities)
+  for (auto &e : entities)
     totalInstancesEst += e.getMesh().primitives.size();
-  instanceData.reserve(totalInstancesEst);
-  drawCommands.reserve(totalInstancesEst);
+
+  cpuInstanceData.reserve(totalInstancesEst);
+  cpuDrawCommands.reserve(totalInstancesEst);
 
   uint32_t currentInstanceIndex = 0;
   uint32_t currentJointOffset = 0;
 
-  for (size_t i = 0; i < sortedEntities.size();) {
-    auto currentScene = sortedEntities[i].scene;
-    uint32_t firstDrawOffset = static_cast<uint32_t>(drawCommands.size());
+  for (size_t i = 0; i < entities.size();) {
+    auto currentScene = entities[i].scene;
+    uint32_t firstDrawOffset = static_cast<uint32_t>(cpuDrawCommands.size());
     uint32_t drawCount = 0;
 
     size_t j = i;
-    while (j < sortedEntities.size() &&
-           sortedEntities[j].scene == currentScene) {
+    while (j < entities.size() &&
+           entities[j].scene == currentScene) {
       size_t k = j;
-      while (k < sortedEntities.size() &&
-             sortedEntities[k].scene == currentScene &&
-             sortedEntities[k].meshIndex == sortedEntities[j].meshIndex) {
+      while (k < entities.size() &&
+             entities[k].scene == currentScene &&
+             entities[k].meshIndex == entities[j].meshIndex) {
         k++;
       }
 
       uint32_t instanceCount = static_cast<uint32_t>(k - j);
-      auto &entity = sortedEntities[j];
+      auto &entity = entities[j];
       auto &mesh = entity.getMesh();
 
       for (const auto &primitive : mesh.primitives) {
@@ -190,7 +199,7 @@ void EntitySys::updateBuffers(std::vector<Entity> &sortedEntities) {
         cmd.vertexOffset = 0;
         cmd.firstInstance = currentInstanceIndex;
 
-        drawCommands.push_back(cmd);
+        cpuDrawCommands.push_back(cmd);
         drawCount++;
 
         auto &mat = currentScene->materials[primitive.materialIndex];
@@ -202,9 +211,9 @@ void EntitySys::updateBuffers(std::vector<Entity> &sortedEntities) {
         for (size_t inst = j; inst < k; ++inst) {
           GPUInstanceData data;
           data.modelMatrix =
-              sortedEntities[inst].transform.mat4() * mesh.transform;
+              entities[inst].transform.mat4() * mesh.transform;
           data.normalMatrix =
-              glm::mat4(sortedEntities[inst].transform.normalMatrix());
+              glm::mat4(entities[inst].transform.normalMatrix());
           data.color = mat.baseColorFactor;
           data.textureIndex = texIdx;
           if (mesh.skinIndex.has_value()) {
@@ -214,7 +223,7 @@ void EntitySys::updateBuffers(std::vector<Entity> &sortedEntities) {
           } else {
             data.jointOffset = -1;
           }
-          instanceData.push_back(data);
+          cpuInstanceData.push_back(data);
         }
         currentInstanceIndex += instanceCount;
       }
@@ -230,70 +239,110 @@ void EntitySys::updateBuffers(std::vector<Entity> &sortedEntities) {
     i = j;
   }
 
+  // Pre-calculate joint data once so it's ready for the deferred upload
+  for (auto &entity : entities) {
+    auto &mesh = entity.getMesh();
+    if (mesh.skinIndex.has_value()) {
+      auto &skin = entity.scene->skins[mesh.skinIndex.value()];
+      for (size_t i = 0; i < skin.joints.size(); ++i) {
+        glm::mat4 jointMatrix =
+            entity.scene->nodes[skin.joints[i]].globalTransform *
+            skin.inverseBindMatrices[i];
+        cpuJointData.push_back(jointMatrix);
+      }
+    }
+  }
+
+  // Flag ALL frames as dirty so they update their buffers when it's their turn
+  for (size_t i = 0; i < framesDirty.size(); ++i) {
+    framesDirty[i] = true;
+  }
+}
+
+void EntitySys::flushBuffers(int frameIndex) {
+  if (!framesDirty[frameIndex])
+    return;
+
   VkDeviceSize instanceBufferSize =
-      instanceData.size() * sizeof(GPUInstanceData);
+      cpuInstanceData.size() * sizeof(GPUInstanceData);
   VkDeviceSize jointBufferSize = std::max<VkDeviceSize>(
-      currentJointOffset * sizeof(glm::mat4), sizeof(glm::mat4));
+      cpuJointData.size() * sizeof(glm::mat4), sizeof(glm::mat4));
+  VkDeviceSize cmdBufferSize =
+      cpuDrawCommands.size() * sizeof(VkDrawIndexedIndirectCommand);
 
   bool updateDescriptor = false;
 
-  if (!instanceBuffer || instanceBuffer->getSize() < instanceBufferSize) {
-    instanceBuffer = std::make_unique<Buffer<GPUInstanceData>>(
+  if (!instanceBuffers[frameIndex] ||
+      instanceBuffers[frameIndex]->getSize() < instanceBufferSize) {
+    instanceBuffers[frameIndex] = std::make_unique<Buffer<GPUInstanceData>>(
         context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        instanceData.size());
+        std::max<uint32_t>(cpuInstanceData.size(), 1));
     updateDescriptor = true;
   }
 
-  if (!jointBuffer || jointBuffer->getSize() < jointBufferSize) {
-    jointBuffer = std::make_unique<Buffer<glm::mat4>>(
+  if (!jointBuffers[frameIndex] ||
+      jointBuffers[frameIndex]->getSize() < jointBufferSize) {
+    jointBuffers[frameIndex] = std::make_unique<Buffer<glm::mat4>>(
         context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        std::max<uint32_t>(currentJointOffset, 1));
+        std::max<uint32_t>(cpuJointData.size(), 1));
     updateDescriptor = true;
   }
 
-  if (updateDescriptor) {
-    if (!instanceDescriptorSet) {
-      instanceDescriptorSet =
+  if (!indirectDrawBuffers[frameIndex] ||
+      indirectDrawBuffers[frameIndex]->getSize() < cmdBufferSize) {
+    indirectDrawBuffers[frameIndex] =
+        std::make_unique<Buffer<VkDrawIndexedIndirectCommand>>(
+            context,
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+                VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            std::max<uint32_t>(cpuDrawCommands.size(), 1));
+  }
+
+  if (updateDescriptor ||
+      instanceDescriptorSets[frameIndex] == VK_NULL_HANDLE) {
+    if (instanceDescriptorSets[frameIndex] == VK_NULL_HANDLE) {
+      instanceDescriptorSets[frameIndex] =
           context.vulkan.globalDescriptorAllocator->allocate(instanceSetLayout);
     }
     DescriptorWriter writer(context);
-
-    VkDescriptorBufferInfo bInfo = instanceBuffer->descriptorInfo();
+    VkDescriptorBufferInfo bInfo =
+        instanceBuffers[frameIndex]->descriptorInfo();
     writer.writeBuffer(0, bInfo, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
 
-    VkDescriptorBufferInfo jInfo = jointBuffer->descriptorInfo();
+    VkDescriptorBufferInfo jInfo = jointBuffers[frameIndex]->descriptorInfo();
     writer.writeBuffer(1, jInfo, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
 
-    writer.updateSet(instanceDescriptorSet);
+    writer.updateSet(instanceDescriptorSets[frameIndex]);
   }
 
   if (instanceBufferSize > 0) {
-    instanceBuffer->map();
-    instanceBuffer->write(instanceData.data(), instanceBufferSize);
-    instanceBuffer->unmap();
-  }
-
-  VkDeviceSize cmdBufferSize =
-      drawCommands.size() * sizeof(VkDrawIndexedIndirectCommand);
-  if (!indirectDrawBuffer || indirectDrawBuffer->getSize() < cmdBufferSize) {
-    indirectDrawBuffer = std::make_unique<Buffer<VkDrawIndexedIndirectCommand>>(
-        context,
-        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-        drawCommands.size());
+    instanceBuffers[frameIndex]->map();
+    instanceBuffers[frameIndex]->write(cpuInstanceData.data(),
+                                       instanceBufferSize);
+    instanceBuffers[frameIndex]->unmap();
   }
 
   if (cmdBufferSize > 0) {
-    indirectDrawBuffer->map();
-    indirectDrawBuffer->write(drawCommands.data(), cmdBufferSize);
-    indirectDrawBuffer->unmap();
+    indirectDrawBuffers[frameIndex]->map();
+    indirectDrawBuffers[frameIndex]->write(cpuDrawCommands.data(),
+                                           cmdBufferSize);
+    indirectDrawBuffers[frameIndex]->unmap();
   }
-  updateJoints(sortedEntities);
+
+  if (jointBufferSize > 0 && !cpuJointData.empty()) {
+    jointBuffers[frameIndex]->map();
+    jointBuffers[frameIndex]->write(cpuJointData.data(),
+                                    cpuJointData.size() * sizeof(glm::mat4));
+    jointBuffers[frameIndex]->unmap();
+  }
+
+  framesDirty[frameIndex] = false;
 }
 
 void EntitySys::render() {
@@ -301,17 +350,22 @@ void EntitySys::render() {
     return;
 
   auto cmd = context.frameInfo.cmd;
+  int frameIndex = context.frameInfo.frameIndex;
+
+  // Ensure buffers are flushed just in case updateJoints wasn't called this
+  // frame
+  flushBuffers(frameIndex);
+
   debug::beginLabel(context, cmd, "Indirect Entities", {.7f, .3f, 1.f, 1.f});
 
   pipeline->bind(cmd);
 
-  vkCmdBindDescriptorSets(
-      cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
-      &context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], 0,
-      nullptr);
+  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
+                          &context.vulkan.globalDescriptorSets[frameIndex], 0,
+                          nullptr);
 
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 2, 1,
-                          &instanceDescriptorSet, 0, nullptr);
+                          &instanceDescriptorSets[frameIndex], 0, nullptr);
 
   for (const auto &batch : sceneBatches) {
     batch.scene->bind(context, cmd, *pipeline);
@@ -325,7 +379,7 @@ void EntitySys::render() {
                             1, &texSet, 0, nullptr);
 
     vkCmdDrawIndexedIndirect(
-        cmd, *indirectDrawBuffer,
+        cmd, *(indirectDrawBuffers[frameIndex]),
         batch.firstDrawCommandOffset * sizeof(VkDrawIndexedIndirectCommand),
         batch.drawCommandCount, sizeof(VkDrawIndexedIndirectCommand));
   }
