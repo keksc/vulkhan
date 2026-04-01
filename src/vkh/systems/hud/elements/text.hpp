@@ -1,6 +1,7 @@
 #pragma once
 
 #include "element.hpp"
+#include <iterator>
 
 namespace vkh {
 namespace hud {
@@ -141,8 +142,13 @@ private:
 class Text : public Element {
 public:
   Text(View &view, Element *parent, glm::vec2 position,
-       const std::string &content = "");
+       const std::string &content = "", glm::vec3 color = glm::vec3{1.f},
+       float sizeMultiplicator = 1.f);
   AutoUpdateString<Text> content;
+  void setSizeMultiplicator(const float newSizeMultiplicator) {
+    sizeMultiplicator = newSizeMultiplicator;
+  }
+  float getSize() const { return sizeMultiplicator; }
 
 protected:
   void addToDrawInfo(DrawInfo &drawInfo, float depth) override;
@@ -150,6 +156,10 @@ protected:
 private:
   void flushSize();
   void update();
+
+  glm::vec3 color;
+  float sizeMultiplicator;
+
   friend AutoUpdateString<Text>;
 };
 } // namespace hud

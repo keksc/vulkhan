@@ -2,6 +2,7 @@
 #include <chrono>
 #include <magic_enum/magic_enum.hpp>
 
+#include "bosses/featherDuckGuard.hpp"
 #include "vkh/audio.hpp"
 #include "vkh/camera.hpp"
 #include "vkh/cleanup.hpp"
@@ -68,7 +69,7 @@ void run() {
     vkh::SkyboxSys skyboxSys(context);
     vkh::EntitySys entitySys(context);
     vkh::SmokeSys smokeSys(context);
-    vkh::WaterSys waterSys(context, skyboxSys);
+    // vkh::WaterSys waterSys(context, skyboxSys);
     vkh::ParticleSys particleSys(context);
 
     auto &entities = entitySys.entities;
@@ -121,11 +122,14 @@ void run() {
     vkh::hud::View pauseView(context, hudSys);
     vkh::hud::View smokeView(context, hudSys);
 
+    FeatherDuckGuard featherDuckGuard(context, entitySys, worldView);
+
     auto canvas = canvasView.addElement<vkh::hud::Canvas>(
         glm::vec2{-1.f, -1.f}, glm::vec2{2.f, 2.f}, 0);
 
     // vkh::audio::Sound uiSound("sounds/ui.wav");
-    // vkh::audio::Sound paperSound("sounds/568962__efrane__ripping-paper-10.wav");
+    // vkh::audio::Sound
+    // paperSound("sounds/568962__efrane__ripping-paper-10.wav");
     auto canvasBtn = pauseView.addElement<vkh::hud::Button>(
         glm::vec2{.8f, -1.f}, glm::vec2{.2f, .2f}, 0,
         [&](int button, int action, int) {
@@ -307,6 +311,8 @@ void run() {
 
       context.time = std::chrono::duration<float>(newTime - initTime).count();
 
+      featherDuckGuard.update();
+
       float deltaTime =
           std::chrono::duration<float>(newTime - audioFadeBegin).count();
       float volume;
@@ -399,7 +405,7 @@ void run() {
       vkh::audio::update(context);
 
       context.camera.projectionMatrix = glm::perspective(
-          1.919'862'177f /*human FOV*/, context.window.aspectRatio, 100.f, .1f);
+          1.919'862'177f /*human FOV*/, context.window.aspectRatio, 1000.f, .01f);
       context.camera.projectionMatrix[1][1] *= -1.f; // Flip Y
       vkh::camera::calcViewYXZ(context);
 
@@ -423,7 +429,7 @@ void run() {
         context.vulkan.globalUBOs[frameIndex].flush();
 
         if (hudSys.getView() == &worldView) {
-          waterSys.update();
+          // waterSys.update();
           particleSys.update();
 
           entitySys.updateJoints();
@@ -438,7 +444,7 @@ void run() {
         if (hudSys.getView() == &worldView) {
           skyboxSys.render();
           entitySys.render();
-          waterSys.render();
+          // waterSys.render();
         }
 
         vkCmdNextSubpass(commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
