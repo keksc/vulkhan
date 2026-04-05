@@ -1,13 +1,12 @@
 #pragma once
 
 #include "element.hpp"
-#include "text.hpp"
 
-#include <GLFW/glfw3.h>
-#include <print>
+#include <memory>
 
 namespace vkh {
 namespace hud {
+class Text;
 class FilePicker : public Element {
 public:
   enum class Mode { Save, Open };

@@ -1,16 +1,13 @@
 #pragma once
 
-#include "button.hpp"
-#include "element.hpp"
-#include "emptyRect.hpp"
-#include "filePicker.hpp"
 #include "rectImg.hpp"
-
-#include <GLFW/glfw3.h>
-#include <magic_enum/magic_enum.hpp>
 
 namespace vkh {
 namespace hud {
+class Text;
+class EmptyRect;
+class Button;
+class FilePicker;
 class Canvas : public Rect {
 public:
   Canvas(View &view, Element *parent, glm::vec2 position, glm::vec2 size,

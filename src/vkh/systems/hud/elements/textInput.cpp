@@ -1,5 +1,6 @@
 #include "textInput.hpp"
-#include <GLFW/glfw3.h>
+
+#include "text.hpp"
 
 namespace vkh::hud {
 
@@ -9,6 +10,7 @@ TextInput::TextInput(View &view, Element *parent, glm::vec2 position,
   text = addChild<Text>(position, content);
   size = text->size;
 }
+AutoUpdateString<Text> &TextInput::getContent() const { return text->content; }
 bool TextInput::handleCharacter(unsigned int codepoint) {
   // if (selectedTextInput != this)
   //   return;

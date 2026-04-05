@@ -1,20 +1,6 @@
 #include "skybox.hpp"
-#include <ktx.h>
-#include <memory>
-
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/constants.hpp>
-#include <glm/gtc/quaternion.hpp>
-#include <ktx.h>
-#include <ktxvulkan.h>
-#include <vulkan/vulkan_core.h>
-
-#include <vector>
 
 #include "../debug.hpp"
-#include "../descriptors.hpp"
 #include "../pipeline.hpp"
 #include "../scene.hpp"
 #include "../swapChain.hpp"

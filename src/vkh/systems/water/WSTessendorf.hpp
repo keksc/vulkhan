@@ -1,20 +1,19 @@
 #pragma once
 
-#include <glm/ext.hpp>
 #include <glm/glm.hpp>
+#include <vkFFT.h>
 #include <vulkan/vulkan_core.h>
+
+#include "../system.hpp"
 
 #include <complex>
 #include <memory>
-#include <vector>
-
-#include "../../buffer.hpp"
-#include "../../image.hpp"
-#include "../system.hpp"
-
-#include <vkFFT.h>
 
 namespace vkh {
+class EngineContext;
+class Image;
+class ComputePipeline;
+template <typename T> class Buffer;
 class WSTessendorf : public System {
 public:
   WSTessendorf(EngineContext &context);
@@ -26,9 +25,7 @@ public:
   static constexpr unsigned int tileSizeSquared = tileSize * tileSize;
   static constexpr float tileLength = 1000.f;
 
-  Image &getDisplacementFoamImage() {
-    return *displacementFoamMap;
-  }
+  Image &getDisplacementFoamImage() { return *displacementFoamMap; }
 
 private:
   struct WaveVector {

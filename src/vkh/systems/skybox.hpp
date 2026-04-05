@@ -1,17 +1,16 @@
 #pragma once
 
+#include <glm/glm.hpp>
 #include <vulkan/vulkan_core.h>
 
-#include <ktx.h>
-#include <ktxvulkan.h>
+#include "../image.hpp"
+#include "system.hpp"
 
 #include <memory>
 
-#include "../image.hpp"
-#include "../scene.hpp"
-#include "system.hpp"
-
 namespace vkh {
+class GraphicsPipeline;
+template <typename T> class Scene;
 class SkyboxSys : public System {
 public:
   struct Vertex {

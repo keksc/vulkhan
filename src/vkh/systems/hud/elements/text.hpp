@@ -1,7 +1,6 @@
 #pragma once
 
 #include "element.hpp"
-#include <iterator>
 
 namespace vkh {
 namespace hud {

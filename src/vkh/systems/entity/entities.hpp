@@ -1,14 +1,12 @@
 #pragma once
 
+#include <glm/glm.hpp>
+
 #include "../../scene.hpp"
-#include "../skybox.hpp"
 #include "../system.hpp"
-#include <algorithm>
-#include <memory>
-#include <vector>
 
 namespace vkh {
-
+class GraphicsPipeline;
 class EntitySys : public System {
 public:
   struct Vertex {

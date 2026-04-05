@@ -4,7 +4,6 @@
 #include <GLFW/glfw3.h>
 #include <chrono>
 #include <glm/ext/vector_common.hpp>
-#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/norm.hpp>
 

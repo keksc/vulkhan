@@ -59,8 +59,6 @@ void run() {
     std::chrono::time_point<std::chrono::high_resolution_clock> audioFadeBegin;
     const float audioFadeSpeed = 2.5f;
 
-    // vkh::audio::Sound hugoSong("sounds/gamesong-015.opus");
-    // hugoSong.play();
     // vkh::audio::Sound boringSpeech("sounds/Rhorhorho.opus");
     // boringSpeech.play();
     vkh::audio::Sound bgm("sounds/Enter Remollon.opus");
@@ -88,10 +86,6 @@ void run() {
           vkh::EntitySys::Transform{.position{25.f}, .scale{1.f}},
           vkh::EntitySys::RigidBody{}, manorcore, i);
     // waterSys.downloadDisplacementAtWorldPos();
-    auto hugo = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-        context, "models/hugo.glb", entitySys.textureSetLayout);
-    float hugoAnimTimeOfBeginning = context.time;
-    bool hugoAnimPlaying = false;
 
     auto shoe = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
         context, "models/MaterialsVariantsShoe.glb",
@@ -99,9 +93,6 @@ void run() {
     auto playerModel = shoe;
 
     std::unordered_map<uint32_t, uint32_t> playersIndices;
-
-    entities.emplace_back(vkh::EntitySys::Transform{.position{0.f, 10.f, 0.f}},
-                          vkh::EntitySys::RigidBody{}, hugo, 0);
 
     // Sort to group meshes for indirect drawing
     std::sort(
@@ -116,10 +107,10 @@ void run() {
 
     vkh::HudSys hudSys(context);
 
-    vkh::hud::View canvasView(context, hudSys);
-    vkh::hud::View settingsView(context, hudSys);
     vkh::hud::View worldView(context, hudSys);
     vkh::hud::View pauseView(context, hudSys);
+    vkh::hud::View settingsView(context, hudSys);
+    vkh::hud::View canvasView(context, hudSys);
     vkh::hud::View smokeView(context, hudSys);
 
     FeatherDuckGuard featherDuckGuard(context, entitySys, worldView);
@@ -269,10 +260,6 @@ void run() {
             hudSys.setView(&pauseView);
             return true;
           }
-          if (key == GLFW_KEY_L && action == GLFW_PRESS) {
-            hugoAnimTimeOfBeginning = context.time;
-            hugoAnimPlaying = true;
-          }
           return false;
         });
     worldViewEventManager->addEventHandler<vkh::input::EventType::WindowFocus>(
@@ -391,21 +378,13 @@ void run() {
 
       currentTime = newTime;
 
-      if (hugoAnimPlaying) {
-        hugo->updateAnimation(0, context.time - hugoAnimTimeOfBeginning);
-        if (context.time - hugoAnimTimeOfBeginning >
-            hugo->animations[0].end - hugo->animations[0].start) {
-          hugoAnimTimeOfBeginning = 0.f;
-          hugoAnimPlaying = false;
-        }
-      }
-
       vkh::input::update(context, entities);
 
       vkh::audio::update(context);
 
-      context.camera.projectionMatrix = glm::perspective(
-          1.919'862'177f /*human FOV*/, context.window.aspectRatio, 1000.f, .01f);
+      context.camera.projectionMatrix =
+          glm::perspective(1.919'862'177f /*human FOV*/,
+                           context.window.aspectRatio, 1000.f, .01f);
       context.camera.projectionMatrix[1][1] *= -1.f; // Flip Y
       vkh::camera::calcViewYXZ(context);
 

@@ -1,19 +1,17 @@
 #include "canvas.hpp"
 
-#include <GLFW/glfw3.h>
+#include <stb/stb_image.h>
 
-#include <filesystem>
-#include <format>
-#include <fstream>
-#include <memory>
-#include <print>
-#include <ranges>
-
-#include "../hud.hpp"
 #include "clipboardImage.hpp"
+#include "../hud.hpp"
+#include "text.hpp"
+#include "textInput.hpp"
+#include "filePicker.hpp"
+#include "button.hpp"
 #include "emptyRect.hpp"
 #include "line.hpp"
-#include "textInput.hpp"
+
+#include <ranges>
 
 template <> struct std::formatter<glm::vec3> : std::formatter<std::string> {
   auto format(const glm::vec3 &vec3, format_context &ctx) const {

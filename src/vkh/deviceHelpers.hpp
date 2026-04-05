@@ -2,12 +2,11 @@
 
 #include <vulkan/vulkan_core.h>
 
-#include "engineContext.hpp"
-
 #include <filesystem>
 #include <vector>
 
 namespace vkh {
+class EngineContext;
 struct SwapChainSupportDetails {
   VkSurfaceCapabilitiesKHR capabilities;
   std::vector<VkSurfaceFormatKHR> formats;
@@ -27,14 +26,10 @@ struct QueueFamilyIndices {
 };
 SwapChainSupportDetails querySwapChainSupport(EngineContext &context,
                                               VkPhysicalDevice device);
-inline SwapChainSupportDetails getSwapChainSupport(EngineContext &context) {
-  return querySwapChainSupport(context, context.vulkan.physicalDevice);
-}
+SwapChainSupportDetails getSwapChainSupport(EngineContext &context);
 QueueFamilyIndices findQueueFamilies(EngineContext &context,
                                      VkPhysicalDevice device);
-inline QueueFamilyIndices findPhysicalQueueFamilies(EngineContext &context) {
-  return findQueueFamilies(context, context.vulkan.physicalDevice);
-}
+QueueFamilyIndices findPhysicalQueueFamilies(EngineContext &context);
 VkFormat findSupportedFormat(EngineContext &context,
                              const std::vector<VkFormat> &candidates,
                              VkImageTiling tiling,

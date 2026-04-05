@@ -5,10 +5,8 @@
 
 #include <filesystem>
 
-#include "debug.hpp"
-#include "engineContext.hpp"
-
 namespace vkh {
+class EngineContext;
 constexpr char defaultName[] = "Unnamed image";
 struct ImageCreateInfo {
   VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
@@ -103,14 +101,7 @@ private:
   };
   TransitionParams getTransitionParams(VkImageLayout oldLayout,
                                        VkImageLayout newLayout);
-  inline void setDbgInfo(const char *name) {
-    std::string str = std::format("{} image", name);
-    debug::setObjName(context, VK_OBJECT_TYPE_IMAGE,
-                      reinterpret_cast<uint64_t>(img), str.c_str());
-    str = std::format("image view for image {}", name);
-    debug::setObjName(context, VK_OBJECT_TYPE_IMAGE_VIEW,
-                      reinterpret_cast<uint64_t>(view), str.c_str());
-  }
+  void setDbgInfo(const char *name);
 
   EngineContext &context;
 

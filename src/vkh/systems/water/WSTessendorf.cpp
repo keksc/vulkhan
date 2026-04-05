@@ -1,15 +1,10 @@
 #include "WSTessendorf.hpp"
 
-#include <vulkan/vulkan_core.h>
-
-#include <format>
-#include <limits>
-#include <memory>
-#include <stdexcept>
-
+#include "../../buffer.hpp"
 #include "../../debug.hpp"
 #include "../../descriptors.hpp"
-#include "../../deviceHelpers.hpp"
+#include "../../pipeline.hpp"
+#include "../../image.hpp"
 
 namespace vkh {
 void WSTessendorf::createDescriptors() {

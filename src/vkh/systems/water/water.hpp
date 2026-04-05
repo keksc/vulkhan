@@ -1,25 +1,12 @@
 #pragma once
 
-#include <glm/geometric.hpp>
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/constants.hpp>
-#include <glm/gtc/quaternion.hpp>
-#include <vulkan/vulkan_core.h>
-
-#include <memory>
-#include <vector>
-
-#include "../../audio.hpp"
-#include "../../engineContext.hpp"
-#include "../../image.hpp"
-#include "../../scene.hpp"
-#include "../skybox.hpp"
 #include "../system.hpp"
+#include "../skybox.hpp"
+
 #include "WSTessendorf.hpp"
 
 namespace vkh {
+class EngineContext;
 class WaterSys : public System {
 public:
   WaterSys(EngineContext &context, SkyboxSys &skyboxSys);

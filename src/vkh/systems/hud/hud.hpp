@@ -1,13 +1,16 @@
 #pragma once
 
 #include "../system.hpp"
+
 #include "elements/drawInfo.hpp"
-#include "elements/element.hpp"
-#include "elements/view.hpp"
 #include "solidColor.hpp"
 #include "text.hpp"
 
 namespace vkh {
+namespace hud {
+class View;
+class Element;
+} // namespace hud
 class HudSys : public System {
 public:
   HudSys(EngineContext &context);
@@ -19,6 +22,7 @@ public:
   SolidColorSys solidColorSys;
 
   bool forceUpdate{true};
+
 private:
   void createPipeline();
   void addToDraw(std::vector<std::shared_ptr<hud::Element>> &elements,

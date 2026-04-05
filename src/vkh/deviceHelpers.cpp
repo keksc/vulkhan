@@ -7,6 +7,12 @@
 #include "swapChain.hpp"
 
 namespace vkh {
+SwapChainSupportDetails getSwapChainSupport(EngineContext &context) {
+  return querySwapChainSupport(context, context.vulkan.physicalDevice);
+}
+QueueFamilyIndices findPhysicalQueueFamilies(EngineContext &context) {
+  return findQueueFamilies(context, context.vulkan.physicalDevice);
+}
 SwapChainSupportDetails querySwapChainSupport(EngineContext &context,
                                               VkPhysicalDevice device) {
   SwapChainSupportDetails details;
