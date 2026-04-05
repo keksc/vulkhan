@@ -12,6 +12,22 @@
 #include <filesystem>
 
 namespace vkh {
+VkExtent2D Window::getExtent() {
+  return {static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y)};
+};
+void Window::setFullscreen(bool fullscreen) {
+  if (fullscreen) {
+    glfwSetWindowMonitor(*this, NULL, 100, 100, 800, 600, 0);
+  } else {
+    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+    glfwSetWindowMonitor(*this, monitor, 0, 0, mode->width, mode->height,
+                         mode->refreshRate);
+  }
+}
+bool Window::isFocused() { return glfwGetWindowAttrib(*this, GLFW_FOCUSED); }
+Window::operator GLFWwindow *() { return glfwWindow; }
+
 void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));

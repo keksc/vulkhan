@@ -1,12 +1,16 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <vulkan/vulkan_core.h>
 
-#include "../../buffer.hpp"
-#include "../../image.hpp"
 #include "../system.hpp"
 
+#include <memory>
+
 namespace vkh {
+template <typename T> class Buffer;
+class Image;
+class GraphicsPipeline;
 class TextSys : public System {
 public:
   TextSys(EngineContext &context);

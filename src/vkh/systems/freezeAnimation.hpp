@@ -1,6 +1,7 @@
 #pragma once
 
 #include "system.hpp"
+#include "../pipeline.hpp"
 
 namespace vkh {
 class FreezeAnimationSys : public System {

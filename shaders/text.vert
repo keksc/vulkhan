@@ -11,7 +11,7 @@ layout(location = 1) out vec3 fragColor;
 
 void main() {
   vec3 pos = position;
-  // pos.x /= ubo.aspectRatio;
+  // pos.x *= ubo.aspectRatio;
   gl_Position = vec4(pos, 1.0);
   fragUv = uv;
   fragColor = color;

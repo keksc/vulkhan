@@ -1,20 +1,8 @@
 #include "entities.hpp"
-#include <algorithm>
-#include <memory>
-#include <print>
-#include <vector>
 
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/constants.hpp>
-#include <glm/gtc/quaternion.hpp>
-#include <vulkan/vulkan_core.h>
-
-#include "../../descriptors.hpp"
-#include "../../pipeline.hpp"
-#include "../../scene.hpp"
+#include "../../debug.hpp"
 #include "../../swapChain.hpp"
+#include "../../pipeline.hpp"
 
 namespace vkh {
 
@@ -178,11 +166,9 @@ void EntitySys::updateBuffers() {
     uint32_t drawCount = 0;
 
     size_t j = i;
-    while (j < entities.size() &&
-           entities[j].scene == currentScene) {
+    while (j < entities.size() && entities[j].scene == currentScene) {
       size_t k = j;
-      while (k < entities.size() &&
-             entities[k].scene == currentScene &&
+      while (k < entities.size() && entities[k].scene == currentScene &&
              entities[k].meshIndex == entities[j].meshIndex) {
         k++;
       }
@@ -210,8 +196,7 @@ void EntitySys::updateBuffers() {
 
         for (size_t inst = j; inst < k; ++inst) {
           GPUInstanceData data;
-          data.modelMatrix =
-              entities[inst].transform.mat4() * mesh.transform;
+          data.modelMatrix = entities[inst].transform.mat4() * mesh.transform;
           data.normalMatrix =
               glm::mat4(entities[inst].transform.normalMatrix());
           data.color = mat.baseColorFactor;

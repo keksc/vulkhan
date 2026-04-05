@@ -15,6 +15,7 @@
 #include <cstring>
 
 #include "../../buffer.hpp"
+#include "../../debug.hpp"
 #include "../../descriptors.hpp"
 #include "../../pipeline.hpp"
 #include "../../swapChain.hpp"

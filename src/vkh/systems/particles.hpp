@@ -1,9 +1,16 @@
 #pragma once
 
-#include "../buffer.hpp"
+#include <glm/glm.hpp>
+#include <vulkan/vulkan_core.h>
+
 #include "system.hpp"
 
+#include <memory>
+
 namespace vkh {
+class ComputePipeline;
+template <typename T> class Buffer;
+class GraphicsPipeline;
 class ParticleSys : public System {
 public:
   ParticleSys(EngineContext &context);

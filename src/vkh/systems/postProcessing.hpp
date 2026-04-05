@@ -8,6 +8,7 @@
 #include <vector>
 
 namespace vkh {
+class ComputePipeline;
 class PostProcessingSys : public System {
 public:
   PostProcessingSys(EngineContext &context);

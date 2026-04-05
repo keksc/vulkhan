@@ -1,16 +1,17 @@
 #pragma once
 
 #include "rectImg.hpp"
-#include "text.hpp"
 
 namespace vkh {
 namespace hud {
+class Text;
+template <typename T> class AutoUpdateString;
 class TextInput : public Rect {
 public:
   TextInput(View &view, Element *parent, glm::vec2 position,
             const std::string &content = "", bool selected = false);
 
-  auto &getContent() const { return text->content; }
+  AutoUpdateString<Text> &getContent() const;
   bool selected{false};
 
 private:

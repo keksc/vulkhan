@@ -1,14 +1,10 @@
 #include "water.hpp"
 
-#include <vulkan/vulkan_core.h>
-
 #include "../../debug.hpp"
+#include "../../engineContext.hpp"
 #include "../../pipeline.hpp"
+#include "../../scene.hpp"
 #include "../../swapChain.hpp"
-#include "WSTessendorf.hpp"
-
-#include <format>
-#include <memory>
 
 namespace vkh {
 WaterSys::WaterSys(EngineContext &context, SkyboxSys &skyboxSys)
