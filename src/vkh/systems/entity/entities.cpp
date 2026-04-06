@@ -51,16 +51,6 @@ void EntitySys::createSetLayouts() {
 EntitySys::EntitySys(EngineContext &context) : System(context) {
   createSetLayouts();
 
-  dummyTextureSet =
-      context.vulkan.globalDescriptorAllocator->allocate(textureSetLayout);
-  DescriptorWriter writer(context);
-  VkDescriptorImageInfo imageInfo{.sampler = VK_NULL_HANDLE,
-                                  .imageView = VK_NULL_HANDLE,
-                                  .imageLayout =
-                                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-  writer.writeImage(0, imageInfo, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-  writer.updateSet(dummyTextureSet);
-
   createPipeline();
 
   uint32_t framesInFlight = context.vulkan.maxFramesInFlight;
@@ -356,9 +346,6 @@ void EntitySys::render() {
     batch.scene->bind(context, cmd, *pipeline);
 
     VkDescriptorSet texSet = batch.scene->sceneTextureSet;
-    if (texSet == VK_NULL_HANDLE) {
-      texSet = dummyTextureSet;
-    }
 
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1,
                             1, &texSet, 0, nullptr);
