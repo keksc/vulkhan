@@ -114,8 +114,6 @@ private:
 
   std::vector<SceneBatch> sceneBatches;
 
-  VkDescriptorSet dummyTextureSet;
-
   std::vector<GPUInstanceData> cpuInstanceData;
   std::vector<VkDrawIndexedIndirectCommand> cpuDrawCommands;
   std::vector<glm::mat4> cpuJointData;
