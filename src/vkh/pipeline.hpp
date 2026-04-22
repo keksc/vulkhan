@@ -1,12 +1,11 @@
 #pragma once
 
-#include "engineContext.hpp"
-
 #include <filesystem>
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
 namespace vkh {
+class EngineContext;
 
 struct PipelineCreateInfo {
   PipelineCreateInfo() = default;
@@ -37,10 +36,10 @@ struct PipelineCreateInfo {
       .frontFace = VK_FRONT_FACE_CLOCKWISE,
       .lineWidth = 1.0f,
   };
-  VkPipelineMultisampleStateCreateInfo multisampleInfo {
-    .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-    .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-    .minSampleShading = 1.0f,
+  VkPipelineMultisampleStateCreateInfo multisampleInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+      .minSampleShading = 1.0f,
   };
   VkPipelineColorBlendAttachmentState colorBlendAttachment{
       .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |

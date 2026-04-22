@@ -2,8 +2,8 @@
 
 #include <glm/glm.hpp>
 
-#include "../system.hpp"
 #include "../../scene.hpp"
+#include "../system.hpp"
 
 namespace vkh {
 class GraphicsPipeline;
@@ -113,8 +113,6 @@ private:
   std::vector<VkDescriptorSet> instanceDescriptorSets;
 
   std::vector<SceneBatch> sceneBatches;
-
-  VkDescriptorSet dummyTextureSet;
 
   std::vector<GPUInstanceData> cpuInstanceData;
   std::vector<VkDrawIndexedIndirectCommand> cpuDrawCommands;

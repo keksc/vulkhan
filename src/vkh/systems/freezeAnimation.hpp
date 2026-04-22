@@ -2,6 +2,7 @@
 
 #include "system.hpp"
 #include <memory>
+#include "../pipeline.hpp"
 
 namespace vkh {
 class GraphicsPipeline;

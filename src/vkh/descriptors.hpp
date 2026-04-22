@@ -41,9 +41,9 @@ class DescriptorWriter {
 public:
   DescriptorWriter(EngineContext &context);
 
-  void writeImage(int binding, VkDescriptorImageInfo imageInfo,
+  void writeImage(uint32_t binding, VkDescriptorImageInfo imageInfo,
                   VkDescriptorType type);
-  void writeBuffer(int binding, VkDescriptorBufferInfo bufferInfo,
+  void writeBuffer(uint32_t binding, VkDescriptorBufferInfo bufferInfo,
                    VkDescriptorType type);
 
   void clear();

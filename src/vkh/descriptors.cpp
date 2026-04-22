@@ -40,10 +40,11 @@ DescriptorAllocatorGrowable::createPool(uint32_t setCount,
                            static_cast<uint32_t>(ratio.ratio * setCount));
   }
   VkDescriptorPoolCreateInfo poolInfo{
-      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-  poolInfo.maxSets = setCount;
-  poolInfo.poolSizeCount = poolSizes.size();
-  poolInfo.pPoolSizes = poolSizes.data();
+      .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+      .maxSets = setCount,
+      .poolSizeCount = static_cast<uint32_t>(poolSizes.size()),
+      .pPoolSizes = poolSizes.data(),
+  };
 
   VkDescriptorPool newPool;
   vkCreateDescriptorPool(context.vulkan.device, &poolInfo, nullptr, &newPool);
@@ -100,34 +101,35 @@ DescriptorAllocatorGrowable::allocate(VkDescriptorSetLayout layout,
   return set;
 }
 DescriptorWriter::DescriptorWriter(EngineContext &context) : context{context} {}
-void DescriptorWriter::writeBuffer(int binding,
+void DescriptorWriter::writeBuffer(uint32_t binding,
                                    VkDescriptorBufferInfo bufferInfo,
                                    VkDescriptorType type) {
   VkDescriptorBufferInfo &info = bufferInfos.emplace_back(bufferInfo);
 
-  VkWriteDescriptorSet write = {.sType =
-                                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-
-  write.dstBinding = binding;
-  write.dstSet = VK_NULL_HANDLE; // left empty for now until we need to write it
-  write.descriptorCount = 1;
-  write.descriptorType = type;
-  write.pBufferInfo = &info;
+  VkWriteDescriptorSet write = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = VK_NULL_HANDLE, // left empty for now until we need to write it
+      .dstBinding = binding,
+      .descriptorCount = 1,
+      .descriptorType = type,
+      .pBufferInfo = &info,
+  };
 
   writes.push_back(write);
 }
-void DescriptorWriter::writeImage(int binding, VkDescriptorImageInfo imageInfo,
+void DescriptorWriter::writeImage(uint32_t binding,
+                                  VkDescriptorImageInfo imageInfo,
                                   VkDescriptorType type) {
   VkDescriptorImageInfo &info = imageInfos.emplace_back(imageInfo);
 
-  VkWriteDescriptorSet write = {.sType =
-                                    VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-
-  write.dstBinding = binding;
-  write.dstSet = VK_NULL_HANDLE; // left empty for now until we need to write it
-  write.descriptorCount = 1;
-  write.descriptorType = type;
-  write.pImageInfo = &info;
+  VkWriteDescriptorSet write = {
+      .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+      .dstSet = VK_NULL_HANDLE, // left empty for now until we need to write it
+      .dstBinding = binding,
+      .descriptorCount = 1,
+      .descriptorType = type,
+      .pImageInfo = &info,
+  };
 
   writes.push_back(write);
 }
