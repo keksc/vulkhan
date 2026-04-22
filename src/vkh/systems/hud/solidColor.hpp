@@ -5,6 +5,7 @@
 
 #include "../system.hpp"
 
+#include <vector>
 #include <memory>
 
 namespace vkh {

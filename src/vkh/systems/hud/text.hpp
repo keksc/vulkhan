@@ -8,6 +8,8 @@
 #include "../../buffer.hpp"
 #include "../../image.hpp"
 
+#include <memory>
+
 namespace vkh {
 class GraphicsPipeline;
 class TextSys : public System {

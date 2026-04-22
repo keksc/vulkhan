@@ -1,9 +1,9 @@
 #include "WSTessendorf.hpp"
 
-#include "../../pipeline.hpp"
 #include "../../buffer.hpp"
 #include "../../debug.hpp"
 #include "../../descriptors.hpp"
+#include "../../pipeline.hpp"
 #include "../../image.hpp"
 
 namespace vkh {

@@ -1,8 +1,8 @@
 #include "hud.hpp"
 
-#include "../../pipeline.hpp"
 #include "../../debug.hpp"
 #include "../../swapChain.hpp"
+#include "../../pipeline.hpp"
 #include "elements/element.hpp"
 #include "elements/view.hpp"
 
