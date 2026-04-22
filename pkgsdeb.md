@@ -1,9 +1,0 @@
-libvulkan-dev
-libglfw3-dev
-libglm-dev
-cmake
-glslang-dev
-libopenal-dev
-libstb-dev
-libsimdjson-dev
-gcc

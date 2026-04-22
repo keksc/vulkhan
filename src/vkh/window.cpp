@@ -12,6 +12,22 @@
 #include <filesystem>
 
 namespace vkh {
+VkExtent2D Window::getExtent() {
+  return {static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y)};
+};
+void Window::setFullscreen(bool fullscreen) {
+  if (fullscreen) {
+    glfwSetWindowMonitor(*this, NULL, 100, 100, 800, 600, 0);
+  } else {
+    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+    glfwSetWindowMonitor(*this, monitor, 0, 0, mode->width, mode->height,
+                         mode->refreshRate);
+  }
+}
+bool Window::isFocused() { return glfwGetWindowAttrib(*this, GLFW_FOCUSED); }
+Window::operator GLFWwindow *() { return glfwWindow; }
+
 void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
@@ -53,6 +69,8 @@ void initWindow(EngineContext &context) {
   loadCursor(context, "textures/arrow.png", context.window.cursors.arrow);
   glfwSetCursor(context.window, context.window.cursors.arrow);
   context.window.cursors.ibeam = glfwCreateStandardCursor(GLFW_IBEAM_CURSOR);
+  glfwGetWindowContentScale(context.window, &context.window.contentScale.x,
+                            &context.window.contentScale.y);
 }
 void cleanupWindow(EngineContext &context) {
   glfwDestroyCursor(context.window.cursors.arrow);

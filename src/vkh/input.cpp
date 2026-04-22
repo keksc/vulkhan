@@ -4,7 +4,6 @@
 #include <GLFW/glfw3.h>
 #include <chrono>
 #include <glm/ext/vector_common.hpp>
-#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/norm.hpp>
 
@@ -13,7 +12,7 @@
 // TODO: add content scaling with glfwGetWindowContentScale
 namespace vkh {
 namespace input {
-std::unordered_map<Action, unsigned int> keybinds;
+std::map<Action, unsigned int> keybinds;
 float moveSpeed{5.f};
 float lookSpeed{1.5f};
 
@@ -44,6 +43,8 @@ std::string getKeyName(int key) {
     return "left super";
   case GLFW_KEY_RIGHT_SUPER:
     return "right super";
+  case GLFW_KEY_UNKNOWN:
+    return "none";
   default:
     return "unknown";
   }

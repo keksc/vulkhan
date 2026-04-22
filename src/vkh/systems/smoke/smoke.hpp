@@ -4,8 +4,10 @@
 #include "../system.hpp"
 
 #include "fluidGrid.hpp"
+#include <memory>
 
 namespace vkh {
+class GraphicsPipeline;
 class SmokeSys : public System {
 public:
   SmokeSys(EngineContext &context);

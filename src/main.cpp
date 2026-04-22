@@ -31,6 +31,7 @@
 #include "network.hpp"
 
 #include <random>
+#include <ranges>
 #include <string>
 
 std::mt19937 rng{std::random_device{}()};
@@ -59,8 +60,6 @@ void run() {
     std::chrono::time_point<std::chrono::high_resolution_clock> audioFadeBegin;
     const float audioFadeSpeed = 2.5f;
 
-    // vkh::audio::Sound hugoSong("sounds/gamesong-015.opus");
-    // hugoSong.play();
     // vkh::audio::Sound boringSpeech("sounds/Rhorhorho.opus");
     // boringSpeech.play();
     vkh::audio::Sound bgm("sounds/Enter Remollon.opus");
@@ -88,10 +87,6 @@ void run() {
           vkh::EntitySys::Transform{.position{25.f}, .scale{1.f}},
           vkh::EntitySys::RigidBody{}, manorcore, i);
     // waterSys.downloadDisplacementAtWorldPos();
-    auto hugo = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-        context, "models/hugo.glb", entitySys.textureSetLayout);
-    float hugoAnimTimeOfBeginning = context.time;
-    bool hugoAnimPlaying = false;
 
     auto shoe = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
         context, "models/MaterialsVariantsShoe.glb",
@@ -99,9 +94,6 @@ void run() {
     auto playerModel = shoe;
 
     std::unordered_map<uint32_t, uint32_t> playersIndices;
-
-    entities.emplace_back(vkh::EntitySys::Transform{.position{0.f, 10.f, 0.f}},
-                          vkh::EntitySys::RigidBody{}, hugo, 0);
 
     // Sort to group meshes for indirect drawing
     std::sort(
@@ -116,10 +108,10 @@ void run() {
 
     vkh::HudSys hudSys(context);
 
-    vkh::hud::View canvasView(context, hudSys);
-    vkh::hud::View settingsView(context, hudSys);
     vkh::hud::View worldView(context, hudSys);
     vkh::hud::View pauseView(context, hudSys);
+    vkh::hud::View settingsView(context, hudSys);
+    vkh::hud::View canvasView(context, hudSys);
     vkh::hud::View smokeView(context, hudSys);
 
     FeatherDuckGuard featherDuckGuard(context, entitySys, worldView);
@@ -208,17 +200,27 @@ void run() {
         [&](int key, int scancode, int action, int mods) {
           if (action != GLFW_PRESS)
             return false;
-          if (key == GLFW_KEY_ESCAPE) {
-            hudSys.setView(&pauseView);
-            return true;
-          }
           if (selectedButton) {
+            if (key == GLFW_KEY_ESCAPE) {
+              selectedButton->label->content =
+                  static_cast<std::string>(
+                      magic_enum::enum_name(selectedButton->action)) +
+                  ":" + vkh::input::getKeyName(GLFW_KEY_UNKNOWN);
+              vkh::input::keybinds[selectedButton->action] = GLFW_KEY_UNKNOWN;
+              selectedButton = nullptr;
+              return true;
+            }
             selectedButton->label->content =
                 static_cast<std::string>(
                     magic_enum::enum_name(selectedButton->action)) +
                 ":" + vkh::input::getKeyName(key);
             vkh::input::keybinds[selectedButton->action] = key;
             selectedButton = nullptr;
+            return true;
+          }
+          if (key == GLFW_KEY_ESCAPE) {
+            hudSys.setView(&pauseView);
+            return true;
           }
           return false;
         });
@@ -238,7 +240,7 @@ void run() {
         });
 
     unsigned short i = 0;
-    for (auto &[action, bind] : vkh::input::keybinds) {
+    for (auto &[action, bind] : vkh::input::keybinds | std::views::reverse) {
       auto kbEdit = settingsView.addElement<KeybindEdit>(
           glm::vec2{0.f, -1.f + .2f * i}, glm::vec2{.2f}, 0,
           [&](int button, int action, int) {},
@@ -246,9 +248,6 @@ void run() {
               vkh::input::getKeyName(bind));
       kbEdit->setCallback([&, kbEdit](int button, int action, int) {
         if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-          // static std::uniform_real_distribution<float> dis(.7f, 1.3f);
-          // paperSound.setPitch(dis(rng));
-          // paperSound.play();
           selectedButton = kbEdit;
         }
       });
@@ -268,10 +267,6 @@ void run() {
             glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             hudSys.setView(&pauseView);
             return true;
-          }
-          if (key == GLFW_KEY_L && action == GLFW_PRESS) {
-            hugoAnimTimeOfBeginning = context.time;
-            hugoAnimPlaying = true;
           }
           return false;
         });
@@ -391,21 +386,13 @@ void run() {
 
       currentTime = newTime;
 
-      if (hugoAnimPlaying) {
-        hugo->updateAnimation(0, context.time - hugoAnimTimeOfBeginning);
-        if (context.time - hugoAnimTimeOfBeginning >
-            hugo->animations[0].end - hugo->animations[0].start) {
-          hugoAnimTimeOfBeginning = 0.f;
-          hugoAnimPlaying = false;
-        }
-      }
-
       vkh::input::update(context, entities);
 
       vkh::audio::update(context);
 
-      context.camera.projectionMatrix = glm::perspective(
-          1.919'862'177f /*human FOV*/, context.window.aspectRatio, 1000.f, .01f);
+      context.camera.projectionMatrix =
+          glm::perspective(1.919'862'177f /*human FOV*/,
+                           context.window.aspectRatio, 1000.f, .01f);
       context.camera.projectionMatrix[1][1] *= -1.f; // Flip Y
       vkh::camera::calcViewYXZ(context);
 

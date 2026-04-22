@@ -2,7 +2,6 @@
 #include <cstring>
 #include <vulkan/vulkan_core.h>
 
-#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/norm.hpp>
 
 #include "../../descriptors.hpp"

@@ -11,5 +11,5 @@ void main() {
 
   mat4 viewNoTranslation = mat4(mat3(ubo.view));
   vec4 pos = ubo.proj * viewNoTranslation * vec4(position, 1.0);
-  gl_Position = pos.xyww;
+  gl_Position = vec4(pos.xy, 0.0, pos.w);
 }

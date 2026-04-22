@@ -1,10 +1,11 @@
 #pragma once
 
-#include "../../../engineContext.hpp"
-#include "../../../input.hpp"
+#include <memory>
+#include <vector>
 
 namespace vkh {
 class HudSys;
+class EngineContext;
 namespace hud {
 class Element;
 class View {

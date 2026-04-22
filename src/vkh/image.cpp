@@ -596,4 +596,12 @@ std::vector<unsigned char> Image::downloadAndSerializeToPNG() {
   STBIW_FREE(pngData);
   return result;
 }
+void Image::setDbgInfo(const char *name) {
+  std::string str = std::format("{} image", name);
+  debug::setObjName(context, VK_OBJECT_TYPE_IMAGE,
+                    reinterpret_cast<uint64_t>(img), str.c_str());
+  str = std::format("image view for image {}", name);
+  debug::setObjName(context, VK_OBJECT_TYPE_IMAGE_VIEW,
+                    reinterpret_cast<uint64_t>(view), str.c_str());
+}
 } // namespace vkh

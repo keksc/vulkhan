@@ -1,9 +1,11 @@
 #pragma once
 
-#include "../buffer.hpp"
 #include "system.hpp"
+#include "../buffer.hpp"
 
 namespace vkh {
+class GraphicsPipeline;
+class ComputePipeline;
 class ParticleSys : public System {
 public:
   ParticleSys(EngineContext &context);

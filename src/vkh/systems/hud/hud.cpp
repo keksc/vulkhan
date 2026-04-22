@@ -1,12 +1,10 @@
 #include "hud.hpp"
 
-#include <vulkan/vulkan_core.h>
-
-#include <memory>
-#include <vector>
-
-#include "../../buffer.hpp"
+#include "../../pipeline.hpp"
+#include "../../debug.hpp"
 #include "../../swapChain.hpp"
+#include "elements/element.hpp"
+#include "elements/view.hpp"
 
 namespace vkh {
 HudSys::HudSys(EngineContext &context)

@@ -1,36 +1,26 @@
 #pragma once
 
-#include <glm/ext.hpp>
-#include <glm/glm.hpp>
 #include <vulkan/vulkan_core.h>
+
+#include <vkFFT.h>
+#include <glm/glm.hpp>
+
+#include "../system.hpp"
 
 #include <complex>
 #include <memory>
 #include <vector>
 
-#include "../../buffer.hpp"
-#include "../../image.hpp"
-#include "../system.hpp"
-
-#include <vkFFT.h>
-
 namespace vkh {
+template <typename T> class Buffer;
+class ComputePipeline;
+class EngineContext;
+class Image;
 class WSTessendorf : public System {
 public:
   WSTessendorf(EngineContext &context);
   ~WSTessendorf();
 
-  void recordComputeWaves(VkCommandBuffer &cmd, float time);
-
-  static constexpr unsigned int tileSize = 512; // has to be a power of 2
-  static constexpr unsigned int tileSizeSquared = tileSize * tileSize;
-  static constexpr float tileLength = 1000.f;
-
-  Image &getDisplacementFoamImage() {
-    return *displacementFoamMap;
-  }
-
-private:
   struct WaveVector {
     glm::vec2 vec;
     glm::vec2 unit;
@@ -42,6 +32,15 @@ private:
     WaveVector(glm::vec2 v, glm::vec2 u) : vec(v), unit(u) {}
   };
 
+  void recordComputeWaves(VkCommandBuffer &cmd, float time);
+
+  static constexpr unsigned int tileSize = 512; // has to be a power of 2
+  static constexpr unsigned int tileSizeSquared = tileSize * tileSize;
+  static constexpr float tileLength = 1000.f;
+
+  Image &getDisplacementFoamImage() { return *displacementFoamMap; }
+
+private:
   struct BaseWaveHeight {
     std::complex<float> heightAmp;      ///< FT amplitude of wave height
     std::complex<float> heightAmp_conj; ///< conjugate of wave height amplitude

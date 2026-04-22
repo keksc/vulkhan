@@ -1,9 +1,14 @@
 #pragma once
 
-#include "engineContext.hpp"
 #include "systems/entity/entities.hpp"
 
+#include <map>
+#include <glm/glm.hpp>
+
+#include <vector>
+
 namespace vkh {
+class EngineContext;
 namespace input {
 void init(EngineContext &context);
 void update(EngineContext &context,
@@ -20,11 +25,19 @@ enum class Action {
   PlaceText,
   PlaceLine,
 };
-extern std::unordered_map<Action, unsigned int> keybinds;
+
+extern std::map<Action, unsigned int> keybinds;
 
 std::string getKeyName(int key);
 
-enum class EventType { MouseButton, Key, CursorPosition, Character, Drop, WindowFocus };
+enum class EventType {
+  MouseButton,
+  Key,
+  CursorPosition,
+  Character,
+  Drop,
+  WindowFocus
+};
 
 template <EventType E> struct EventTraits;
 

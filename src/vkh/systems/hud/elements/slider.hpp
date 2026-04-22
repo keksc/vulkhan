@@ -1,13 +1,11 @@
 #pragma once
 
 #include "element.hpp"
-#include "rectImg.hpp"
 
 namespace vkh {
 namespace hud {
-
+class Rect;
 class Slider : public Element {
-
 public:
   Slider(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
          glm::vec2 bounds, float value = {});
