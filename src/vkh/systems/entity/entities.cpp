@@ -1,8 +1,9 @@
 #include "entities.hpp"
 
 #include "../../debug.hpp"
-#include "../../swapChain.hpp"
 #include "../../pipeline.hpp"
+#include "../../swapChain.hpp"
+#include <vulkan/vulkan_core.h>
 
 namespace vkh {
 
@@ -346,9 +347,10 @@ void EntitySys::render() {
     batch.scene->bind(context, cmd, *pipeline);
 
     VkDescriptorSet texSet = batch.scene->sceneTextureSet;
-
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1,
-                            1, &texSet, 0, nullptr);
+    if (texSet != VK_NULL_HANDLE) {
+      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1,
+                              1, &texSet, 0, nullptr);
+    }
 
     vkCmdDrawIndexedIndirect(
         cmd, *(indirectDrawBuffers[frameIndex]),

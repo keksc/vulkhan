@@ -459,10 +459,10 @@ public:
       }
 
       // One descriptor set for the entire scene's texture array
-      if (!images.empty()) {
-        sceneTextureSet =
-            context.vulkan.globalDescriptorAllocator->allocate(setLayout);
+      sceneTextureSet =
+          context.vulkan.globalDescriptorAllocator->allocate(setLayout);
 
+      if (!images.empty()) {
         std::vector<VkDescriptorImageInfo> imageInfos;
         imageInfos.reserve(images.size());
         for (auto &img : images) {
