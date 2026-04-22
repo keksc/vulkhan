@@ -1,4 +1,5 @@
 #include "featherDuckGuard.hpp"
+
 #include "../vkh/scene.hpp"
 #include "../vkh/systems/hud/elements/text.hpp"
 
@@ -17,7 +18,33 @@ FeatherDuckGuard::FeatherDuckGuard(vkh::EngineContext &context,
         vkh::EntitySys::Transform{.position{25.f}, .scale{1.f}},
         vkh::EntitySys::RigidBody{}, scene, i);
 }
+void FeatherDuckGuard::playAnimation(AnimationIndex index) {
+  isAnimationPlaying = true;
+  playingAnimationTimeOfBeginning = context.time;
+  playingAnimationIndex = index;
+}
+void FeatherDuckGuard::flee() {
+  playAnimation(AnimationIndex::DashBackwards);
+  glm::vec3 playerToGuard = getPosition() - context.camera.position;
+  targetPosition0 = glm::normalize(playerToGuard) * 5.f;
+  targetPositionPtr = &targetPosition0;
+}
+void FeatherDuckGuard::aggress() {
+  playAnimation(AnimationIndex::Swoosh);
+  targetPositionPtr = &context.camera.position;
+}
+void FeatherDuckGuard::update() {
+  if (!isAnimationPlaying)
+    return;
+  float deltaTime = context.time - playingAnimationTimeOfBeginning;
+  scene->updateAnimation(playingAnimationIndex, deltaTime);
+  if (deltaTime > scene->animations[playingAnimationIndex].end -
+                      scene->animations[playingAnimationIndex].start) {
+    isAnimationPlaying = false;
+  }
 
-void FeatherDuckGuard::flee() {}
-void FeatherDuckGuard::aggress() {}
-void FeatherDuckGuard::update() {}
+  if (!targetPositionPtr)
+    return;
+  setPosition(glm::normalize(*targetPositionPtr - getPosition()) *
+              context.frameInfo.dt);
+}

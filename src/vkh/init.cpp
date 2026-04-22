@@ -1,7 +1,6 @@
 #include "init.hpp"
 #include "debug.hpp"
 
-#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <magic_enum/magic_enum.hpp>
 #include <vulkan/vulkan_core.h>

@@ -1,9 +1,7 @@
 #include "filePicker.hpp"
 
-#include <GLFW/glfw3.h>
-#include <filesystem>
-
 #include "rectImg.hpp"
+#include "text.hpp"
 
 namespace vkh::hud {
 FilePicker::FilePicker(View &view, Element *parent, glm::vec2 position,

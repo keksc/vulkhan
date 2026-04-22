@@ -1,19 +1,11 @@
 #pragma once
 
 #include <vulkan/vulkan_core.h>
-#include <GLFW/glfw3.h>
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <AL/al.h>
-#include <AL/alc.h>
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/quaternion.hpp>
-
-#include <functional>
-#include <memory>
 
 #include "window.hpp"
+
+#include <memory>
 
 namespace vkh {
 class DescriptorAllocatorGrowable;

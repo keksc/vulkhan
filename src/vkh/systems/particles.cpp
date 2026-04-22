@@ -1,19 +1,6 @@
 #include "particles.hpp"
-#include <GLFW/glfw3.h>
-#include <cstdlib>
-#include <random>
 
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#include <glm/glm.hpp>
-#include <glm/gtc/constants.hpp>
-#define GLM_ENABLE_EXPERIMENTAL
-#include <glm/gtx/norm.hpp>
-#include <vulkan/vulkan_core.h>
-
-#include <algorithm>
-#include <memory>
-
+#include "../buffer.hpp"
 #include "../debug.hpp"
 #include "../descriptors.hpp"
 #include "../pipeline.hpp"

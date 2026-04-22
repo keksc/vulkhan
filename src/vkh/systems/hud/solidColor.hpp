@@ -1,9 +1,16 @@
 #pragma once
 
-#include "../../image.hpp"
+#include <glm/glm.hpp>
+#include <vulkan/vulkan_core.h>
+
 #include "../system.hpp"
 
+#include <memory>
+
 namespace vkh {
+template <typename T> class Buffer;
+class GraphicsPipeline;
+class Image;
 class SolidColorSys : public System {
 public:
   SolidColorSys(EngineContext &context);

@@ -1,5 +1,6 @@
 #include "slider.hpp"
 
+#include "rectImg.hpp"
 namespace vkh::hud {
 Slider::Slider(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
                glm::vec2 bounds, float value)

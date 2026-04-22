@@ -1,5 +1,7 @@
 #include "button.hpp"
 
+#include "text.hpp"
+
 namespace vkh::hud {
 
 Button::Button(View &view, Element *parent, glm::vec2 position, glm::vec2 size,

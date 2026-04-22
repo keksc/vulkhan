@@ -1,9 +1,7 @@
 #pragma once
 
-#include "../engineContext.hpp"
-#include "../pipeline.hpp"
-
 namespace vkh {
+class EngineContext;
 class System {
 protected:
   System(EngineContext &context) : context{context} {}
