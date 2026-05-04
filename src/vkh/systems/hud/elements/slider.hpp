@@ -4,7 +4,7 @@
 
 namespace vkh {
 namespace hud {
-class Rect;
+class RectImg;
 class Slider : public Element {
 public:
   Slider(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
@@ -17,7 +17,7 @@ private:
   enum class Orientation { Horizontal, Vertical };
   Orientation orientation;
 
-  std::shared_ptr<Rect> box;
+  std::shared_ptr<RectImg> box;
   bool selected{};
 
   bool handleMouseButton(int button, int action, int mods) override;

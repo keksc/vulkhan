@@ -52,6 +52,7 @@
             glm
             cmake
             glslang
+            ninja
             openal
             stb
             curl
@@ -103,6 +104,7 @@
             spirv-tools
             enet
             pkg-config
+            ninja
             shaderc
             opusfile
             libogg

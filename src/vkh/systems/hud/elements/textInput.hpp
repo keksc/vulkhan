@@ -6,7 +6,7 @@ namespace vkh {
 namespace hud {
 class Text;
 template <typename T> class AutoUpdateString;
-class TextInput : public Rect {
+class TextInput : public RectImg {
 public:
   TextInput(View &view, Element *parent, glm::vec2 position,
             const std::string &content = "", bool selected = false);

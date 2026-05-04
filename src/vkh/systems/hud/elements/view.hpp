@@ -1,42 +1,25 @@
 #pragma once
 
-#include <memory>
-#include <vector>
+#include "element.hpp"
 
 namespace vkh {
 class HudSys;
 class EngineContext;
 namespace hud {
-class Element;
 class View {
 public:
-  View(EngineContext &context, HudSys& hudSys);
+  View(EngineContext &context, HudSys &hudSys);
   View(const View &) = delete;
   View &operator=(const View &) = delete;
 
-  View(View &&other) noexcept;
-
-  template <typename T, typename... Args>
-  std::shared_ptr<T> addElement(Args &&...args) {
-    auto element =
-        std::make_shared<T>(*this, nullptr, std::forward<Args>(args)...);
-    elements.emplace_back(element);
-    return element;
-  }
-
-  auto begin() { return elements.begin(); }
-  auto end() { return elements.end(); }
-  auto begin() const { return elements.begin(); }
-  auto end() const { return elements.end(); }
-  auto size() const { return elements.size(); }
-  auto empty() const { return elements.empty(); }
+  View(View &&other) = delete;
 
   ~View();
 
   void setCurrent();
 
   EngineContext &context;
-  std::vector<std::shared_ptr<Element>> elements;
+  Element container;
 
   size_t elementCount = 0;
 

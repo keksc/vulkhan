@@ -1,6 +1,7 @@
 #include "image.hpp"
 
 #include <vulkan/vulkan_core.h>
+
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #ifdef _WIN32
@@ -288,117 +289,90 @@ Image::Image(EngineContext &context, const ImageCreateInfo_PNGdata &createInfo)
 Image::Image(EngineContext &context, const std::filesystem::path &path)
     : context{context} {
   if (path.extension() == ".ktx2") {
-    ktxTexture *texture;
-    ktxResult result = ktxTexture_CreateFromNamedFile(
+    ktxTexture2 *texture;
+    ktxResult result = ktxTexture2_CreateFromNamedFile(
         path.string().c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
         &texture);
-    format = ktxTexture_GetVkFormat(texture);
-    size = {texture->baseWidth, texture->baseHeight};
-    mipLevels = texture->numLevels;
-    ktx_uint8_t *ktxData = ktxTexture_GetData(texture);
-    ktx_size_t ktxDataSize = ktxTexture_GetDataSize(texture);
-    VkMemoryAllocateInfo memAllocInfo{};
-    memAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    VkMemoryRequirements memReqs;
+    if (result != KTX_SUCCESS)
+      throw std::runtime_error(
+          std::format("Failed to create texture from file {}", path.c_str()));
 
-    Buffer<std::byte> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                    ktxDataSize);
+    if (ktxTexture2_NeedsTranscoding(texture)) {
+      ktx_transcode_fmt_e tf;
 
-    stagingBuffer.map();
-    stagingBuffer.write(ktxData);
-    stagingBuffer.unmap();
-
-    VkImageCreateInfo imageCreateInfo{.sType =
-                                          VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageCreateInfo.format = format;
-    imageCreateInfo.mipLevels = mipLevels;
-    imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageCreateInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageCreateInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    imageCreateInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageCreateInfo.extent = {size.x, size.y, 1};
-    imageCreateInfo.usage =
-        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    imageCreateInfo.arrayLayers = 6;
-    imageCreateInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
-
-    if (vkCreateImage(context.vulkan.device, &imageCreateInfo, nullptr, &img) !=
-        VK_SUCCESS) {
-      throw std::runtime_error("failed to create KTX image!");
-    }
-
-    vkGetImageMemoryRequirements(context.vulkan.device, img, &memReqs);
-
-    memAllocInfo.allocationSize = memReqs.size;
-    memAllocInfo.memoryTypeIndex = findMemoryType(
-        context, memReqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    if (vkAllocateMemory(context.vulkan.device, &memAllocInfo, nullptr,
-                         &memory) != VK_SUCCESS) {
-      throw std::runtime_error("failed to allocate KTX image memory!");
-    }
-
-    if (vkBindImageMemory(context.vulkan.device, img, memory, 0) !=
-        VK_SUCCESS) {
-      throw std::runtime_error("failed to bind KTX image memory!");
-    }
-
-    VkCommandBuffer cmd = beginSingleTimeCommands(context);
-
-    std::vector<VkBufferImageCopy> bufferCopyRegions;
-    for (uint32_t face = 0; face < 6; face++) {
-      for (uint32_t level = 0; level < mipLevels; level++) {
-        ktx_size_t offset;
-        KTX_error_code ret =
-            ktxTexture_GetImageOffset(texture, level, 0, face, &offset);
-        assert(ret == KTX_SUCCESS);
-        bufferCopyRegions.emplace_back(
-            offset, 0, 0,
-            VkImageSubresourceLayers{.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                                     .mipLevel = level,
-                                     .baseArrayLayer = face,
-                                     .layerCount = 1},
-            VkOffset3D{},
-            VkExtent3D{texture->baseWidth >> level,
-                       texture->baseHeight >> level, 1});
+      // Using VkGetPhysicalDeviceFeatures or GL_COMPRESSED_TEXTURE_FORMATS or
+      // extension queries, determine what compressed texture formats are
+      // supported and pick a format. For example
+      VkPhysicalDeviceFeatures deviceFeatures;
+      vkGetPhysicalDeviceFeatures(context.vulkan.physicalDevice,
+                                  &deviceFeatures);
+      khr_df_model_e colorModel = ktxTexture2_GetColorModel_e(texture);
+      if (colorModel == KHR_DF_MODEL_UASTC &&
+          deviceFeatures.textureCompressionASTC_LDR) {
+        tf = KTX_TTF_ASTC_4x4_RGBA;
+      } else if (colorModel == KHR_DF_MODEL_UASTC &&
+                 deviceFeatures.textureCompressionBC) {
+        tf = KTX_TTF_BC7_RGBA;
+      } else if (colorModel == KHR_DF_MODEL_ETC1S &&
+                 deviceFeatures.textureCompressionETC2) {
+        tf = KTX_TTF_ETC;
+      } else if (deviceFeatures.textureCompressionASTC_LDR) {
+        tf = KTX_TTF_ASTC_4x4_RGBA;
+      } else if (deviceFeatures.textureCompressionETC2)
+        tf = KTX_TTF_ETC2_RGBA;
+      else if (deviceFeatures.textureCompressionBC)
+        tf = KTX_TTF_BC3_RGBA;
+      else {
+        throw std::runtime_error(
+            std::format("Vulkan implementation does not support any available "
+                        "transcode targed (transcoding file {})",
+                        path.c_str()));
       }
+
+      result = ktxTexture2_TranscodeBasis(texture, tf, 0);
+
+      if (result != KTX_SUCCESS)
+        throw std::runtime_error(
+            std::format("Failed to transcode file {}", path.c_str()));
     }
-
-    VkImageSubresourceRange subresourceRange{};
-    subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    subresourceRange.baseMipLevel = 0;
-    subresourceRange.levelCount = mipLevels;
-    subresourceRange.layerCount = 6;
-
-    recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                           subresourceRange);
-
-    vkCmdCopyBufferToImage(cmd, stagingBuffer, img,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                           static_cast<uint32_t>(bufferCopyRegions.size()),
-                           bufferCopyRegions.data());
-
-    recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                           subresourceRange);
-    endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+    ktxVulkanDeviceInfo vdi;
+    ktxVulkanDeviceInfo_Construct(
+        &vdi, context.vulkan.physicalDevice, context.vulkan.device,
+        context.vulkan.graphicsQueue, context.vulkan.commandPool, nullptr);
+    ktxVulkanTexture vkTexture;
+    result = ktxTexture2_VkUploadEx(
+        texture, &vdi, &vkTexture, VK_IMAGE_TILING_OPTIMAL,
+        VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    if (result != KTX_SUCCESS) {
+      ktxVulkanDeviceInfo_Destruct(&vdi);
+      ktxTexture2_Destroy(texture);
+      throw std::runtime_error("failed to upload KTX image to Vulkan!");
+    }
+    ktxVkTexture = vkTexture;
+    isKtxManaged = true;
+    img = vkTexture.image;
+    memory = vkTexture.deviceMemory;
+    format = vkTexture.imageFormat;
+    layout = vkTexture.imageLayout;
+    size = {vkTexture.width, vkTexture.height};
+    mipLevels = vkTexture.levelCount;
 
     VkImageViewCreateInfo viewInfo{
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+    viewInfo.viewType = vkTexture.viewType;
     viewInfo.format = format;
     viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    viewInfo.subresourceRange.layerCount = 6;
-    viewInfo.subresourceRange.levelCount = mipLevels;
+    viewInfo.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+    viewInfo.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
     viewInfo.image = img;
+
     if (vkCreateImageView(context.vulkan.device, &viewInfo, nullptr, &view) !=
         VK_SUCCESS) {
-      throw std::runtime_error("failed to create KTX image view!");
+      throw std::runtime_error("failed to create image view!");
     }
 
-    ktxTexture_Destroy(texture);
+    ktxVulkanDeviceInfo_Destruct(&vdi);
+    ktxTexture2_Destroy(texture);
     return;
   }
 
@@ -487,10 +461,14 @@ Image::Image(EngineContext &context, const ImageCreateInfo_data &createInfo)
 Image::~Image() {
   if (view != VK_NULL_HANDLE)
     vkDestroyImageView(context.vulkan.device, view, nullptr);
-  if (img != VK_NULL_HANDLE)
-    vkDestroyImage(context.vulkan.device, img, nullptr);
-  if (memory != VK_NULL_HANDLE)
-    vkFreeMemory(context.vulkan.device, memory, nullptr);
+  if (isKtxManaged) {
+    ktxVulkanTexture_Destruct(&ktxVkTexture, context.vulkan.device, nullptr);
+  } else {
+    if (img != VK_NULL_HANDLE)
+      vkDestroyImage(context.vulkan.device, img, nullptr);
+    if (memory != VK_NULL_HANDLE)
+      vkFreeMemory(context.vulkan.device, memory, nullptr);
+  }
 }
 
 void Image::recordCopyFromBuffer(VkCommandBuffer cmd, VkBuffer buffer,

@@ -4,7 +4,7 @@
 #include <memory>
 #include <vector>
 
-#include "../vkh/systems/entity/entities.hpp"
+#include "../../vkh/systems/entity/entities.hpp"
 
 namespace vkh {
 class EngineContext;

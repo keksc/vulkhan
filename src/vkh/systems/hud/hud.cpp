@@ -1,8 +1,8 @@
 #include "hud.hpp"
 
 #include "../../debug.hpp"
-#include "../../swapChain.hpp"
 #include "../../pipeline.hpp"
+#include "../../swapChain.hpp"
 #include "elements/element.hpp"
 #include "elements/view.hpp"
 
@@ -17,12 +17,12 @@ void HudSys::setView(hud::View *newView) {
 
 hud::View *HudSys::getView() { return view; }
 
-void HudSys::addToDraw(std::vector<std::shared_ptr<hud::Element>> &elements,
-                       float &depth, float oneOverElementCount) {
-  for (const auto &element : elements) {
+void HudSys::addToDraw(hud::Element &containerElement, float &depth,
+                       float oneOverElementCount) {
+  for (const auto &element : containerElement.children) {
     element->addToDrawInfo(drawInfo, depth);
     float child_depth = depth + oneOverElementCount;
-    addToDraw(element->children, child_depth, oneOverElementCount);
+    addToDraw(*element, child_depth, oneOverElementCount);
     depth += oneOverElementCount;
   }
 }
@@ -37,7 +37,17 @@ void HudSys::update() {
   // float oneOverViewSize =
   //     view->elementCount > 0 ? 1.f / view->elementCount : 0.1f;
   float depth = 0.f;
-  addToDraw(view->elements, depth, 1.f / view->elementCount);
+  addToDraw(view->container, depth, 1.f / view->elementCount);
+
+  solidColorSys.ensureLineCapacity(drawInfo.solidColorLineVertices.size(),
+                                   drawInfo.solidColorLineIndices.size());
+  solidColorSys.ensureTriangleCapacity(
+      drawInfo.solidColorTriangleVertices.size(),
+      drawInfo.solidColorTriangleIndices.size());
+
+  textSys.ensureCapacity(drawInfo.textVertices.size(),
+                         drawInfo.textIndices.size());
+
   textSys.vertexBuffer->write(drawInfo.textVertices.data(),
                               drawInfo.textVertices.size() *
                                   sizeof(TextSys::Vertex));
@@ -60,14 +70,9 @@ void HudSys::update() {
 }
 
 void HudSys::render() {
-  if (!view)
+  if (!view || view->container.children.empty())
     return;
-  if (view->empty())
-    return;
-  if (forceUpdate) {
-    update();
-    forceUpdate = false;
-  }
+  update();
 
   debug::beginLabel(context, context.frameInfo.cmd, "HudSys rendering",
                     glm::vec4{1.f, 1.f, 1.f, 1.f});

@@ -4,12 +4,12 @@
 #include <fastgltf/glm_element_traits.hpp>
 #include <fastgltf/tools.hpp>
 #include <fastgltf/types.hpp>
-#include <vulkan/vulkan_core.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/quaternion.hpp>
+#include <vulkan/vulkan_core.h>
 
 #include "AxisAlignedBoundingBox.hpp"
 #include "buffer.hpp"
@@ -22,8 +22,10 @@
 #include <format>
 #include <limits>
 #include <memory>
+#include <print>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace vkh {
@@ -235,6 +237,7 @@ public:
           fastgltf::Accessor &posAccessor =
               gltf.accessors[posAttribute->accessorIndex];
           size_t count = posAccessor.count;
+          
           vertices.resize(vertices.size() + count);
           fastgltf::iterateAccessorWithIndex<glm::vec3>(
               gltf, posAccessor,
@@ -436,13 +439,15 @@ public:
             glm::make_vec4(material.pbrData.baseColorFactor.data());
         mat.roughnessFactor = material.pbrData.roughnessFactor;
         auto &baseColorTexture = material.pbrData.baseColorTexture;
-        auto &metallicRoughnessTexture = material.pbrData.metallicRoughnessTexture;
+        auto &metallicRoughnessTexture =
+            material.pbrData.metallicRoughnessTexture;
         if (baseColorTexture.has_value()) {
           auto &tex = gltf.textures[baseColorTexture.value().textureIndex];
           mat.baseColorTextureIndex = tex.imageIndex;
         }
         if (metallicRoughnessTexture.has_value()) {
-          auto &tex = gltf.textures[metallicRoughnessTexture.value().textureIndex];
+          auto &tex =
+              gltf.textures[metallicRoughnessTexture.value().textureIndex];
           mat.metallicRoughnessTextureIndex = tex.imageIndex;
         }
         auto &normalTexture = material.normalTexture;

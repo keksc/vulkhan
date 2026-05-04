@@ -11,8 +11,7 @@ namespace vkh {
 class EngineContext;
 namespace input {
 void init(EngineContext &context);
-void update(EngineContext &context,
-            std::vector<vkh::EntitySys::Entity> &entities);
+void update(EngineContext &context, EntitySys &entitySys);
 extern glm::dvec2 lastPos;
 enum class Action {
   MoveForward,
@@ -24,6 +23,7 @@ enum class Action {
   PlaceRect,
   PlaceText,
   PlaceLine,
+  PlaceFreehand,
 };
 
 extern std::map<Action, unsigned int> keybinds;

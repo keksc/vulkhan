@@ -6,9 +6,10 @@ layout(location = 1) in vec3 color;
 layout (location = 0) out vec4 outColor;
 
 #include "globalUbo.glsl"
+layout(set = 1, binding = 0) uniform sampler2D texSamplers[64];
 
 float rand(vec2 co) {
-    return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
 }
 
 void main() {

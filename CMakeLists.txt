@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.10)
+﻿cmake_minimum_required(VERSION 3.28)
 
 if(WIN32)
   include("$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
@@ -6,9 +6,17 @@ endif()
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_compile_definitions(GLFW_INCLUDE_VULKAN FASTGLTF_COMPILE_AS_CPP20 GLM_FORCE_RADIANS
-                GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_ENABLE_EXPERIMENTAL)
-# set(FASTGLTF_ENABLE_CPP_MODULES) set(FASTGLTF_USE_STD_MODULE)
+add_compile_definitions(
+  GLFW_INCLUDE_VULKAN
+  FASTGLTF_COMPILE_AS_CPP20
+  GLM_FORCE_RADIANS
+  GLM_FORCE_DEPTH_ZERO_TO_ONE
+  GLM_ENABLE_EXPERIMENTAL
+  # FASTGLTF_ENABLE_CPP_MODULES
+  # FASTGLTF_USE_STD_MODULE
+)
+
+# set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 
 project("vulkhan")
 
@@ -59,8 +67,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
 else()
   set(FLAGS)
 endif()
-
-target_precompile_headers(vulkhan INTERFACE src/vkh/engineContext.hpp)
 
 file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/shaders")
 

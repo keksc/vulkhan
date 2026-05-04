@@ -65,4 +65,28 @@ glm::mat3 EntitySys::Transform::normalMatrix() {
 
   return R * S;
 }
+
+AABB EntitySys::Entity::getWorldAABB() const {
+  const auto &mesh = getMesh();
+  glm::mat4 modelMatrix = transform.mat4() * mesh.transform;
+
+  glm::vec3 corners[8] = {
+    {mesh.aabb.min.x, mesh.aabb.min.y, mesh.aabb.min.z},
+    {mesh.aabb.min.x, mesh.aabb.min.y, mesh.aabb.max.z},
+    {mesh.aabb.min.x, mesh.aabb.max.y, mesh.aabb.min.z},
+    {mesh.aabb.min.x, mesh.aabb.max.y, mesh.aabb.max.z},
+    {mesh.aabb.max.x, mesh.aabb.min.y, mesh.aabb.min.z},
+    {mesh.aabb.max.x, mesh.aabb.min.y, mesh.aabb.max.z},
+    {mesh.aabb.max.x, mesh.aabb.max.y, mesh.aabb.min.z},
+    {mesh.aabb.max.x, mesh.aabb.max.y, mesh.aabb.max.z}
+  };
+
+  AABB worldAABB;
+  for (int i = 0; i < 8; ++i) {
+    glm::vec3 worldPos = glm::vec3(modelMatrix * glm::vec4(corners[i], 1.0f));
+    worldAABB.min = glm::min(worldAABB.min, worldPos);
+    worldAABB.max = glm::max(worldAABB.max, worldPos);
+  }
+  return worldAABB;
+}
 } // namespace vkh

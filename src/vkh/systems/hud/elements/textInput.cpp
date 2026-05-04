@@ -1,12 +1,13 @@
 #include "textInput.hpp"
 
 #include "text.hpp"
+#include "view.hpp"
 
 namespace vkh::hud {
 
 TextInput::TextInput(View &view, Element *parent, glm::vec2 position,
                      const std::string &content, bool selected)
-    : Rect(view, parent, position, glm::vec2{}, 1), selected{selected} {
+    : RectImg(view, parent, position, glm::vec2{}, 1), selected{selected} {
   text = addChild<Text>(position, content);
   size = text->size;
 }

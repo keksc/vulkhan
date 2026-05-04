@@ -7,7 +7,7 @@ namespace vkh::hud {
 FilePicker::FilePicker(View &view, Element *parent, glm::vec2 position,
                        glm::vec2 size, Mode mode)
     : mode{mode}, Element(view, parent, position, size) {
-  addChild<Rect>(glm::vec2{}, glm::vec2{1.f}, 0);
+  addChild<RectImg>(glm::vec2{}, glm::vec2{1.f}, 0);
   list = addChild<Text>(glm::vec2{0.f, TextSys::glyphRange.maxSizeY});
   path = addChild<Text>(glm::vec2{});
   flush();

@@ -1,6 +1,8 @@
 #include "slider.hpp"
 
 #include "rectImg.hpp"
+#include "view.hpp"
+
 namespace vkh::hud {
 Slider::Slider(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
                glm::vec2 bounds, float value)
@@ -12,8 +14,8 @@ Slider::Slider(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
   float p = (value - bounds.x) / (bounds.y - bounds.x);
   if (orientation == Orientation::Vertical)
     p = 1.f - p;
-  box = addChild<Rect>(glm::vec2{.4f}, glm::vec2{.2f}, 0);
-  addChild<Rect>(glm::vec2{}, glm::vec2{1.f}, 0);
+  box = addChild<RectImg>(glm::vec2{.4f}, glm::vec2{.2f}, 0);
+  addChild<RectImg>(glm::vec2{}, glm::vec2{1.f}, 0);
 
   updateBoxPosition(p);
 }

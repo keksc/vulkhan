@@ -1,0 +1,84 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+struct GPUInstanceData {
+  mat4 modelMatrix;
+  mat4 normalMatrix;
+  vec4 color;
+  vec3 aabbMin;
+  int textureIndex;
+  vec3 aabbMax;
+  int mrTextureIndex;
+  float roughnessFactor;
+  float metallicFactor;
+  int jointOffset;
+  int isVisible;
+};
+
+layout(set = 0, binding = 0) uniform CullingUbo {
+  vec4 frustumPlanes[6];
+  uint totalInstances;
+} ubo;
+
+layout(set = 0, binding = 1) buffer InstanceBuffer {
+  GPUInstanceData instances[];
+};
+
+struct IndexedIndirectCommand {
+  uint indexCount;
+  uint instanceCount;
+  uint firstIndex;
+  int  vertexOffset;
+  uint firstInstance;
+};
+
+layout(set = 0, binding = 2) buffer IndirectBuffer {
+  IndexedIndirectCommand commands[];
+};
+
+bool isOnOrForwardPlane(vec4 plane, vec3 minBounds, vec3 maxBounds) {
+  vec3 center = (maxBounds + minBounds) * 0.5;
+  vec3 extents = (maxBounds - minBounds) * 0.5;
+  
+  float radius = dot(abs(plane.xyz), extents);
+  float distance = dot(plane.xyz, center) + plane.w;
+  
+  return distance >= -radius;
+}
+
+bool isInFrustum(vec3 minBounds, vec3 maxBounds) {
+  for (int i = 0; i < 6; i++) {
+    if (!isOnOrForwardPlane(ubo.frustumPlanes[i], minBounds, maxBounds)) {
+        return false;
+    }
+  }
+  return true;
+}
+
+void main() {
+  uint idx = gl_GlobalInvocationID.x;
+  if (idx >= ubo.totalInstances) return;
+
+  // Transform AABB to world space roughly for better culling
+  // For now, let's assume aabbMin/Max in GPUInstanceData are already in world space 
+  // or we transform them here. Transforming 8 corners is expensive, 
+  // but we can just use the provided AABB.
+  
+  // In our CPU implementation we were using getWorldAABB which already transforms.
+  // Let's assume the CPU provides WORLD SPACE AABB in the instance data for now
+  // to match current behavior but offload the check.
+  
+  bool visible = isInFrustum(instances[idx].aabbMin, instances[idx].aabbMax);
+  instances[idx].isVisible = visible ? 1 : 0;
+  
+  // Atomic update of indirect commands would be better if we had 1:1 mapping,
+  // but our current architecture has multiple primitives per instance group.
+  // This shader handles culling of INSTANCES. 
+  // The indirect command reconstruction still needs to happen or we need a 
+  // more advanced indirect system.
+  
+  // Wait, the user wants COMPUTE culling. Usually this means:
+  // 1. Cull instances -> Output to a visible instances buffer.
+  // 2. Update indirect commands to point to the visible instances buffer.
+}

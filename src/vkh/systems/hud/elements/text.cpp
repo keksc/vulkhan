@@ -69,7 +69,6 @@ void Text::addToDrawInfo(DrawInfo &drawInfo, float depth) {
 }
 void Text::update() {
   flushSize();
-  view.hudSys.forceUpdate = true;
 }
 void Text::flushSize() {
   float maxSizeY = TextSys::glyphRange.maxSizeY;

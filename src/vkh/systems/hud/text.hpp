@@ -55,6 +55,7 @@ public:
     }
   };
   void render(size_t indicesSize);
+  void ensureCapacity(size_t vertexCount, size_t indexCount);
 
   std::unique_ptr<Buffer<Vertex>> vertexBuffer;
   std::unique_ptr<Buffer<uint32_t>> indexBuffer;
@@ -65,11 +66,9 @@ private:
   void createPipeline();
   void createGlyphs();
 
-  const int maxCharCount = 1000;
-  const int maxVertexCount = 4 * maxCharCount; // 4 vertices = 1 quad = 1 glyph
-  const VkDeviceSize maxVertexSize = sizeof(Vertex) * maxVertexCount;
-  const int maxIndexCount = maxCharCount * 6;
-  const VkDeviceSize maxIndexSize = sizeof(uint32_t) * 6 * maxCharCount;
+  int maxVertexCount = 4000;
+  int maxIndexCount = 6000;
+
   std::unique_ptr<GraphicsPipeline> pipeline;
   VkDescriptorSetLayout setLayout;
   VkDescriptorSet set;

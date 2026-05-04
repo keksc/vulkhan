@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="210mm"
+   height="297mm"
+   viewBox="0 0 210 297"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.3 (0d15f75042, 2025-12-25)"
+   sodipodi:docname="vulkhan.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#505050"
+     bordercolor="#eeeeee"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#505050"
+     inkscape:document-units="mm"
+     inkscape:zoom="4.8938406"
+     inkscape:cx="376.08499"
+     inkscape:cy="546.40112"
+     inkscape:window-width="1884"
+     inkscape:window-height="1043"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <path
+       style="fill:#ffffff;fill-opacity:1;stroke-width:0.286815"
+       d="m 90.233748,144.67676 7.307601,-0.89261 0.74802,-7.97397 c -0.853767,4.31685 -2.354805,8.15263 -8.055621,8.86658 z"
+       id="path7"
+       sodipodi:nodetypes="cccc"
+       inkscape:tile-cx="94.018265"
+       inkscape:tile-cy="140.64895"
+       inkscape:tile-w="7.5690378"
+       inkscape:tile-h="8.0556198"
+       inkscape:tile-x0="90.233746"
+       inkscape:tile-y0="136.62114" />
+    <use
+       x="0"
+       y="0"
+       inkscape:tiled-clone-of="#path7"
+       xlink:href="#path7"
+       transform="rotate(-90,98.046075,144.43347)"
+       id="use17" />
+    <use
+       x="0"
+       y="0"
+       inkscape:tiled-clone-of="#path7"
+       xlink:href="#path7"
+       transform="rotate(90,98.046075,144.43347)"
+       id="use18" />
+    <use
+       x="0"
+       y="0"
+       inkscape:tiled-clone-of="#path7"
+       xlink:href="#path7"
+       transform="rotate(180,98.046075,144.43347)"
+       id="use19" />
+  </g>
+</svg>

@@ -11,6 +11,9 @@ layout(location = 1) out vec3 fragNormalWorld;
 layout(location = 2) out vec2 fragUV;
 layout(location = 3) flat out vec4 fragColor;
 layout(location = 4) flat out int fragTexIndex;
+layout(location = 5) flat out int fragMRTexIndex;
+layout(location = 6) flat out float fragRoughness;
+layout(location = 7) flat out float fragMetallic;
 
 #include "globalUbo.glsl"
 
@@ -18,10 +21,14 @@ struct ObjectData {
   mat4 model;
   mat4 normal;
   vec4 color;
+  vec3 aabbMin;
   int textureIndex;
+  vec3 aabbMax;
+  int mrTextureIndex;
+  float roughness;
+  float metallic;
   int jointOffset;
-  int pad1;
-  int pad2;
+  int isVisible;
 };
 
 layout(std430, set = 2, binding = 0) readonly buffer ObjectBuffer {
@@ -34,6 +41,11 @@ layout(std430, set = 2, binding = 1) readonly buffer JointBuffer {
 
 void main() {
   ObjectData obj = objectBuffer.objects[gl_InstanceIndex];
+  
+  if (obj.isVisible == 0) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
   mat4 modelMatrix = obj.model;
   mat3 normalMatrix = mat3(obj.normal);
 
@@ -68,4 +80,7 @@ void main() {
   
   fragColor = obj.color;
   fragTexIndex = obj.textureIndex;
+  fragMRTexIndex = obj.mrTextureIndex;
+  fragRoughness = obj.roughness;
+  fragMetallic = obj.metallic;
 }

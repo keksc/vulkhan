@@ -5,66 +5,34 @@
 namespace vkh {
 namespace hud {
 View::View(EngineContext &context, HudSys &hudSys)
-    : context{context}, hudSys{hudSys} {
+    : context{context}, hudSys{hudSys},
+      // The conversion from [0, 1] range to Vulkan NDC implicitely happens here
+      // {0, 0} is top left, {1, 1} is bottom right
+      container{*this, nullptr, glm::vec2{-1.f}, glm::vec2{2.f}} {
   context.inputCallbackSystems[this] = {
       [this](int button, int action, int mods) {
-        for (auto &elem : elements) {
-          if (elem->dispatchEvent<input::EventType::MouseButton>(button, action,
-                                                                 mods)) {
-            break;
-          }
-        }
+        container.dispatchEvent<input::EventType::MouseButton>(button, action,
+                                                               mods);
       },
       [this](int key, int scancode, int action, int mods) {
-        for (auto &elem : elements) {
-          if (elem->dispatchEvent<input::EventType::Key>(key, scancode, action,
-                                                         mods)) {
-            break;
-          }
-        }
+        container.dispatchEvent<input::EventType::Key>(key, scancode, action,
+                                                       mods);
       },
       [this](double xpos, double ypos) {
-        for (auto &elem : elements) {
-          if (elem->dispatchEvent<input::EventType::CursorPosition>(xpos,
-                                                                    ypos)) {
-            break;
-          }
-        }
+        container.dispatchEvent<input::EventType::CursorPosition>(xpos, ypos);
       },
       [this](unsigned int codepoint) {
-        for (auto &elem : elements) {
-          if (elem->dispatchEvent<input::EventType::Character>(codepoint)) {
-            break;
-          }
-        }
+        container.dispatchEvent<input::EventType::Character>(codepoint);
       },
       [this](int count, const char **paths) {
-        for (auto &elem : elements) {
-          if (elem->dispatchEvent<input::EventType::Drop>(count, paths)) {
-            break;
-          }
-        }
+        container.dispatchEvent<input::EventType::Drop>(count, paths);
       },
       [this](int focused) {
-        for (auto &elem : elements) {
-          if (elem->dispatchEvent<input::EventType::WindowFocus>(focused)) {
-            break;
-          }
-        }
+        container.dispatchEvent<input::EventType::WindowFocus>(focused);
       },
   };
 }
-View::View(View &&other) noexcept
-    : context(other.context), elements(std::move(other.elements)),
-      elementCount(other.elementCount), hudSys(other.hudSys) {
-  context.inputCallbackSystems[this] =
-      std::move(context.inputCallbackSystems[&other]);
-  context.inputCallbackSystems.erase(&other);
-}
-View::~View() {
-  context.inputCallbackSystems.erase(this);
-  elements.clear();
-}
+View::~View() { context.inputCallbackSystems.erase(this); }
 void View::setCurrent() { context.currentInputCallbackSystemKey = this; }
 } // namespace hud
 } // namespace vkh

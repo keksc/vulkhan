@@ -4,9 +4,9 @@
 
 namespace vkh {
 namespace hud {
-class Rect : public Element {
+class RectImg : public Element {
 public:
-  Rect(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
+  RectImg(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
        unsigned short imageIndex);
 
   unsigned short imageIndex;
