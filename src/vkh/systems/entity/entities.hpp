@@ -2,7 +2,9 @@
 
 #include <glm/glm.hpp>
 
+#include "../../AxisAlignedBoundingBox.hpp"
 #include "../../scene.hpp"
+#include "../../pipeline.hpp"
 #include "../system.hpp"
 
 namespace vkh {
@@ -66,20 +68,34 @@ public:
     std::shared_ptr<Scene<Vertex>> scene;
     std::size_t meshIndex;
 
-    inline Scene<Vertex>::Mesh &getMesh() { return scene->meshes[meshIndex]; }
+    const inline Scene<Vertex>::Mesh &getMesh() const { return scene->meshes[meshIndex]; }
 
     static constexpr uint32_t LOCAL_ENTITY_ID =
         std::numeric_limits<uint32_t>::max();
     uint32_t id = LOCAL_ENTITY_ID;
+
+    glm::vec4 color{1.f, 1.f, 1.f, 1.f};
+
+    AABB getWorldAABB() const;
   };
 
   struct GPUInstanceData {
     glm::mat4 modelMatrix;
     glm::mat4 normalMatrix;
     glm::vec4 color;
+    glm::vec3 aabbMin;
     int32_t textureIndex; // -1 if no texture
+    glm::vec3 aabbMax;
+    int32_t metallicRoughnessTextureIndex;
+    float roughnessFactor;
+    float metallicFactor;
     int32_t jointOffset;
-    int32_t padding[2]; // Pad to 16-byte alignment
+    int32_t isVisible; // 1 if visible, 0 if not
+  };
+
+  struct CullingUbo {
+    glm::vec4 frustumPlanes[6];
+    uint32_t totalInstances;
   };
 
   struct SceneBatch {
@@ -92,10 +108,15 @@ public:
   ~EntitySys();
 
   void updateJoints();
+  void cull(VkCommandBuffer cmd);
   void render();
   void updateBuffers();
 
-  VkDescriptorSetLayout textureSetLayout;
+  bool checkCollision(const AABB &aabb) const;
+  Entity *pickEntity(const Ray &ray, float &distance, float maxDistance = std::numeric_limits<float>::max());
+  Entity *getPointingAt(float maxDistance = 1.0f);
+
+  VkDescriptorSetLayout texturesSetLayout;
   VkDescriptorSetLayout instanceSetLayout;
 
   std::vector<Entity> entities;
@@ -103,6 +124,7 @@ public:
 private:
   void createSetLayouts();
   void createPipeline();
+  void createCullingPipeline();
 
   std::unique_ptr<GraphicsPipeline> pipeline;
 
@@ -112,13 +134,22 @@ private:
   std::vector<std::unique_ptr<Buffer<glm::mat4>>> jointBuffers;
   std::vector<VkDescriptorSet> instanceDescriptorSets;
 
+  // Compute culling members
+  VkDescriptorSetLayout cullingSetLayout = VK_NULL_HANDLE;
+  std::vector<VkDescriptorSet> cullingDescriptorSets;
+  std::unique_ptr<ComputePipeline> cullingPipeline;
+  std::vector<std::unique_ptr<Buffer<CullingUbo>>> cullingUboBuffers;
+
   std::vector<SceneBatch> sceneBatches;
 
   std::vector<GPUInstanceData> cpuInstanceData;
   std::vector<VkDrawIndexedIndirectCommand> cpuDrawCommands;
   std::vector<glm::mat4> cpuJointData;
   std::vector<bool> framesDirty;
+  bool structuralDirty = true;
 
   void flushBuffers(int frameIndex);
+public:
+  void markStructuralDirty() { structuralDirty = true; }
 };
 } // namespace vkh

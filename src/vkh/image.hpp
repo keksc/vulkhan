@@ -1,7 +1,10 @@
 #pragma once
 
-#include <glm/glm.hpp>
 #include <vulkan/vulkan_core.h>
+
+#include <glm/glm.hpp>
+#include <ktx.h>
+#include <ktxvulkan.h>
 
 #include <filesystem>
 
@@ -112,5 +115,8 @@ private:
   VkImageLayout layout;
   VkSampleCountFlagBits numSamples = VK_SAMPLE_COUNT_1_BIT;
   VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
+  ktxVulkanTexture ktxVkTexture = {};
+  bool isKtxManaged = false;
 };
 } // namespace vkh

@@ -136,11 +136,11 @@ void init(EngineContext &context) {
   keybinds[Action::PlaceRect] = GLFW_KEY_R;
   keybinds[Action::PlaceText] = GLFW_KEY_T;
   keybinds[Action::PlaceLine] = GLFW_KEY_L;
+  keybinds[Action::PlaceFreehand] = GLFW_KEY_F;
 }
 
 glm::dvec2 lastPos;
-void update(EngineContext &context,
-            std::vector<vkh::EntitySys::Entity> &entities) {
+void update(EngineContext &context, EntitySys &entitySys) {
   glm::dvec2 currentPos;
   glfwGetCursorPos(context.window, &currentPos.x, &currentPos.y);
 
@@ -197,42 +197,7 @@ void update(EngineContext &context,
       const AABB playerAABB{testPos + glm::vec3{-0.2f, -0.4f, -0.2f},
                             testPos + glm::vec3{0.2f, 0.4f, 0.2f}};
 
-      for (auto &entity : entities) {
-        // Get the raw AABB from the vertex data
-        glm::vec3 min = entity.getMesh().aabb.min;
-        glm::vec3 max = entity.getMesh().aabb.max;
-
-        // Define the 8 local corners of the raw AABB
-        glm::vec3 corners[8] = {{min.x, min.y, min.z}, {min.x, min.y, max.z},
-                                {min.x, max.y, min.z}, {min.x, max.y, max.z},
-                                {max.x, min.y, min.z}, {max.x, min.y, max.z},
-                                {max.x, max.y, min.z}, {max.x, max.y, max.z}};
-
-        AABB worldAABB; // Initializes to proper min/max limits
-        for (int i = 0; i < 8; ++i) {
-          // 1. Apply the glTF Node Transform (fixes models that are
-          // rotated/offset in Blender)
-          glm::vec3 localPos = glm::vec3(entity.getMesh().transform *
-                                         glm::vec4(corners[i], 1.0f));
-
-          // 2. Apply Entity Scale
-          localPos *= entity.transform.scale;
-
-          // 3. Apply Entity Rotation & Position
-          glm::vec3 worldPos = entity.transform.orientation * localPos +
-                               entity.transform.position;
-
-          // Re-find the absolute minimums and maximums for the new world
-          // orientation
-          worldAABB.min = glm::min(worldAABB.min, worldPos);
-          worldAABB.max = glm::max(worldAABB.max, worldPos);
-        }
-
-        if (worldAABB.intersects(playerAABB)) {
-          return true; // Collision detected!
-        }
-      }
-      return false;
+      return entitySys.checkCollision(playerAABB);
     };
 
     // Apply sliding collision by testing each axis independently

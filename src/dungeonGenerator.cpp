@@ -1,202 +1,350 @@
 #include "dungeonGenerator.hpp"
 
-#include <cstddef>
 #include <glm/glm.hpp>
-#include <glm/gtc/quaternion.hpp>
+#include <magic_enum/magic_enum.hpp>
 
 #include "rng.hpp"
 #include "vkh/scene.hpp"
 #include "vkh/systems/entity/entities.hpp"
 
+#include <bitset>
+#include <iostream>
 #include <memory>
-#include <random>
-#include <vector>
+#include <stack>
 
-void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys,
-                     std::vector<vkh::EntitySys::Entity> &entities,
-                     const DungeonConfig &config) {
+enum RoomModel {
+  Crate = 0,
+  Pedestal = 1,
+  Horse = 2,
+  Brick = 3,
+  Trap_empty = 4,
+  Skull = 5,
+  Stairs_SideCover = 6,
+  Fence_90_Modular = 7,
+  Barrel = 8,
+  Fence_Straight_Modular = 9,
+  Bag_Standing = 10,
+  Chest_Top = 11,
+  Chest_Base = 12,
+  WallCover_Modular = 13,
+  Arch_Door_bottompivot = 14,
+  Wall_Modular = 15,
+  Floor_BricksSeparate = 16,
+  Trap_spikes = 17,
+  Barrel_1 = 18,
+  Banner_wall = 19,
+  Trapdoor = 20,
+  Chair = 21,
+  Arch = 22,
+  Chest_Top_1 = 23,
+  Chest_Base_1 = 24,
+  Spikes = 25,
+  Bag_Coins = 26,
+  Fence_End_Modular = 27,
+  WoodFire = 28,
+  Table_Big = 29,
+  Coin_Pile = 30,
+  Vase = 31,
+  Trapdoor_open = 32,
+  Column = 33,
+  Bucket = 34,
+  Table_Small = 35,
+  Arch_Door = 36,
+  Arch_bars = 37,
+  Torch = 38,
+  Floor_BricksSeparate2 = 39,
+  Stairs_SideCoverWall = 40,
+  Floor_Modular = 41,
+  Decorative_Wall = 42,
+  Stairs_Modular = 43,
+  Pedestal2 = 44,
+  Column2 = 45,
+  Sword_WallMount = 46,
+  Sword_big = 47,
+  Sword = 48,
+  Cobweb2 = 49,
+  Pedestal_1 = 50,
+  Cobweb = 51,
+  Banner = 52,
+};
 
-  auto westWingAssets = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-      context, "models/westwingassets.glb", entitySys.textureSetLayout);
+enum Tile {
+  Empty = 0, // Solid rock
+  Floor = 1, // Open room
+  Wall_N = 2,
+  Wall_E = 3,
+  Wall_S = 4,
+  Wall_W = 5,
+};
 
-  std::vector<std::vector<CellType>> grid(
-      config.gridSize.x,
-      std::vector<CellType>(config.gridSize.y, CellType::Empty));
+enum Direction { North, East, South, West };
 
-  std::uniform_int_distribution<> roomPosX(1, config.gridSize.x -
-                                                  config.maxRoomSize.x - 1);
-  std::uniform_int_distribution<> roomPosY(1, config.gridSize.y -
-                                                  config.maxRoomSize.y - 1);
-  std::uniform_int_distribution<> roomSizeX(config.minRoomSize.x,
-                                            config.maxRoomSize.x);
-  std::uniform_int_distribution<> roomSizeY(config.minRoomSize.y,
-                                            config.maxRoomSize.y);
+struct WFC {
+  static constexpr size_t TilePossibilitiesCount =
+      magic_enum::enum_count<Tile>();
+  using TilePossibilities = std::bitset<TilePossibilitiesCount>;
+  std::vector<TilePossibilities> grid;
+  std::stack<size_t> stack;
+  size_t N{};
+  size_t NSquared{};
 
-  std::vector<Room> rooms;
+  WFC(size_t N) : N{N}, NSquared{N * N} {
+    grid.resize(NSquared);
+    reset();
+  }
 
-  // The entrance point to the dungeon
-  glm::ivec2 connectorPos{0, 0};
-  float distanceToConnector = std::numeric_limits<float>::max();
-  int closestRoomToConnectorIndex = -1;
+  void reset() {
+    for (auto &cell : grid)
+      cell.set();
+    while (!stack.empty())
+      stack.pop();
+  }
 
-  for (int i = 0; i < config.maxRooms; i++) {
-    bool placed = false;
-    for (int attempts = 10; attempts > 0; attempts--) {
-      glm::ivec2 pos{roomPosX(rng), roomPosY(rng)};
-      glm::ivec2 size{roomSizeX(rng), roomSizeY(rng)};
+  size_t getIdx(glm::ivec2 pos) { return pos.y * N + pos.x; }
 
-      bool overlap = false;
-      for (const auto &room : rooms) {
-        if (!(pos.x + size.x + 1 < room.topLeft.x ||
-              pos.x > room.topLeft.x + room.size.x + 1 ||
-              pos.y + size.y + 1 < room.topLeft.y ||
-              pos.y > room.topLeft.y + room.size.y + 1)) {
-          overlap = true;
-          break;
+  glm::ivec2 getPos(size_t idx) {
+    return glm::ivec2(static_cast<int>(idx % N), static_cast<int>(idx / N));
+  }
+
+  bool adjacencyConstraint(Tile self, Tile neighbor, Direction dir) {
+    auto getEdge = [](Tile t, Direction d) -> bool {
+      if (t == Floor)
+        return true;
+      if (t == Empty)
+        return false;
+
+      if (t == Wall_N)
+        return (d != North);
+      if (t == Wall_E)
+        return (d != East);
+      if (t == Wall_S)
+        return (d != South);
+      if (t == Wall_W)
+        return (d != West);
+      return false;
+    };
+
+    Direction opposite;
+    if (dir == North)
+      opposite = South;
+    else if (dir == South)
+      opposite = North;
+    else if (dir == East)
+      opposite = West;
+    else if (dir == West)
+      opposite = East;
+
+    return getEdge(self, dir) == getEdge(neighbor, opposite);
+  }
+
+  std::optional<size_t> observe() {
+    std::optional<size_t> bestCellIdx{};
+    size_t minEntropy = TilePossibilitiesCount + 1;
+
+    for (size_t i = 0; i < NSquared; i++) {
+      size_t entropy = grid[i].count();
+      if (entropy > 1) {
+        if (entropy < minEntropy ||
+            (entropy == minEntropy &&
+             std::uniform_int_distribution<>(0, 1)(rng) == 0)) {
+          minEntropy = entropy;
+          bestCellIdx = i;
         }
       }
-      if (overlap)
-        continue;
+    }
 
-      Room newRoom{pos, size, Room::Type::Normal};
+    if (bestCellIdx.has_value()) {
+      TilePossibilities &cell = grid[bestCellIdx.value()];
+      std::vector<size_t> validIndices;
 
-      glm::vec2 mid = glm::vec2(newRoom.topLeft) + glm::vec2(newRoom.size) / 2.0f;
-      float d = glm::distance(mid, glm::vec2(connectorPos));
-      if (d < distanceToConnector) {
-        distanceToConnector = d;
-        closestRoomToConnectorIndex = static_cast<int>(rooms.size());
-      }
+      for (int i = 0; i < TilePossibilitiesCount; ++i) {
+        if (cell.test(i)) {
+          int weight = 1;
+          if (i == Tile::Floor)
+            weight = 5;
+          else if (i != Tile::Empty)
+            weight = 2;
 
-      if (i == config.maxRooms - 1) {
-        newRoom.type = Room::Type::Boss;
-      } else if (i % 3 == 0) {
-        newRoom.type = Room::Type::Treasure;
-      }
-
-      for (int x = pos.x; x < pos.x + size.x; x++) {
-        for (int y = pos.y; y < pos.y + size.y; y++) {
-          grid[x][y] = CellType::Room;
+          for (int w = 0; w < weight; ++w)
+            validIndices.push_back(i);
         }
       }
-      rooms.push_back(newRoom);
-      placed = true;
-      break;
+
+      int chosenIndex = validIndices[std::uniform_int_distribution<>(
+          0, validIndices.size() - 1)(rng)];
+      cell.reset();
+      cell.set(chosenIndex);
+
+      stack.push(bestCellIdx.value());
     }
+    return bestCellIdx;
   }
 
-  if (closestRoomToConnectorIndex != -1) {
-    glm::ivec2 p1 = connectorPos;
-    glm::ivec2 p2 = rooms[closestRoomToConnectorIndex].topLeft +
-                    rooms[closestRoomToConnectorIndex].size / 2;
+  // false if contradiction is detected
+  bool propagatePossibilities() {
+    constexpr std::array<glm::ivec2, 4> dirs = {
+        glm::ivec2{0, 1}, glm::ivec2{1, 0}, glm::ivec2{0, -1},
+        glm::ivec2{-1, 0}};
+    const std::array<Direction, 4> enumDirs = {North, East, South, West};
 
-    int x = p1.x;
-    int y = p1.y;
-    
-    grid[x][y] = CellType::Connector;
+    while (!stack.empty()) {
+      size_t idx = stack.top();
+      stack.pop();
 
-    while (x != p2.x) {
-      x += (p2.x > x) ? 1 : -1;
-      if (grid[x][y] == CellType::Empty)
-        grid[x][y] = CellType::Corridor;
-    }
-    while (y != p2.y) {
-      y += (p2.y > y) ? 1 : -1;
-      if (grid[x][y] == CellType::Empty)
-        grid[x][y] = CellType::Corridor;
-    }
-  }
+      glm::ivec2 pos = getPos(idx);
+      TilePossibilities &currentPossibilities = grid[idx];
 
-  for (size_t i = 0; i < rooms.size() - 1; i++) {
-    glm::ivec2 p1 = rooms[i].topLeft + rooms[i].size / 2;
-    glm::ivec2 p2 = rooms[i + 1].topLeft + rooms[i + 1].size / 2;
+      for (size_t i = 0; i < 4; i++) {
+        glm::ivec2 neighborPos = pos + dirs[i];
+        if (neighborPos.x < 0 || neighborPos.x >= (int)N || neighborPos.y < 0 ||
+            neighborPos.y >= (int)N) {
+          continue;
+        }
 
-    int x = p1.x;
-    int y = p1.y;
-    while (x != p2.x) {
-      x += (p2.x > x) ? 1 : -1;
-      if (grid[x][y] == CellType::Empty)
-        grid[x][y] = CellType::Corridor;
-    }
-    while (y != p2.y) {
-      y += (p2.y > y) ? 1 : -1;
-      if (grid[x][y] == CellType::Empty)
-        grid[x][y] = CellType::Corridor;
-    }
-  }
+        size_t neighborIdx = getIdx(neighborPos);
+        TilePossibilities &neighborPossibilities = grid[neighborIdx];
 
-  glm::quat rotNorth = glm::quat(glm::vec3(0, 0, 0));
-  glm::quat rotSouth = glm::quat(glm::vec3(0, glm::pi<float>(), 0));
-  glm::quat rotEast = glm::quat(glm::vec3(0, glm::half_pi<float>(), 0));
-  glm::quat rotWest = glm::quat(glm::vec3(0, -glm::half_pi<float>(), 0));
-  glm::quat defaultRot = glm::quat(1, 0, 0, 0);
+        if (neighborPossibilities.count() <= 1)
+          continue;
 
-  for (int x = 0; x < config.gridSize.x; x++) {
-    for (int y = 0; y < config.gridSize.y; y++) {
-      if (grid[x][y] == CellType::Empty)
-        continue;
+        bool neighborChanged = false;
+        for (size_t next = 0; next < TilePossibilitiesCount; next++) {
+          if (!neighborPossibilities.test(next))
+            continue;
 
-      glm::vec3 tileCenter{static_cast<float>(x), 0.f, static_cast<float>(y)};
+          bool possible = false;
+          for (size_t curr = 0; curr < TilePossibilitiesCount; curr++) {
+            if (currentPossibilities.test(curr)) {
+              if (adjacencyConstraint(static_cast<Tile>(curr),
+                                      static_cast<Tile>(next), enumDirs[i])) {
+                possible = true;
+                break;
+              }
+            }
+          }
+          if (!possible) {
+            neighborPossibilities.reset(next);
+            neighborChanged = true;
 
-      entities.emplace_back(vkh::EntitySys::Transform{.position = tileCenter},
-                            vkh::EntitySys::RigidBody{}, westWingAssets,
-                            RoomModel::Floor);
-      entities.emplace_back(vkh::EntitySys::Transform{.position = tileCenter},
-                            vkh::EntitySys::RigidBody{}, westWingAssets,
-                            RoomModel::Ceiling);
-
-      auto isWalkable = [&](int nx, int ny) {
-          if (nx < 0 || nx >= config.gridSize.x || ny < 0 || ny >= config.gridSize.y) 
+            // contradiction
+            if (neighborPossibilities.none()) {
               return false;
-          return grid[nx][ny] != CellType::Empty;
-      };
-
-      // FIX: Only skip the West wall (x-1) for the entrance hole. 
-      // This prevents the South wall from also being skipped at (0,0).
-      bool isEntranceHole = (grid[x][y] == CellType::Connector);
-
-      // Left Wall (West) - Pierced if this is the entrance
-      if (!isWalkable(x - 1, y) && !isEntranceHole) {
-        entities.emplace_back(vkh::EntitySys::Transform{.position = tileCenter + glm::vec3(-0.5f, 0.f, 0.f),
-                                                        .orientation = rotWest},
-                              vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Wall);
+            }
+          }
+        }
+        if (neighborChanged)
+          stack.push(neighborIdx);
       }
-      
-      // Right Wall (East)
-      if (!isWalkable(x + 1, y)) {
-        entities.emplace_back(vkh::EntitySys::Transform{.position = tileCenter + glm::vec3(0.5f, 0.f, 0.f),
-                                                        .orientation = rotEast},
-                              vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Wall);
+    }
+    return true;
+  }
+
+  bool runAttempt() {
+    // size_t center = getIdx({(int)N / 2, (int)N / 2});
+    // grid[center].reset();
+    // grid[center].set(Tile::Floor);
+    // stack.push(center);
+
+    if (!propagatePossibilities())
+      return false;
+
+    while (true) {
+      auto nextCell = observe();
+      if (!nextCell.has_value()) {
+        // Double check to make sure no cells are left uncollapsed with 0
+        // possibilities
+        for (const auto &cell : grid) {
+          if (cell.none())
+            return false;
+        }
+        return true; // We successfully collapsed the whole grid!
       }
 
-      // Bottom Wall (South) - No longer pierced by isEntranceHole
-      if (!isWalkable(x, y - 1)) {
-        entities.emplace_back(vkh::EntitySys::Transform{.position = tileCenter + glm::vec3(0.f, 0.f, -0.5f),
-                                                        .orientation = rotSouth},
-            vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Wall);
-      }
-
-      // Top Wall (North)
-      if (!isWalkable(x, y + 1)) {
-        entities.emplace_back(vkh::EntitySys::Transform{.position = tileCenter + glm::vec3(0.f, 0.f, 0.5f),
-                                                        .orientation = rotNorth},
-            vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::Wall);
+      if (!propagatePossibilities()) {
+        return false; // Contradiction during generation
       }
     }
   }
 
-  for (const auto &room : rooms) {
-    glm::vec3 center{room.topLeft.x + room.size.x / 2.0f, 0.f,
-                     room.topLeft.y + room.size.y / 2.0f};
+  void runWithRetries(int maxRetries = 50) {
+    for (int i = 0; i < maxRetries; ++i) {
+      reset();
+      if (runAttempt()) {
+        std::cout << "WFC Success after " << i << " retries.\n";
+        return;
+      }
+    }
+    std::cerr
+        << "WFC FAILED: Reached max retries. Map will be empty or broken.\n";
+  }
+};
 
-    if (room.type == Room::Type::Treasure) {
-      entities.emplace_back(vkh::EntitySys::Transform{.position = center, .orientation = defaultRot},
-          vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::PropChest);
-    } else if (room.type == Room::Type::Boss) {
-      entities.emplace_back(vkh::EntitySys::Transform{.position = center, .orientation = defaultRot},
-          vkh::EntitySys::RigidBody{}, westWingAssets, RoomModel::PropAltar);
+void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys) {
+  auto assets = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+      context, "models/dungeonAssets.glb", entitySys.texturesSetLayout);
+
+  WFC wfc(15);
+  wfc.runWithRetries(50);
+
+  for (size_t i = 0; i < wfc.NSquared; ++i) {
+    Tile t = Empty;
+    for (size_t b = 0; b < wfc.TilePossibilitiesCount; ++b) {
+      if (wfc.grid[i].test(b)) {
+        t = static_cast<Tile>(b);
+        break;
+      }
+    }
+
+    if (t == Empty)
+      continue;
+
+    vkh::EntitySys::Entity ent{};
+    ent.scene = assets;
+    glm::ivec2 p = wfc.getPos(i);
+    ent.transform.position = glm::vec3(p.x * 2.0f, 0.0f, p.y * 2.0f);
+
+    if (t == Floor) {
+      // 1. Spawn the Floor
+      ent.meshIndex = RoomModel::Floor_Modular;
+      entitySys.entities.push_back(ent);
+
+      // 2. Random Prop Spawner (20% chance to spawn a prop on this floor)
+      if (std::uniform_int_distribution<>(1, 100)(rng) <= 20) {
+        vkh::EntitySys::Entity prop{};
+        prop.scene = assets;
+        prop.transform.position = ent.transform.position;
+
+        // Add a random rotation to the prop so they don't all face the same way
+        float randomRot =
+            std::uniform_real_distribution<float>(0.0f, 360.0f)(rng);
+        prop.transform.orientation = glm::rotate(
+            glm::quat(1, 0, 0, 0), glm::radians(randomRot), {0, 1, 0});
+
+        // Pick a random prop from your enum
+        const std::array<RoomModel, 6> propTypes = {
+            RoomModel::Crate, RoomModel::Barrel,      RoomModel::Coin_Pile,
+            RoomModel::Chair, RoomModel::Table_Small, RoomModel::Skull};
+        prop.meshIndex = propTypes[std::uniform_int_distribution<size_t>(
+            0, propTypes.size() - 1)(rng)];
+
+        entitySys.entities.push_back(prop);
+      }
+
+    } else {
+      // Spawn Walls
+      ent.meshIndex = RoomModel::Wall_Modular;
+      if (t == Wall_E)
+        ent.transform.orientation =
+            glm::rotate(glm::quat(1, 0, 0, 0), glm::radians(90.0f), {0, 1, 0});
+      if (t == Wall_S)
+        ent.transform.orientation =
+            glm::rotate(glm::quat(1, 0, 0, 0), glm::radians(180.0f), {0, 1, 0});
+      if (t == Wall_W)
+        ent.transform.orientation =
+            glm::rotate(glm::quat(1, 0, 0, 0), glm::radians(270.0f), {0, 1, 0});
+
+      entitySys.entities.push_back(ent);
     }
   }
-
-  // Position camera outside the West entrance, looking East (+X)
-  context.camera.position = glm::vec3(-1.5f, 0.5f, 0.0f);
+  entitySys.markStructuralDirty();
 }

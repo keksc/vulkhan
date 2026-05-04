@@ -1,10 +1,10 @@
 #include "rectImg.hpp"
 
 namespace vkh::hud {
-Rect::Rect(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
+RectImg::RectImg(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
            unsigned short imageIndex)
     : Element(view, parent, position, size), imageIndex{imageIndex} {};
-void Rect::addToDrawInfo(DrawInfo &drawInfo, float depth) {
+void RectImg::addToDrawInfo(DrawInfo &drawInfo, float depth) {
   // TODO: this might be optimizable when nothing changes, maybe add a
   // "changed" flag
   float x0 = position.x;

@@ -2,14 +2,17 @@
 
 #include <stb/stb_image.h>
 
-#include "clipboardImage.hpp"
 #include "../hud.hpp"
+#include "button.hpp"
+#include "clipboardImage.hpp"
+#include "emptyRect.hpp"
+#include "filePicker.hpp"
+#include "line.hpp"
 #include "text.hpp"
 #include "textInput.hpp"
-#include "filePicker.hpp"
-#include "button.hpp"
-#include "emptyRect.hpp"
-#include "line.hpp"
+#include "view.hpp"
+
+#include "polyLine.hpp"
 
 #include <ranges>
 
@@ -30,13 +33,13 @@ namespace vkh::hud {
 void Canvas::initBaseElements() {
   filePicker = nullptr;
   selectedElement = nullptr;
-  modeBg = addChild<hud::Rect>(glm::vec2{}, glm::vec2{1.f}, 0);
+  modeBg = addChild<hud::RectImg>(glm::vec2{}, glm::vec2{1.f}, 0);
   modeText = addChild<hud::Text>(glm::vec2{}, "mode: Select");
   modeBg->size = modeText->size;
 }
 Canvas::Canvas(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
-               decltype(Rect::imageIndex) bgImageIndex)
-    : hud::Rect(view, parent, position, size, bgImageIndex) {
+               decltype(RectImg::imageIndex) bgImageIndex)
+    : hud::RectImg(view, parent, position, size, bgImageIndex) {
   initBaseElements();
 }
 void Canvas::reset() {
@@ -60,7 +63,7 @@ bool Canvas::handleKey(int key, int scancode, int action, int mods) {
       glm::vec2 newPos = (cursorPos - position) / size;
       glm::vec2 newSize{glm::vec2{w, h} /
                         static_cast<glm::vec2>(view.context.window.size)};
-      addChild<hud::Rect>(newPos, newSize, texIndex);
+      addChild<hud::RectImg>(newPos, newSize, texIndex);
     } else {
       const auto &cursorPos = view.context.input.cursorPos;
       glm::vec2 newPos = (cursorPos - position) / size;
@@ -69,11 +72,21 @@ bool Canvas::handleKey(int key, int scancode, int action, int mods) {
     return true;
   }
   if (key == GLFW_KEY_DELETE) {
-    auto it = std::find(children.begin(), children.end(), selectedElement);
-    if (it != children.end()) {
-      children.erase(it);
+    if (selectedElement) {
+      auto it = std::find(children.begin(), children.end(), selectedElement);
+      if (it != children.end()) {
+        children.erase(it);
+      }
+      if (selectIndicator) {
+        auto sit = std::find(children.begin(), children.end(), selectIndicator);
+        if (sit != children.end()) {
+          children.erase(sit);
+        }
+        selectIndicator = nullptr;
+      }
+      selectedElement = nullptr;
+      return true;
     }
-    selectedElement = nullptr;
   }
   if (key == GLFW_KEY_ENTER) {
     if (!filePicker)
@@ -177,23 +190,55 @@ bool Canvas::handleKey(int key, int scancode, int action, int mods) {
     modeBg->size = modeText->size;
     return true;
   }
+  if (key == input::keybinds[input::Action::PlaceFreehand]) {
+    mode = Mode::Freehand;
+    modeText->content = "mode: Freehand";
+    modeBg->size = modeText->size;
+    return true;
+  }
+  if (key >= GLFW_KEY_1 && key <= GLFW_KEY_9) {
+    std::vector<glm::vec3> colors = {
+        {1.f, 1.f, 1.f}, {1.f, 0.f, 0.f},    {0.f, 1.f, 0.f},
+        {0.f, 0.f, 1.f}, {1.f, 1.f, 0.f},    {1.f, 0.f, 1.f},
+        {0.f, 1.f, 1.f}, {0.5f, 0.5f, 0.5f}, {0.f, 0.f, 0.f}};
+    currentColor = colors[key - GLFW_KEY_1];
+    modeBg->imageIndex = 0; // Assuming 0 is solid color
+    return true;
+  }
+  if (key == GLFW_KEY_RIGHT_BRACKET) { // Bring to front
+    auto it = std::find(children.begin(), children.end(), selectedElement);
+    if (it != children.end()) {
+      std::rotate(it, it + 1, children.end());
+      // Ensure selectIndicator stays on top
+      auto sit = std::find(children.begin(), children.end(), selectIndicator);
+      if (sit != children.end()) {
+        std::rotate(sit, sit + 1, children.end());
+      }
+    }
+    return true;
+  }
+  if (key == GLFW_KEY_LEFT_BRACKET) { // Send to back
+    auto it = std::find(children.begin(), children.end(), selectedElement);
+    if (it != children.end()) {
+      // Don't move behind modeBg and modeText (first 2 elements)
+      if (it > children.begin() + 2) {
+        std::rotate(children.begin() + 2, it, it + 1);
+      }
+    }
+    return true;
+  }
   return false;
 }
 void Canvas::removeFileBtns() {
-  children.erase(
-      std::remove_if(
-          children.begin(), children.end(),
-          [&](const auto &child) {
-            return std::find_if(fileBtns.begin(), fileBtns.end(),
-                                [&](const auto &btn) {
-                                  return btn.get() == child.get();
-                                }) !=
-                   fileBtns.end(); // Comparing smart pointers doesnt work
-                                   // because fileBtns holds pointers to Buttons
-                                   // and children pointers to Elements, and
-                                   // sharer_ptr's operator= cares about that
-          }),
-      children.end());
+  children.erase(std::remove_if(children.begin(), children.end(),
+                                [&](const auto &child) {
+                                  return std::find_if(
+                                             fileBtns.begin(), fileBtns.end(),
+                                             [&](const auto &btn) {
+                                               return btn.get() == child.get();
+                                             }) != fileBtns.end();
+                                }),
+                 children.end());
   fileBtns.clear();
 }
 bool Canvas::handleMouseButton(int button, int action, int mods) {
@@ -203,107 +248,180 @@ bool Canvas::handleMouseButton(int button, int action, int mods) {
   const auto &cursorPos = view.context.input.cursorPos;
 
   if (action == GLFW_PRESS) {
-    // if (elementBeingAdded) {
-    //   elementBeingAdded = nullptr;
-    //   return true;
-    // }
-
-    glm::vec2 newPos = (cursorPos - position) / size;
+    glm::vec2 localPos = (cursorPos - position) / size;
     glm::vec2 newSize{};
     switch (mode) {
     case Mode::Select:
+      selectedElement = nullptr;
+      interaction = Interaction::None;
       for (auto &child : children | std::views::reverse) {
         if (child == modeBg || child == modeText || child == selectIndicator)
           continue;
         if (child->isCursorInside()) {
           selectedElement = child;
+          // Check if we are near the bottom-right corner for resizing
+          glm::vec2 br = selectedElement->position + selectedElement->size;
+          if (glm::length(cursorPos - br) < 0.05f) {
+            interaction = Interaction::Resizing;
+          } else {
+            interaction = Interaction::Moving;
+            dragOffset = cursorPos - selectedElement->position;
+          }
           break;
         }
       }
       break;
     case Mode::Text:
-      selectedElement = addChild<hud::TextInput>(newPos, "", true);
-      if (!selectIndicator)
-        selectIndicator = addChild<hud::EmptyRect>(newPos, newSize);
-      else {
-        auto it = std::find(children.begin(), children.end(), selectIndicator);
-        if (it != children.end()) {
-          std::rotate(it, it + 1, children.end());
-        }
-        selectIndicator->position = cursorPos;
-        selectIndicator->size = {};
-      }
+      selectedElement = addChild<hud::TextInput>(localPos, "", true);
+      interaction = Interaction::Creating;
       break;
     case Mode::Rect:
-      selectedElement = addChild<hud::Rect>(newPos, newSize, 0);
-      if (!selectIndicator)
-        selectIndicator = addChild<hud::EmptyRect>(newPos, newSize);
-      else {
-        auto it = std::find(children.begin(), children.end(), selectIndicator);
-        if (it != children.end()) {
-          std::rotate(it, it + 1, children.end());
-        }
-        selectIndicator->position = cursorPos;
-        selectIndicator->size = {};
-      }
+      selectedElement = addChild<hud::RectImg>(localPos, newSize, 0);
+      interaction = Interaction::Creating;
       break;
     case Mode::Line:
-      selectedElement = addChild<hud::Line>(newPos, newSize, glm::vec3{1.f});
-      if (!selectIndicator)
-        selectIndicator = addChild<hud::EmptyRect>(newPos, newSize);
-      else {
+      selectedElement = addChild<hud::Line>(localPos, newSize, currentColor);
+      interaction = Interaction::Creating;
+      break;
+    case Mode::Freehand:
+      selectedElement = addChild<hud::PolyLine>(localPos, currentColor);
+      interaction = Interaction::Creating;
+      dragOffset = cursorPos; // Store last pos for thresholding
+      break;
+    }
+
+    if (selectedElement) {
+      if (!selectIndicator) {
+        glm::vec2 localPos = (selectedElement->position - position) / size;
+        glm::vec2 localSize = selectedElement->size / size;
+        selectIndicator = addChild<hud::EmptyRect>(localPos, localSize);
+      } else {
         auto it = std::find(children.begin(), children.end(), selectIndicator);
         if (it != children.end()) {
           std::rotate(it, it + 1, children.end());
         }
-        selectIndicator->position = cursorPos;
-        selectIndicator->size = {};
+        selectIndicator->position = selectedElement->position;
+        selectIndicator->size = selectedElement->size;
       }
-      break;
+    } else if (selectIndicator) {
+      auto it = std::find(children.begin(), children.end(), selectIndicator);
+      if (it != children.end()) {
+        children.erase(it);
+      }
+      selectIndicator = nullptr;
     }
     return true;
   } else if (action == GLFW_RELEASE) {
-    if (selectedElement) {
+    interaction = Interaction::None;
+    // Don't deselect text input immediately
+    if (mode != Mode::Select &&
+        !std::dynamic_pointer_cast<vkh::hud::TextInput>(selectedElement)) {
       selectedElement = nullptr;
-      return true;
     }
+    return true;
   }
   return false;
 }
 bool Canvas::handleCursorPosition(double xpos, double ypos) {
   if (!isCursorInside())
     return false;
-  if (selectedElement) {
-    const auto &cursorPos = view.context.input.cursorPos;
-    if (!std::dynamic_pointer_cast<vkh::hud::TextInput>(selectedElement)) {
+
+  const auto &cursorPos = view.context.input.cursorPos;
+
+  if (interaction == Interaction::Creating) {
+    if (mode == Mode::Freehand && selectedElement) {
+      if (glm::length(cursorPos - dragOffset) > 0.01f) {
+        glm::vec2 localPos = (cursorPos - position) / size;
+        if (auto poly = std::dynamic_pointer_cast<vkh::hud::PolyLine>(
+                selectedElement)) {
+          poly->addPoint(localPos);
+          dragOffset = cursorPos;
+          selectIndicator->position = poly->position;
+          selectIndicator->size = poly->size;
+        }
+      }
+    } else if (selectedElement &&
+               !std::dynamic_pointer_cast<vkh::hud::TextInput>(
+                   selectedElement)) {
       selectedElement->size = cursorPos - selectedElement->position;
-      selectIndicator->size = cursorPos - selectIndicator->position;
-      return true;
+      selectIndicator->position = selectedElement->position;
+      selectIndicator->size = selectedElement->size;
+    }
+  } else if (interaction == Interaction::Moving && selectedElement) {
+    glm::vec2 oldPos = selectedElement->position;
+    selectedElement->position = cursorPos - dragOffset;
+    glm::vec2 delta = selectedElement->position - oldPos;
+
+    if (auto poly =
+            std::dynamic_pointer_cast<vkh::hud::PolyLine>(selectedElement)) {
+      for (auto &p : poly->points) {
+        p += delta / size;
+      }
+    }
+
+    if (selectIndicator) {
+      selectIndicator->position = selectedElement->position;
+      selectIndicator->size = selectedElement->size;
+    }
+    return true;
+  } else if (interaction == Interaction::Resizing && selectedElement) {
+    glm::vec2 oldSize = selectedElement->size;
+    selectedElement->size = cursorPos - selectedElement->position;
+
+    if (auto poly =
+            std::dynamic_pointer_cast<vkh::hud::PolyLine>(selectedElement)) {
+      if (glm::abs(oldSize.x) > 1e-5f && glm::abs(oldSize.y) > 1e-5f) {
+        glm::vec2 scale = selectedElement->size / oldSize;
+        glm::vec2 relPos = (selectedElement->position - position) / size;
+        for (auto &p : poly->points) {
+          p = relPos + (p - relPos) * scale;
+        }
+      }
+    }
+
+    if (selectIndicator) {
+      selectIndicator->position = selectedElement->position;
+      selectIndicator->size = selectedElement->size;
+    }
+    return true;
+  }
+  // Hover effect: find the element under the cursor
+  std::shared_ptr<Element> elementToHighlight = selectedElement;
+  if (interaction == Interaction::None) {
+    elementToHighlight = nullptr;
+    for (auto &child : children | std::views::reverse) {
+      if (child == modeBg || child == modeText || child == selectIndicator)
+        continue;
+      if (child->isCursorInside()) {
+        elementToHighlight = child;
+        break;
+      }
     }
   }
-  std::shared_ptr<Element> hoveredChild = nullptr;
-  for (auto &child : children | std::views::reverse) {
-    if (child == modeBg || child == modeText || child == selectIndicator)
-      continue;
-    if (child->isCursorInside()) {
-      hoveredChild = child;
-      break;
-    }
-  }
-  if (hoveredChild) {
-    if (!selectIndicator)
-      selectIndicator =
-          addChild<hud::EmptyRect>(hoveredChild->position, hoveredChild->size);
-    else {
+
+  // Update selection indicator visibility
+  if (elementToHighlight) {
+    if (!selectIndicator) {
+      glm::vec2 localPos = (elementToHighlight->position - position) / size;
+      glm::vec2 localSize = elementToHighlight->size / size;
+      selectIndicator = addChild<hud::EmptyRect>(localPos, localSize);
+    } else {
+      // Ensure selectIndicator is drawn on top
       auto it = std::find(children.begin(), children.end(), selectIndicator);
       if (it != children.end()) {
         std::rotate(it, it + 1, children.end());
       }
-      selectIndicator->position = hoveredChild->position;
-      selectIndicator->size = hoveredChild->size;
+      selectIndicator->position = elementToHighlight->position;
+      selectIndicator->size = elementToHighlight->size;
     }
-    return true;
+  } else if (selectIndicator) {
+    auto it = std::find(children.begin(), children.end(), selectIndicator);
+    if (it != children.end()) {
+      children.erase(it);
+    }
+    selectIndicator = nullptr;
   }
+
   return true;
 }
 bool Canvas::handleDrop(int count, const char **paths) {
@@ -345,7 +463,7 @@ void Canvas::saveToFile(const std::filesystem::path &path) {
     if (child == modeBg || child == modeText || child == selectIndicator)
       continue;
 
-    if (auto rect = std::dynamic_pointer_cast<vkh::hud::Rect>(child)) {
+    if (auto rect = std::dynamic_pointer_cast<vkh::hud::RectImg>(child)) {
       if (rect->imageIndex > 0) {
         if (textureToSavedIndex.find(rect->imageIndex) ==
             textureToSavedIndex.end()) {
@@ -383,7 +501,7 @@ void Canvas::saveToFile(const std::filesystem::path &path) {
       content.push_back('T');
       writeVec2(localPos);
       writeString(textInput->getContent());
-    } else if (auto rect = std::dynamic_pointer_cast<vkh::hud::Rect>(child)) {
+    } else if (auto rect = std::dynamic_pointer_cast<vkh::hud::RectImg>(child)) {
       content.push_back('R');
       writeVec2(localPos);
       writeVec2(localSize);
@@ -399,6 +517,15 @@ void Canvas::saveToFile(const std::filesystem::path &path) {
       writeVec2(localPos);
       writeVec2(localSize);
       writeVec3(line->color);
+    } else if (auto poly =
+                   std::dynamic_pointer_cast<vkh::hud::PolyLine>(child)) {
+      content.push_back('P');
+      writeVec3(poly->color);
+      uint32_t pointCount = static_cast<uint32_t>(poly->points.size());
+      writeBinary(pointCount);
+      for (const auto &p : poly->points) {
+        writeVec2(p);
+      }
     }
   }
 
@@ -482,7 +609,7 @@ void Canvas::loadFromFile(const std::filesystem::path &path) {
       if (savedTexIndex > 0 && savedTexIndex <= textureCount) {
         actualTexIndex = loadedTextureIndices[savedTexIndex - 1];
       }
-      addChild<hud::Rect>(pos, size, actualTexIndex);
+      addChild<hud::RectImg>(pos, size, actualTexIndex);
       break;
     }
     case 'L': {
@@ -490,6 +617,18 @@ void Canvas::loadFromFile(const std::filesystem::path &path) {
       glm::vec2 size = readVec2();
       glm::vec3 color = readVec3();
       addChild<hud::Line>(pos, size, color);
+      break;
+    }
+    case 'P': {
+      glm::vec3 color = readVec3();
+      uint32_t pointCount = readBinary.operator()<uint32_t>();
+      if (pointCount > 0) {
+        glm::vec2 firstPoint = readVec2();
+        auto poly = addChild<hud::PolyLine>(firstPoint, color);
+        for (uint32_t i = 1; i < pointCount; ++i) {
+          poly->addPoint(readVec2());
+        }
+      }
       break;
     }
     default:

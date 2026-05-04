@@ -40,6 +40,37 @@ void TextSys::createBuffers() {
       maxIndexCount);
   indexBuffer->map();
 }
+
+void TextSys::ensureCapacity(size_t vertexCount, size_t indexCount) {
+  bool needsRecreation = false;
+  if (vertexCount > maxVertexCount) {
+    maxVertexCount =
+        std::max(static_cast<int>(vertexCount), maxVertexCount * 2);
+    needsRecreation = true;
+  }
+  if (indexCount > maxIndexCount) {
+    maxIndexCount = std::max(static_cast<int>(indexCount), maxIndexCount * 2);
+    needsRecreation = true;
+  }
+
+  if (needsRecreation) {
+    vkDeviceWaitIdle(context.vulkan.device);
+    vertexBuffer = std::make_unique<Buffer<Vertex>>(
+        context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        maxVertexCount);
+    vertexBuffer->map();
+
+    indexBuffer = std::make_unique<Buffer<uint32_t>>(
+        context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        maxIndexCount);
+    indexBuffer->map();
+  }
+}
+
 void TextSys::createDescriptors() {
   setLayout = buildDescriptorSetLayout(
       context, {VkDescriptorSetLayoutBinding{
@@ -56,7 +87,7 @@ void TextSys::createDescriptors() {
   writer.updateSet(set);
 }
 void TextSys::createPipeline() {
-  std::vector<VkDescriptorSetLayout> setLayouts{
+  std::array<VkDescriptorSetLayout, 2> setLayouts{
       context.vulkan.globalDescriptorSetLayout, setLayout};
 
   VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
@@ -73,7 +104,9 @@ void TextSys::createPipeline() {
   pipelineInfo.vertpath = "shaders/text.vert.spv";
   pipelineInfo.fragpath = "shaders/text.frag.spv";
   pipelineInfo.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
-  pipelineInfo.subpass = 1;
+  pipelineInfo.subpass = 0;
+  pipelineInfo.multisampleInfo.rasterizationSamples =
+      context.vulkan.msaaSamples;
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "text");
 }
 void TextSys::createGlyphs() {

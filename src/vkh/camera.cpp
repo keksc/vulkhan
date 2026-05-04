@@ -64,9 +64,51 @@ void calcViewYXZ(EngineContext &context) {
                     glm::vec3(context.camera.viewMatrix[2]) * p.z,
                 1.0f);
 
-  // Inverse view matrix is camera transform: T * R
   context.camera.inverseViewMatrix = glm::mat4_cast(q);
   context.camera.inverseViewMatrix[3] = glm::vec4(p, 1.0f);
+}
+
+Ray getPickingRay(const EngineContext &context, glm::vec2 mousePos) {
+  glm::mat4 invProj = glm::inverse(context.camera.projectionMatrix);
+  glm::mat4 invView = context.camera.inverseViewMatrix;
+
+  // mousePos is in NDC [-1, 1]
+  glm::vec4 rayClip = glm::vec4(mousePos.x, mousePos.y, -1.0, 1.0);
+  glm::vec4 rayEye = invProj * rayClip;
+  rayEye = glm::vec4(rayEye.x, rayEye.y, -1.0, 0.0);
+
+  glm::vec3 rayWorld = glm::vec3(invView * rayEye);
+  rayWorld = glm::normalize(rayWorld);
+
+  return Ray{context.camera.position, rayWorld};
+}
+
+std::vector<glm::vec4> getFrustumPlanes(const glm::mat4 &m) {
+  std::vector<glm::vec4> planes(6);
+  // Left
+  planes[0] = glm::vec4(m[0][3] + m[0][0], m[1][3] + m[1][0], m[2][3] + m[2][0],
+                        m[3][3] + m[3][0]);
+  // Right
+  planes[1] = glm::vec4(m[0][3] - m[0][0], m[1][3] - m[1][0], m[2][3] - m[2][0],
+                        m[3][3] - m[3][0]);
+  // Bottom
+  planes[2] = glm::vec4(m[0][3] + m[0][1], m[1][3] + m[1][1], m[2][3] + m[2][1],
+                        m[3][3] + m[3][1]);
+  // Top
+  planes[3] = glm::vec4(m[0][3] - m[0][1], m[1][3] - m[1][1], m[2][3] - m[2][1],
+                        m[3][3] - m[3][1]);
+  // Near
+  planes[4] = glm::vec4(m[0][3] + m[0][2], m[1][3] + m[1][2], m[2][3] + m[2][2],
+                        m[3][3] + m[3][2]);
+  // Far
+  planes[5] = glm::vec4(m[0][3] - m[0][2], m[1][3] - m[1][2], m[2][3] - m[2][2],
+                        m[3][3] - m[3][2]);
+
+  for (int i = 0; i < 6; i++) {
+    float length = glm::length(glm::vec3(planes[i]));
+    planes[i] /= length;
+  }
+  return planes;
 }
 } // namespace camera
 } // namespace vkh

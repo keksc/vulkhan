@@ -5,10 +5,10 @@
 namespace vkh {
 namespace hud {
 class Text;
-class Button : public Rect {
+class Button : public RectImg {
 public:
   Button(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
-         decltype(Rect::imageIndex) imageIndex,
+         decltype(RectImg::imageIndex) imageIndex,
          std::function<void(int button, int action, int mods)> onClick,
          const std::string &label);
   void setCallback(std::function<void(int, int, int)> newCallback);

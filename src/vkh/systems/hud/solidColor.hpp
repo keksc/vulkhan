@@ -1,12 +1,13 @@
 #pragma once
 
+#include <filesystem>
 #include <glm/glm.hpp>
 #include <vulkan/vulkan_core.h>
 
 #include "../system.hpp"
 
-#include <vector>
 #include <memory>
+#include <vector>
 
 namespace vkh {
 template <typename T> class Buffer;
@@ -68,12 +69,15 @@ public:
   };
 
   void render(size_t lineVerticesSize, size_t triangleIndicesSize);
+  void ensureLineCapacity(size_t vertexCount, size_t indexCount);
+  void ensureTriangleCapacity(size_t vertexCount, size_t indexCount);
 
   std::unique_ptr<Buffer<LineVertex>> linesVertexBuffer;
   std::unique_ptr<Buffer<uint32_t>> linesIndexBuffer;
   std::unique_ptr<Buffer<TriangleVertex>> trianglesVertexBuffer;
   std::unique_ptr<Buffer<uint32_t>> trianglesIndexBuffer;
-  unsigned short addTextureFromPNGMemory(void *data, size_t size);
+  size_t addTextureFromPNGMemory(void *data, size_t size);
+  size_t addTextureFromFile(std::filesystem::path path);
 
   std::vector<Image> images;
 
@@ -83,22 +87,16 @@ private:
   void createPipelines();
   void updateDescriptors();
 
-  const int maxLineCount = 200;
-  const int maxLineVertexCount = 2 * maxLineCount;
-  const int maxLineIndexCount = 2 * maxLineCount;
-  const VkDeviceSize maxLineVertexSize =
-      sizeof(LineVertex) * maxLineVertexCount;
+  int maxLineVertexCount = 400;
+  int maxLineIndexCount = 400;
 
-  const uint32_t maxTextures = 64;
-  const int maxRectCount = 1000;
-  const int maxTriangleVertexCount = 4 * maxRectCount; // 4 vertices = 1 quad
-  const int maxTriangleIndexCount = 6 * maxRectCount;
-  VkDeviceSize maxTriangleVertexSize =
-      sizeof(TriangleVertex) * maxTriangleVertexCount;
+  const uint32_t maxTextures = 256;
+  int maxTriangleVertexCount = 4000;
+  int maxTriangleIndexCount = 6000;
 
   std::unique_ptr<GraphicsPipeline> trianglePipeline;
   std::unique_ptr<GraphicsPipeline> linesPipeline;
-  VkDescriptorSetLayout setLayout;
-  VkDescriptorSet set;
+  VkDescriptorSetLayout texturesSetLayout;
+  VkDescriptorSet texturesSet;
 };
 } // namespace vkh
