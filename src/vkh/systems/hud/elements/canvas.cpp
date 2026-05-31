@@ -35,7 +35,7 @@ void Canvas::initBaseElements() {
   selectedElement = nullptr;
   modeBg = addChild<hud::RectImg>(glm::vec2{}, glm::vec2{1.f}, 0);
   modeText = addChild<hud::Text>(glm::vec2{}, "mode: Select");
-  modeBg->size = modeText->size;
+  modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
 }
 Canvas::Canvas(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
                decltype(RectImg::imageIndex) bgImageIndex)
@@ -60,13 +60,13 @@ bool Canvas::handleKey(int key, int scancode, int action, int mods) {
       auto texIndex = view.hudSys.solidColorSys.addTextureFromPNGMemory(
           pngData.data(), pngData.size());
       const auto &cursorPos = view.context.input.cursorPos;
-      glm::vec2 newPos = (cursorPos - position) / size;
+      glm::vec2 newPos = (cursorPos - absPos) / absSize;
       glm::vec2 newSize{glm::vec2{w, h} /
                         static_cast<glm::vec2>(view.context.window.size)};
       addChild<hud::RectImg>(newPos, newSize, texIndex);
     } else {
       const auto &cursorPos = view.context.input.cursorPos;
-      glm::vec2 newPos = (cursorPos - position) / size;
+      glm::vec2 newPos = (cursorPos - absPos) / absSize;
       addChild<hud::TextInput>(newPos, glfwGetClipboardString(NULL), false);
     }
     return true;
@@ -169,31 +169,31 @@ bool Canvas::handleKey(int key, int scancode, int action, int mods) {
     }
     mode = Mode::Select;
     modeText->content = "mode: Select";
-    modeBg->size = modeText->size;
+    modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
     return true;
   }
   if (key == input::keybinds[input::Action::PlaceText]) {
     mode = Mode::Text;
     modeText->content = "mode: Text";
-    modeBg->size = modeText->size;
+    modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
     return true;
   }
   if (key == input::keybinds[input::Action::PlaceRect]) {
     mode = Mode::Rect;
     modeText->content = "mode: Rect";
-    modeBg->size = modeText->size;
+    modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
     return true;
   }
   if (key == input::keybinds[input::Action::PlaceLine]) {
     mode = Mode::Line;
     modeText->content = "mode: Line";
-    modeBg->size = modeText->size;
+    modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
     return true;
   }
   if (key == input::keybinds[input::Action::PlaceFreehand]) {
     mode = Mode::Freehand;
     modeText->content = "mode: Freehand";
-    modeBg->size = modeText->size;
+    modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
     return true;
   }
   if (key >= GLFW_KEY_1 && key <= GLFW_KEY_9) {
@@ -248,7 +248,7 @@ bool Canvas::handleMouseButton(int button, int action, int mods) {
   const auto &cursorPos = view.context.input.cursorPos;
 
   if (action == GLFW_PRESS) {
-    glm::vec2 localPos = (cursorPos - position) / size;
+    glm::vec2 localPos = (cursorPos - absPos) / absSize;
     glm::vec2 newSize{};
     switch (mode) {
     case Mode::Select:
@@ -260,12 +260,13 @@ bool Canvas::handleMouseButton(int button, int action, int mods) {
         if (child->isCursorInside()) {
           selectedElement = child;
           // Check if we are near the bottom-right corner for resizing
-          glm::vec2 br = selectedElement->position + selectedElement->size;
+          glm::vec2 br = selectedElement->getAbsolutePosition() +
+                         selectedElement->getAbsoluteSize();
           if (glm::length(cursorPos - br) < 0.05f) {
             interaction = Interaction::Resizing;
           } else {
             interaction = Interaction::Moving;
-            dragOffset = cursorPos - selectedElement->position;
+            dragOffset = cursorPos - selectedElement->getAbsolutePosition();
           }
           break;
         }
@@ -292,16 +293,17 @@ bool Canvas::handleMouseButton(int button, int action, int mods) {
 
     if (selectedElement) {
       if (!selectIndicator) {
-        glm::vec2 localPos = (selectedElement->position - position) / size;
-        glm::vec2 localSize = selectedElement->size / size;
+        glm::vec2 localPos = selectedElement->getPosition();
+        glm::vec2 localSize = selectedElement->getSize();
         selectIndicator = addChild<hud::EmptyRect>(localPos, localSize);
       } else {
         auto it = std::find(children.begin(), children.end(), selectIndicator);
         if (it != children.end()) {
           std::rotate(it, it + 1, children.end());
         }
-        selectIndicator->position = selectedElement->position;
-        selectIndicator->size = selectedElement->size;
+        selectIndicator->setAbsolutePosition(
+            selectedElement->getAbsolutePosition());
+        selectIndicator->setAbsoluteSize(selectedElement->getAbsoluteSize());
       }
     } else if (selectIndicator) {
       auto it = std::find(children.begin(), children.end(), selectIndicator);
@@ -331,48 +333,52 @@ bool Canvas::handleCursorPosition(double xpos, double ypos) {
   if (interaction == Interaction::Creating) {
     if (mode == Mode::Freehand && selectedElement) {
       if (glm::length(cursorPos - dragOffset) > 0.01f) {
-        glm::vec2 localPos = (cursorPos - position) / size;
+        glm::vec2 localPos = (cursorPos - absPos) / absSize;
         if (auto poly = std::dynamic_pointer_cast<vkh::hud::PolyLine>(
                 selectedElement)) {
           poly->addPoint(localPos);
           dragOffset = cursorPos;
-          selectIndicator->position = poly->position;
-          selectIndicator->size = poly->size;
+          selectIndicator->setAbsolutePosition(poly->getAbsolutePosition());
+          selectIndicator->setAbsoluteSize(poly->getAbsoluteSize());
         }
       }
     } else if (selectedElement &&
                !std::dynamic_pointer_cast<vkh::hud::TextInput>(
                    selectedElement)) {
-      selectedElement->size = cursorPos - selectedElement->position;
-      selectIndicator->position = selectedElement->position;
-      selectIndicator->size = selectedElement->size;
+      selectedElement->setAbsoluteSize(cursorPos -
+                                       selectedElement->getAbsolutePosition());
+      selectIndicator->setAbsolutePosition(
+          selectedElement->getAbsolutePosition());
+      selectIndicator->setAbsoluteSize(selectedElement->getAbsoluteSize());
     }
   } else if (interaction == Interaction::Moving && selectedElement) {
-    glm::vec2 oldPos = selectedElement->position;
-    selectedElement->position = cursorPos - dragOffset;
-    glm::vec2 delta = selectedElement->position - oldPos;
+    glm::vec2 oldPos = selectedElement->getAbsolutePosition();
+    selectedElement->setAbsolutePosition(cursorPos - dragOffset);
+    glm::vec2 delta = selectedElement->getAbsolutePosition() - oldPos;
 
     if (auto poly =
             std::dynamic_pointer_cast<vkh::hud::PolyLine>(selectedElement)) {
       for (auto &p : poly->points) {
-        p += delta / size;
+        p += delta / absSize;
       }
     }
 
     if (selectIndicator) {
-      selectIndicator->position = selectedElement->position;
-      selectIndicator->size = selectedElement->size;
+      selectIndicator->setAbsolutePosition(
+          selectedElement->getAbsolutePosition());
+      selectIndicator->setAbsoluteSize(selectedElement->getAbsoluteSize());
     }
     return true;
   } else if (interaction == Interaction::Resizing && selectedElement) {
-    glm::vec2 oldSize = selectedElement->size;
-    selectedElement->size = cursorPos - selectedElement->position;
+    glm::vec2 oldSize = selectedElement->getAbsoluteSize();
+    selectedElement->setAbsoluteSize(cursorPos -
+                                     selectedElement->getAbsolutePosition());
 
     if (auto poly =
             std::dynamic_pointer_cast<vkh::hud::PolyLine>(selectedElement)) {
       if (glm::abs(oldSize.x) > 1e-5f && glm::abs(oldSize.y) > 1e-5f) {
-        glm::vec2 scale = selectedElement->size / oldSize;
-        glm::vec2 relPos = (selectedElement->position - position) / size;
+        glm::vec2 scale = selectedElement->getAbsoluteSize() / oldSize;
+        glm::vec2 relPos = selectedElement->getPosition();
         for (auto &p : poly->points) {
           p = relPos + (p - relPos) * scale;
         }
@@ -380,8 +386,9 @@ bool Canvas::handleCursorPosition(double xpos, double ypos) {
     }
 
     if (selectIndicator) {
-      selectIndicator->position = selectedElement->position;
-      selectIndicator->size = selectedElement->size;
+      selectIndicator->setAbsolutePosition(
+          selectedElement->getAbsolutePosition());
+      selectIndicator->setAbsoluteSize(selectedElement->getAbsoluteSize());
     }
     return true;
   }
@@ -402,8 +409,8 @@ bool Canvas::handleCursorPosition(double xpos, double ypos) {
   // Update selection indicator visibility
   if (elementToHighlight) {
     if (!selectIndicator) {
-      glm::vec2 localPos = (elementToHighlight->position - position) / size;
-      glm::vec2 localSize = elementToHighlight->size / size;
+      glm::vec2 localPos = elementToHighlight->getPosition();
+      glm::vec2 localSize = elementToHighlight->getSize();
       selectIndicator = addChild<hud::EmptyRect>(localPos, localSize);
     } else {
       // Ensure selectIndicator is drawn on top
@@ -411,8 +418,9 @@ bool Canvas::handleCursorPosition(double xpos, double ypos) {
       if (it != children.end()) {
         std::rotate(it, it + 1, children.end());
       }
-      selectIndicator->position = elementToHighlight->position;
-      selectIndicator->size = elementToHighlight->size;
+      selectIndicator->setAbsolutePosition(
+          elementToHighlight->getAbsolutePosition());
+      selectIndicator->setAbsoluteSize(elementToHighlight->getAbsoluteSize());
     }
   } else if (selectIndicator) {
     auto it = std::find(children.begin(), children.end(), selectIndicator);
@@ -493,15 +501,16 @@ void Canvas::saveToFile(const std::filesystem::path &path) {
     if (child == modeBg || child == modeText || child == selectIndicator)
       continue;
 
-    glm::vec2 localPos = (child->position - position) / size;
-    glm::vec2 localSize = child->size / size;
+    glm::vec2 localPos = child->getPosition();
+    glm::vec2 localSize = child->getSize();
 
     if (auto textInput =
             std::dynamic_pointer_cast<vkh::hud::TextInput>(child)) {
       content.push_back('T');
       writeVec2(localPos);
-      writeString(textInput->getContent());
-    } else if (auto rect = std::dynamic_pointer_cast<vkh::hud::RectImg>(child)) {
+      writeString(textInput->content);
+    } else if (auto rect =
+                   std::dynamic_pointer_cast<vkh::hud::RectImg>(child)) {
       content.push_back('R');
       writeVec2(localPos);
       writeVec2(localSize);

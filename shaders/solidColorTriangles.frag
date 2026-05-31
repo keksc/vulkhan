@@ -32,7 +32,7 @@ float waterHighlight(vec2 p, float time, float foaminess) {
 
 void main() {
   float t = ubo.time * 0.02 + 23.0;
-  vec2 uvScreen = uv;//gl_FragCoord.xy / ubo.resolution;
+  vec2 uvScreen = uv;
   vec2 uvSquare = vec2(uvScreen.x * ubo.aspectRatio, uvScreen.y);
   float dCenter = sqrt(length(uvScreen - 0.5));
 

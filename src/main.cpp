@@ -14,6 +14,7 @@
 #include "vkh/renderer.hpp"
 #include "vkh/swapChain.hpp"
 #include "vkh/systems/entity/entities.hpp"
+#include "vkh/systems/hud/elements/polygon.hpp"
 #include "vkh/systems/hud/hud.hpp"
 #include "vkh/systems/particles.hpp"
 #include "vkh/systems/skybox.hpp"
@@ -37,15 +38,60 @@
 
 std::mt19937 rng{std::random_device{}()};
 
-class KeybindEdit : public vkh::hud::Button {
-public:
-  KeybindEdit(vkh::hud::View &view, Element *parent, glm::vec2 position,
-              glm::vec2 size, decltype(Button::imageIndex) imageIndex,
-              std::function<void(int, int, int)> onClick,
-              const std::string &label)
-      : Button{view, parent, position, size, imageIndex, onClick, label} {}
-  vkh::input::Action action;
-};
+std::vector<glm::mat4> genTransform() {
+
+  std::uniform_int_distribution<uint32_t> countDist(
+      3, 5); // 3 to 5 transformations looks great in 3D
+  uint32_t numTransforms = countDist(rng);
+
+  // Keep scales strictly bound so the 3D volume remains stable and
+  // contained
+  std::uniform_real_distribution<float> scaleDist(0.35f, 0.55f);
+  std::uniform_real_distribution<float> angleDist(0.0f, 2.0f * M_PI);
+  std::uniform_real_distribution<float> transDist(
+      -0.6f, 0.6f); // 3D translation limits
+
+  std::vector<glm::mat4> transformationMats;
+  transformationMats.reserve(numTransforms);
+
+  for (uint32_t i = 0; i < numTransforms; ++i) {
+    float sX = scaleDist(rng);
+    float sY = scaleDist(rng);
+    float sZ = scaleDist(rng); // Add Z scaling
+
+    // Random angles for all 3 axes
+    float ax = angleDist(rng);
+    float ay = angleDist(rng);
+    float az = angleDist(rng);
+
+    // Create distinct rotation matrices for each axis
+    glm::mat4 rotX =
+        glm::rotate(glm::mat4(1.0f), ax, glm::vec3(1.0f, 0.0f, 0.0f));
+    glm::mat4 rotY =
+        glm::rotate(glm::mat4(1.0f), ay, glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 rotZ =
+        glm::rotate(glm::mat4(1.0f), az, glm::vec3(0.0f, 0.0f, 1.0f));
+
+    // Combine rotations: R = Z * Y * X
+    glm::mat4 combinedRotation = rotZ * rotY * rotX;
+
+    // Apply scaling directly to the directional basis vectors
+    // (columns 0, 1, 2)
+    combinedRotation[0] = combinedRotation[0] * sX;
+    combinedRotation[1] = combinedRotation[1] * sY;
+    combinedRotation[2] = combinedRotation[2] * sZ;
+
+    // Translation
+    combinedRotation[3][0] = transDist(rng);
+    combinedRotation[3][1] = transDist(rng);
+    combinedRotation[3][2] = transDist(rng);
+
+    combinedRotation[3][3] = 1.0f;
+
+    transformationMats.push_back(combinedRotation);
+  }
+  return transformationMats;
+}
 
 void run() {
   vkh::EngineContext context{};
@@ -66,46 +112,47 @@ void run() {
     // vkh::audio::Sound bgm("sounds/Enter Remollon.opus");
     // bgm.play();
 
-    vkh::SkyboxSys skyboxSys(context);
-    vkh::EntitySys entitySys(context);
+    // vkh::SkyboxSys skyboxSys(context);
+    // vkh::EntitySys entitySys(context);
     vkh::SmokeSys smokeSys(context);
     // vkh::WaterSys waterSys(context, skyboxSys);
     vkh::ParticleSys particleSys(context);
 
-    auto &entities = entitySys.entities;
-    generateDungeon(context, entitySys);
-    auto piano = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-        context, "models/piano-decent.glb", entitySys.texturesSetLayout);
-    for (size_t i = 0; i < piano->meshes.size(); i++)
-      entities.emplace_back(
-          vkh::EntitySys::Transform{.position{10.f, 10.f, 10.f}},
-          vkh::EntitySys::RigidBody{}, piano, i);
-
-    auto manorcore = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-        context, "models/manorcore.glb", entitySys.texturesSetLayout);
-    for (size_t i = 0; i < manorcore->meshes.size(); i++)
-      entities.emplace_back(
-          vkh::EntitySys::Transform{.position{25.f}, .scale{1.f}},
-          vkh::EntitySys::RigidBody{}, manorcore, i);
-    // waterSys.downloadDisplacementAtWorldPos();
-
-    auto shoe = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-        context, "models/MaterialsVariantsShoe.glb",
-        entitySys.texturesSetLayout);
-    auto playerModel = shoe;
-
-    std::unordered_map<uint32_t, uint32_t> playersIndices;
-
-    // Sort to group meshes for indirect drawing
-    std::sort(
-        entities.begin(), entities.end(),
-        [](const vkh::EntitySys::Entity &a, const vkh::EntitySys::Entity &b) {
-          if (a.scene != b.scene)
-            return a.scene < b.scene;
-          return a.meshIndex < b.meshIndex;
-        });
-
-    entitySys.updateBuffers();
+    // auto &entities = entitySys.entities;
+    // generateDungeon(context, entitySys);
+    // auto piano = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+    //     context, "models/piano-decent.glb", entitySys.texturesSetLayout);
+    // for (size_t i = 0; i < piano->meshes.size(); i++)
+    //   entities.emplace_back(
+    //       vkh::EntitySys::Transform{.position{10.f, 10.f, 10.f}},
+    //       vkh::EntitySys::RigidBody{}, piano, i);
+    //
+    // auto manorcore = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+    //     context, "models/manorcore.glb", entitySys.texturesSetLayout);
+    // for (size_t i = 0; i < manorcore->meshes.size(); i++)
+    //   entities.emplace_back(
+    //       vkh::EntitySys::Transform{.position{25.f}, .scale{1.f}},
+    //       vkh::EntitySys::RigidBody{}, manorcore, i);
+    // // waterSys.downloadDisplacementAtWorldPos();
+    //
+    // auto shoe = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+    //     context, "models/MaterialsVariantsShoe.glb",
+    //     entitySys.texturesSetLayout);
+    // auto playerModel = shoe;
+    //
+    // std::unordered_map<uint32_t, uint32_t> playersIndices;
+    //
+    // // Sort to group meshes for indirect drawing
+    // std::sort(
+    //     entities.begin(), entities.end(),
+    //     [](const vkh::EntitySys::Entity &a, const vkh::EntitySys::Entity &b)
+    //     {
+    //       if (a.scene != b.scene)
+    //         return a.scene < b.scene;
+    //       return a.meshIndex < b.meshIndex;
+    //     });
+    //
+    // entitySys.updateBuffers();
 
     vkh::HudSys hudSys(context);
     hudSys.solidColorSys.addTextureFromFile(
@@ -117,6 +164,24 @@ void run() {
     vkh::hud::View canvasView(context, hudSys);
     vkh::hud::View smokeView(context, hudSys);
 
+    // std::vector<vkh::hud::Polygon::Vertex> vertices;
+    //
+    // const size_t n = 5;
+    // const float R = .3f;
+    // const float r = .2f;
+    // glm::vec2 c{.5f};
+    // for (int i = 0; i < 2 * n; i++) {
+    //   float angle = i * M_PI / n; // 2π / (2n) = π / n
+    //   float radius = (i % 2 == 0) ? R : r;
+    //
+    //   vkh::hud::Polygon::Vertex v;
+    //   v.pos.x = c.x + radius * cos(angle);
+    //   v.pos.y = c.y + radius * sin(angle);
+    //
+    //   vertices.emplace_back(v);
+    // }
+    // worldView.container.addChild<vkh::hud::Polygon>(vertices, 0);
+
     // FeatherDuckGuard featherDuckGuard(context, entitySys, worldView);
 
     auto canvas = canvasView.container.addChild<vkh::hud::Canvas>(
@@ -125,7 +190,7 @@ void run() {
     // vkh::audio::Sound uiSound("sounds/ui.wav");
     // vkh::audio::Sound
     // paperSound("sounds/568962__efrane__ripping-paper-10.wav");
-    auto canvasBtn = pauseView.container.addChild<vkh::hud::Button>(
+    auto canvasBtn = pauseView.container.addChild<UIBtn>(
         glm::vec2{.8f, 0.f}, glm::vec2{.2f, .2f}, 0,
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
@@ -165,8 +230,7 @@ void run() {
           }
         },
         "Edit settings");
-    settingsView.container.addChild<vkh::hud::Text>(glm::vec2{},
-                                                     "Keybinds");
+    settingsView.container.addChild<vkh::hud::Text>(glm::vec2{}, "Keybinds");
 
     std::unique_ptr<Network> network;
     auto addr = pauseView.container.addChild<vkh::hud::TextInput>(
@@ -176,7 +240,7 @@ void run() {
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
             try {
-              network = std::make_unique<Network>(addr->getContent().c_str());
+              network = std::make_unique<Network>(addr->content.c_str());
             } catch (const std::exception &e) {
               std::println("{}", e.what());
             }
@@ -253,6 +317,8 @@ void run() {
       i++;
     }
 
+    bool updateParticleSysAttractor = false;
+
     worldView.container.addEventHandler<vkh::input::EventType::Key>(
         [&](int key, int scancode, int action, int mods) {
           if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
@@ -262,6 +328,11 @@ void run() {
             worldYawAndPitch = {context.camera.yaw, context.camera.pitch};
             glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             hudSys.setView(&pauseView);
+            return true;
+          }
+          if (key == GLFW_KEY_R &&
+              (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+            updateParticleSysAttractor = true;
             return true;
           }
           return false;
@@ -293,10 +364,14 @@ void run() {
         glm::vec2{}, glm::vec2{.3f, .3f}, 0);
     auto fpsText = fpsRect->addChild<vkh::hud::Text>(glm::vec2{});
 
-    auto orientationtxt =
+    auto orientationTxt =
         worldView.container.addChild<vkh::hud::Text>(glm::vec2{1.f, -1.f});
 
     vkh::EntitySys::Entity *lastPicked = nullptr;
+
+    std::vector<glm::mat4> newTransform = genTransform();
+    std::vector<glm::mat4> prevTransform = newTransform;
+    float timeOfNewTransform = 0.f;
 
     auto currentTime = std::chrono::high_resolution_clock::now();
     auto initTime = currentTime;
@@ -311,7 +386,7 @@ void run() {
 
       context.time = std::chrono::duration<float>(newTime - initTime).count();
 
-      animateBubbly(hudSys.getView());
+      animateBubbly(context, hudSys.getView()->container);
 
       // featherDuckGuard.update();
 
@@ -325,56 +400,56 @@ void run() {
       }
       vkh::audio::setVolume(volume);
 
-      if (network) {
-        bool needUpdate = false;
-
-        std::vector<uint8_t> pktData;
-        while (network->receive(pktData)) {
-          if (pktData.size() >= sizeof(Packet)) {
-            needUpdate = true;
-            Packet *p = reinterpret_cast<Packet *>(pktData.data());
-
-            if (p->type == PacketType::Join) {
-              playersIndices[p->id] = entities.size();
-              for (size_t i = 0; i < playerModel->meshes.size(); i++)
-                entities.emplace_back(vkh::EntitySys::Transform{.position{5.f}},
-                                      vkh::EntitySys::RigidBody{}, playerModel,
-                                      i, p->id);
-            } else if (p->type == PacketType::Leave) {
-              for (int i = 0; i < entities.size();) {
-                if (entities[i].id == p->id) {
-                  entities[i] = entities.back();
-                  entities.pop_back();
-                } else {
-                  ++i;
-                }
-              }
-            } else if (p->type == PacketType::Update &&
-                       pktData.size() >= sizeof(UpdatePacket)) {
-              UpdatePacket *up =
-                  reinterpret_cast<UpdatePacket *>(pktData.data());
-              if (playersIndices.contains(up->id)) {
-                auto begin = entities.begin() + playersIndices[up->id];
-                for (size_t i = 0; i < playerModel->meshes.size(); i++) {
-                  (begin + i)->transform.position = up->position;
-                  (begin + i)->transform.orientation = up->orientation;
-                }
-              }
-            }
-          }
-        }
-
-        // Send local player position to the server
-        UpdatePacket myUpdate;
-        myUpdate.type = PacketType::Update;
-        myUpdate.id = 0; // Overwritten by server
-        myUpdate.position = context.camera.position;
-        myUpdate.orientation = context.camera.orientation;
-
-        network->send(&myUpdate, sizeof(myUpdate));
-        if (needUpdate)
-          entitySys.updateBuffers();
-      }
+      // if (network) {
+      //   bool needUpdate = false;
+      //
+      //   std::vector<uint8_t> pktData;
+      //   while (network->receive(pktData)) {
+      //     if (pktData.size() >= sizeof(Packet)) {
+      //       needUpdate = true;
+      //       Packet *p = reinterpret_cast<Packet *>(pktData.data());
+      //
+      //       if (p->type == PacketType::Join) {
+      //         playersIndices[p->id] = entities.size();
+      //         for (size_t i = 0; i < playerModel->meshes.size(); i++)
+      //           entities.emplace_back(vkh::EntitySys::Transform{.position{5.f}},
+      //                                 vkh::EntitySys::RigidBody{},
+      //                                 playerModel, i, p->id);
+      //       } else if (p->type == PacketType::Leave) {
+      //         for (int i = 0; i < entities.size();) {
+      //           if (entities[i].id == p->id) {
+      //             entities[i] = entities.back();
+      //             entities.pop_back();
+      //           } else {
+      //             ++i;
+      //           }
+      //         }
+      //       } else if (p->type == PacketType::Update &&
+      //                  pktData.size() >= sizeof(UpdatePacket)) {
+      //         UpdatePacket *up =
+      //             reinterpret_cast<UpdatePacket *>(pktData.data());
+      //         if (playersIndices.contains(up->id)) {
+      //           auto begin = entities.begin() + playersIndices[up->id];
+      //           for (size_t i = 0; i < playerModel->meshes.size(); i++) {
+      //             (begin + i)->transform.position = up->position;
+      //             (begin + i)->transform.orientation = up->orientation;
+      //           }
+      //         }
+      //       }
+      //     }
+      //   }
+      //
+      // Send local player position to the server
+      // UpdatePacket myUpdate;
+      // myUpdate.type = PacketType::Update;
+      // myUpdate.id = 0; // Overwritten by server
+      // myUpdate.position = context.camera.position;
+      // myUpdate.orientation = context.camera.orientation;
+      //
+      // network->send(&myUpdate, sizeof(myUpdate));
+      // if (needUpdate)
+      //   entitySys.updateBuffers();
+      // }
 
       static bool dontDoOnce = true;
       if (!dontDoOnce) {
@@ -386,33 +461,36 @@ void run() {
       fpsText->content =
           std::format("FPS: {}", static_cast<int>(1.f / frameTime));
 
-      fpsRect->size = fpsText->size;
-      orientationtxt->position.x = 1.f - orientationtxt->size.x;
-      orientationtxt->content = std::format(
+      fpsRect->setAbsoluteSize(fpsText->getAbsoluteSize());
+      orientationTxt->setPosition(1.f -
+                                  glm::vec2{orientationTxt->getSize().x, 0.f});
+      orientationTxt->content = std::format(
           "Yaw: {}\nPitch:{}", context.camera.yaw, context.camera.pitch);
 
       currentTime = newTime;
 
-      vkh::input::update(context, entitySys);
+      // Disable collisions with entities by providing empty array
+      std::vector<vkh::EntitySys::Entity> empty;
+      vkh::input::update(context, empty);
 
       // Entity picking visualization
-      {
-        auto pointed = entitySys.getPointingAt(1.0f);
-        if (pointed != lastPicked) {
-          if (lastPicked) {
-            lastPicked->color = glm::vec4(1.0f); // Reset
-          }
+      // {
+      //   auto pointed = entitySys.getPointingAt(1.0f);
+      //   if (pointed != lastPicked) {
+      //     if (lastPicked) {
+      //       lastPicked->color = glm::vec4(1.0f); // Reset
+      //     }
+      //
+      //     lastPicked = pointed;
+      //
+      //     if (lastPicked) {
+      //       lastPicked->color =
+      //           glm::vec4(2.0f, 0.5f, 0.5f, 1.0f); // Highlight Red-ish
+      //     }
+      //   }
+      // }
 
-          lastPicked = pointed;
-
-          if (lastPicked) {
-            lastPicked->color =
-                glm::vec4(2.0f, 0.5f, 0.5f, 1.0f); // Highlight Red-ish
-          }
-        }
-      }
-
-      entitySys.updateBuffers();
+      // entitySys.updateBuffers();
 
       vkh::audio::update(context);
       context.camera.projectionMatrix =
@@ -442,10 +520,29 @@ void run() {
 
         if (hudSys.getView() == &worldView) {
           // waterSys.update();
+
+          if (updateParticleSysAttractor) {
+            prevTransform = newTransform;
+            newTransform = genTransform();
+          }
+          std::vector<glm::mat4> blendedTransform(newTransform.size());
+          for (size_t i = 0; i < newTransform.size(); i++) {
+            if (i > prevTransform.size() - 1) {
+              blendedTransform[i] = glm::mat4{0.f};
+              timeOfNewTransform = context.time;
+              continue;
+            }
+            float p = (context.time - timeOfNewTransform) * .5f;
+            blendedTransform[i] =
+                glm::mix(prevTransform[i], newTransform[i], p);
+          }
+          updateParticleSysAttractor = false;
+          particleSys.setAttractor(blendedTransform);
+
           particleSys.update();
 
-          entitySys.updateJoints();
-          entitySys.cull(commandBuffer);
+          // entitySys.updateJoints();
+          // entitySys.cull(commandBuffer);
         }
         if (hudSys.getView() == &smokeView) {
           smokeSys.update();
@@ -455,8 +552,8 @@ void run() {
 
         // MSAA subpass
         if (hudSys.getView() == &worldView) {
-          skyboxSys.render();
-          entitySys.render();
+          // skyboxSys.render();
+          // entitySys.render();
           // waterSys.render();
         }
         hudSys.render();

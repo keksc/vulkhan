@@ -26,7 +26,7 @@ public:
 
 private:
   void createPipeline();
-  void addToDraw(hud::Element &containerElement, float &depth,
+  void addToDraw(hud::Element &element, float &depth,
                  float oneOverElementCount);
   void update();
 

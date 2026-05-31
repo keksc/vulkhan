@@ -10,13 +10,13 @@ Text::Text(View &view, Element *parent, glm::vec2 position,
   flushSize();
 }
 void Text::addToDrawInfo(DrawInfo &drawInfo, float depth) {
-  glm::vec2 cursor = position;
+  glm::vec2 cursor = absPos;
   float maxX = cursor.x;
 
   float maxSizeY = TextSys::glyphRange.maxSizeY;
   for (auto &c : content) {
     if (c == '\n') {
-      cursor.x = position.x;
+      cursor.x = absPos.x;
       cursor.y += maxSizeY * sizeMultiplicator;
       continue;
     }
@@ -28,7 +28,7 @@ void Text::addToDrawInfo(DrawInfo &drawInfo, float depth) {
     // Calculate vertex positions for this character
     float x0 = cursor.x + ch.offset.x * sizeMultiplicator;
     float x1 = x0 + ch.size.x * sizeMultiplicator;
-    float y0 = maxSizeY + cursor.y + ch.offset.y * sizeMultiplicator;
+    float y0 = cursor.y + (maxSizeY + ch.offset.y) * sizeMultiplicator;
     float y1 = y0 + ch.size.y * sizeMultiplicator;
 
     // Add four vertices for this character
@@ -65,29 +65,29 @@ void Text::addToDrawInfo(DrawInfo &drawInfo, float depth) {
     cursor.x += ch.advance * sizeMultiplicator;
     maxX = glm::max(cursor.x, maxX);
   }
-  size = glm::vec2{maxX, cursor.y + maxSizeY} - position;
+  setAbsoluteSize(glm::vec2{maxX, cursor.y + maxSizeY * sizeMultiplicator} -
+                  absPos);
 }
-void Text::update() {
-  flushSize();
-}
+void Text::update() { flushSize(); }
 void Text::flushSize() {
   float maxSizeY = TextSys::glyphRange.maxSizeY;
-  size = glm::vec2{0.f, maxSizeY};
+  glm::vec2 newSize = glm::vec2{0.f, maxSizeY * sizeMultiplicator};
   float maxX = 0.f;
 
   for (auto &c : content) {
     if (c == '\n') {
-      maxX = glm::max(size.x, maxX);
-      size.x = 0.f;
-      size.y += maxSizeY;
+      maxX = glm::max(newSize.x, maxX);
+      newSize.x = 0.f;
+      newSize.y += maxSizeY * sizeMultiplicator;
       continue;
     }
     if (!TextSys::glyphRange.glyphs.count(c))
       continue;
     auto &ch = TextSys::glyphRange.glyphs[c];
 
-    size.x += ch.advance;
+    newSize.x += ch.advance * sizeMultiplicator;
   }
-  size.x = glm::max(size.x, maxX);
+  newSize.x = glm::max(newSize.x, maxX);
+  setAbsoluteSize(newSize);
 }
 } // namespace vkh::hud

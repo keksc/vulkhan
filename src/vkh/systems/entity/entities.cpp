@@ -477,15 +477,6 @@ void EntitySys::render() {
   debug::endLabel(context, cmd);
 }
 
-bool EntitySys::checkCollision(const AABB &aabb) const {
-  for (const auto &entity : entities) {
-    if (entity.getWorldAABB().intersects(aabb)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 EntitySys::Entity *EntitySys::pickEntity(const Ray &ray, float &distance,
                                          float maxDistance) {
   Entity *bestEntity = nullptr;

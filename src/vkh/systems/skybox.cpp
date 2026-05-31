@@ -30,7 +30,7 @@ void SkyboxSys::createSetLayout() {
   writer.updateSet(set);
 }
 SkyboxSys::SkyboxSys(EngineContext &context)
-    : System(context), cubeMap(context, "textures/skybox.ktx2") {
+    : System(context), cubeMap(context, "textures/night.ktx2") {
   createSetLayout();
 
   cubeScene = std::make_unique<Scene<Vertex>>(context, "models/cube.glb",

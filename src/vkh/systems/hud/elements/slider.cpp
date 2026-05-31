@@ -34,10 +34,10 @@ bool Slider::handleCursorPosition(double xpos, double ypos) {
 
   if (orientation == Orientation::Horizontal) {
     float normalizedX = static_cast<float>(xpos) / winSize.x * 2.f - 1.f;
-    p = (normalizedX - position.x) / size.x;
+    p = (normalizedX - absPos.x) / absSize.x;
   } else {
     float normalizedY = static_cast<float>(ypos) / winSize.y * 2.f - 1.f;
-    p = (normalizedY - position.y) / size.y;
+    p = (normalizedY - absPos.y) / absSize.y;
   }
 
   p = glm::clamp(p, 0.f, 1.f);
@@ -49,11 +49,15 @@ bool Slider::handleCursorPosition(double xpos, double ypos) {
 }
 void Slider::updateBoxPosition(float p) {
   if (orientation == Orientation::Horizontal) {
-    box->position.x =
-        glm::mix(position.x, position.x + size.x, p) - box->size.x / 2.f;
+    float x = glm::mix(absPos.x, absPos.x + absSize.x, p) -
+              box->getAbsoluteSize().x / 2.f;
+    float y = box->getAbsolutePosition().y;
+    box->setAbsolutePosition(glm::vec2{x, y});
   } else {
-    box->position.y =
-        glm::mix(position.y, position.y + size.y, p) - box->size.y / 2.f;
+    float x = box->getAbsolutePosition().x;
+    float y = glm::mix(absPos.y, absPos.y + absSize.y, p) -
+              box->getAbsoluteSize().y / 2.f;
+    box->setAbsolutePosition(glm::vec2{x, y});
   }
 }
 } // namespace vkh::hud

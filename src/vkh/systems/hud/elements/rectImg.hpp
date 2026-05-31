@@ -7,9 +7,9 @@ namespace hud {
 class RectImg : public Element {
 public:
   RectImg(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
-       unsigned short imageIndex);
+       size_t imageIndex);
 
-  unsigned short imageIndex;
+  size_t imageIndex;
 
 protected:
   void addToDrawInfo(DrawInfo &drawInfo, float depth) override;

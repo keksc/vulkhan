@@ -11,7 +11,9 @@ layout(location = 1) out flat int fragTexIndex; // flat = dont interpolate
 
 void main() {
   vec3 pos = position;
-  // pos += 0.01 * (sin(ubo.time + dot(uv, uv)) + 1.0);
+  vec2 uvScreen = position.xy / ubo.resolution;
+  // pos.x += 0.01 * (sin(ubo.time + uv.y + uvScreen.x * 2.0 + 3.0) + 1.0);
+  // pos.y += 0.01 * (sin(ubo.time + uv.x + uvScreen.y * 3.0) + 1.0);
   gl_Position = vec4(pos, 1.0);
   fragUv = uv;
   fragTexIndex = texIndex;

@@ -1,17 +1,15 @@
 #pragma once
 
-#include "rectImg.hpp"
+#include "text.hpp"
 
 namespace vkh {
 namespace hud {
-class Text;
 template <typename T> class AutoUpdateString;
-class TextInput : public RectImg {
+class TextInput : public Text {
 public:
   TextInput(View &view, Element *parent, glm::vec2 position,
             const std::string &content = "", bool selected = false);
 
-  AutoUpdateString<Text> &getContent() const;
   bool selected{false};
 
 private:
@@ -19,8 +17,6 @@ private:
   bool handleKey(int key, int scancode, int action, int mods) override;
   bool handleMouseButton(int button, int action, int mods) override;
   bool handleCursorPosition(double xpos, double ypos) override;
-
-  std::shared_ptr<Text> text;
 };
 } // namespace hud
 } // namespace vkh

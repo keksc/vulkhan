@@ -1,25 +1,13 @@
 #include "button.hpp"
 
+#include "rectImg.hpp"
 #include "text.hpp"
 
 namespace vkh::hud {
-
 Button::Button(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
-               decltype(RectImg::imageIndex) imageIndex,
-               std::function<void(int, int, int)> onClick,
+               size_t imageIndex, std::function<void(int, int, int)> onClick,
                const std::string &label)
-    : RectImg(view, parent, position, size, imageIndex), onClick{onClick},
+    : Clickable(view, parent, position, size, onClick),
+      bg{addChild<RectImg>(glm::vec2{}, glm::vec2{1.f}, imageIndex)},
       label{addChild<Text>(glm::vec2{}, label)} {}
-void Button::setCallback(std::function<void(int, int, int)> newCallback) {
-  onClick = std::move(newCallback);
-}
-bool Button::handleMouseButton(int button, int action, int mods) {
-  if(button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
-    return false;
-  if (isCursorInside()) {
-    onClick(button, action, mods);
-    return true;
-  }
-  return false;
-}
 } // namespace vkh::hud

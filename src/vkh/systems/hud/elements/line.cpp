@@ -13,18 +13,18 @@ void Line::addToDrawInfo(DrawInfo &drawInfo, float depth) {
   uint32_t baseIndex =
       static_cast<uint32_t>(drawInfo.solidColorLineVertices.size());
   drawInfo.solidColorLineVertices.emplace_back(
-      glm::vec3{position.x, position.y, depth}, color);
+      glm::vec3{absPos.x, absPos.y, depth}, color);
   drawInfo.solidColorLineVertices.emplace_back(
-      glm::vec3{position.x + size.x, position.y + size.y, depth}, color);
+      glm::vec3{absPos.x + absSize.x, absPos.y + absSize.y, depth}, color);
 
   drawInfo.solidColorLineIndices.push_back(baseIndex);
   drawInfo.solidColorLineIndices.push_back(baseIndex + 1);
 };
 bool Line::isPositionInside(const glm::vec2 &pos) {
-  glm::vec2 position2 = position + size;
-  float d1 = glm::distance(position, pos);
+  glm::vec2 position2 = absPos + absSize;
+  float d1 = glm::distance(absPos, pos);
   float d2 = glm::distance(position2, pos);
-  float d_line = glm::distance(position, position2);
+  float d_line = glm::distance(absPos, position2);
   return glm::abs(d1 + d2 - d_line) <= .005f;
 }
 } // namespace vkh::hud

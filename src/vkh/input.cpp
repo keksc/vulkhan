@@ -139,8 +139,18 @@ void init(EngineContext &context) {
   keybinds[Action::PlaceFreehand] = GLFW_KEY_F;
 }
 
+bool checkCollisionWithEntities(const std::vector<EntitySys::Entity> &entities,
+                                const AABB &aabb) {
+  for (const auto &entity : entities) {
+    if (entity.getWorldAABB().intersects(aabb)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 glm::dvec2 lastPos;
-void update(EngineContext &context, EntitySys &entitySys) {
+void update(EngineContext &context, std::vector<EntitySys::Entity> entities) {
   glm::dvec2 currentPos;
   glfwGetCursorPos(context.window, &currentPos.x, &currentPos.y);
 
@@ -197,7 +207,7 @@ void update(EngineContext &context, EntitySys &entitySys) {
       const AABB playerAABB{testPos + glm::vec3{-0.2f, -0.4f, -0.2f},
                             testPos + glm::vec3{0.2f, 0.4f, 0.2f}};
 
-      return entitySys.checkCollision(playerAABB);
+      return checkCollisionWithEntities(entities, playerAABB);
     };
 
     // Apply sliding collision by testing each axis independently

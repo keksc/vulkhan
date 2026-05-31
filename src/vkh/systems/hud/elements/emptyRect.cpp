@@ -9,9 +9,9 @@ void EmptyRect::addToDrawInfo(DrawInfo &drawInfo, float depth) {
       static_cast<uint32_t>(drawInfo.solidColorLineVertices.size());
 
   // Define 4 vertices
-  glm::vec2 a = position;
-  glm::vec2 b = {a.x + size.x, a.y};
-  glm::vec2 c = {b.x, a.y + size.y};
+  glm::vec2 a = absPos;
+  glm::vec2 b = {a.x + absSize.x, a.y};
+  glm::vec2 c = {b.x, a.y + absSize.y};
   glm::vec2 d = {a.x, c.y};
   const glm::vec3 color{1.f};
 
