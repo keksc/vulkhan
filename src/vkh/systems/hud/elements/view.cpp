@@ -8,7 +8,7 @@ View::View(EngineContext &context, HudSys &hudSys)
     : context{context}, hudSys{hudSys},
       // The conversion from [0, 1] range to Vulkan NDC implicitely happens here
       // {0, 0} is top left, {1, 1} is bottom right
-      container{*this, nullptr, glm::vec2{-1.f}, glm::vec2{2.f}} {
+      container{*this, nullptr, glm::vec2{0.f}, glm::vec2{1.f}} {
   context.inputCallbackSystems[this] = {
       [this](int button, int action, int mods) {
         container.dispatchEvent<input::EventType::MouseButton>(button, action,

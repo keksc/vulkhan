@@ -11,7 +11,7 @@ namespace vkh {
 class EngineContext;
 namespace input {
 void init(EngineContext &context);
-void update(EngineContext &context, EntitySys &entitySys);
+void update(EngineContext &context, std::vector<EntitySys::Entity> entities);
 extern glm::dvec2 lastPos;
 enum class Action {
   MoveForward,

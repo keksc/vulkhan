@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../text.hpp"
 #include "../solidColor.hpp"
+#include "../text.hpp"
 
 #include <vector>
 
@@ -14,6 +14,24 @@ struct DrawInfo {
   std::vector<uint32_t> solidColorLineIndices;
   std::vector<SolidColorSys::TriangleVertex> solidColorTriangleVertices;
   std::vector<uint32_t> solidColorTriangleIndices;
+  void add(DrawInfo other) {
+    textVertices.insert(textVertices.end(), other.textVertices.begin(),
+                        other.textVertices.end());
+    textIndices.insert(textIndices.end(), other.textIndices.begin(),
+                       other.textIndices.end());
+    solidColorLineVertices.insert(solidColorLineVertices.end(),
+                                  other.solidColorLineVertices.begin(),
+                                  other.solidColorLineVertices.end());
+    solidColorLineIndices.insert(solidColorLineIndices.end(),
+                                 other.solidColorLineIndices.begin(),
+                                 other.solidColorLineIndices.end());
+    solidColorTriangleVertices.insert(solidColorTriangleVertices.end(),
+                                      other.solidColorTriangleVertices.begin(),
+                                      other.solidColorTriangleVertices.end());
+    solidColorTriangleIndices.insert(solidColorTriangleIndices.end(),
+                                     other.solidColorTriangleIndices.begin(),
+                                     other.solidColorTriangleIndices.end());
+  }
 };
 } // namespace hud
 } // namespace vkh

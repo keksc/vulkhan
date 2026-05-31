@@ -151,10 +151,10 @@ void TextSys::createGlyphs() {
     const stbtt_packedchar &pc = charInfo[i];
 
     glm::vec2 size = glm::vec2{pc.xoff2 - pc.xoff, pc.yoff2 - pc.yoff} /
-                     static_cast<glm::vec2>(context.window.size);
+                     static_cast<glm::vec2>(context.window.size) * 2.f;
     glm::vec2 offset = glm::vec2{pc.xoff, pc.yoff} /
-                       static_cast<glm::vec2>(context.window.size);
-    float advance = pc.xadvance / context.window.size.x;
+                       static_cast<glm::vec2>(context.window.size) * 2.f;
+    float advance = pc.xadvance / context.window.size.x * 2.f;
     Glyph glyph{.size = size,
                 .offset = offset,
                 .uvOffset = glm::vec2(pc.x0, pc.y0) /

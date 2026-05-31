@@ -147,7 +147,7 @@ public:
   void setSizeMultiplicator(const float newSizeMultiplicator) {
     sizeMultiplicator = newSizeMultiplicator;
   }
-  float getSize() const { return sizeMultiplicator; }
+  float getSizeMultiplicator() const { return sizeMultiplicator; }
 
 protected:
   void addToDrawInfo(DrawInfo &drawInfo, float depth) override;

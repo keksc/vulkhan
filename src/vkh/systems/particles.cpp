@@ -1,3 +1,5 @@
+
+
 #include "particles.hpp"
 
 #include "../buffer.hpp"
@@ -7,14 +9,58 @@
 #include "../swapChain.hpp"
 
 namespace vkh {
+/* Bugged but the bug is cool
+void ParticleSys::setAttractor(std::vector<glm::mat4> newTransformations) {
+transformationCount = newTransformations.size();
 
-void ParticleSys::createBuffer() {
+transformationsBuffer = std::make_unique<Buffer<glm::mat4>>(
+    context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+    transformationCount);
+
+transformationsBuffer->map();
+transformationsBuffer->write(newTransformations.data());
+transformationsBuffer->unmap();
+
+setupDescriptorSet();
+}*/
+
+void ParticleSys::setAttractor(std::vector<glm::mat4> newTransformations) {
+  if (newTransformations.size() > transformationCount + 3 ||
+      !transformationsBuffer) {
+
+    transformationsBuffer = std::make_unique<Buffer<glm::mat4>>(
+        context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        newTransformations.size() + 3);
+    transformationsBuffer->map();
+  }
+
+  transformationCount = newTransformations.size();
+  transformationsBuffer->write(newTransformations.data());
+
+  setupDescriptorSet();
+}
+
+void ParticleSys::createVB() {
   vertexBuffer = std::make_unique<Buffer<Vertex>>(
       context,
       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, maxParticles);
 }
-void ParticleSys::setupDescriptors() {
+void ParticleSys::setupDescriptorSet() {
+  set = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
+
+  DescriptorWriter writer(context);
+  writer.writeBuffer(0, vertexBuffer->descriptorInfo(),
+                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.writeBuffer(1, transformationsBuffer->descriptorInfo(),
+                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  writer.updateSet(set);
+}
+void ParticleSys::setupDescriptorSetLayout() {
   std::vector<VkDescriptorSetLayoutBinding> bindings = {
       VkDescriptorSetLayoutBinding{
           .binding = 0,
@@ -22,15 +68,14 @@ void ParticleSys::setupDescriptors() {
           .descriptorCount = 1,
           .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
       },
+      VkDescriptorSetLayoutBinding{
+          .binding = 1,
+          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          .descriptorCount = 1,
+          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+      },
   };
   setLayout = buildDescriptorSetLayout(context, bindings);
-
-  set = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
-
-  DescriptorWriter writer(context);
-  writer.writeBuffer(0, vertexBuffer->descriptorInfo(),
-                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-  writer.updateSet(set);
 }
 void ParticleSys::createPipeline() {
   std::vector<VkDescriptorSetLayout> setLayouts{
@@ -70,9 +115,10 @@ void ParticleSys::createPipeline() {
       context, "shaders/particles.comp.spv", pipelineLayoutInfo,
       "particles compute pipeline");
 }
+
 ParticleSys::ParticleSys(EngineContext &context) : System(context) {
-  createBuffer();
-  setupDescriptors();
+  createVB();
+  setupDescriptorSetLayout();
   createPipeline();
 }
 
@@ -81,6 +127,9 @@ ParticleSys::~ParticleSys() {
 }
 
 void ParticleSys::update() {
+  if (transformationCount <= 0)
+    return;
+
   debug::beginLabel(context, context.frameInfo.cmd, "particleSys compute",
                     glm::vec4{.3f, .3f, .5f, 1.f});
   computePipeline->bind(context.frameInfo.cmd);
@@ -90,12 +139,13 @@ void ParticleSys::update() {
   vkCmdBindDescriptorSets(context.frameInfo.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                           *computePipeline, 0, 2, sets, 0, nullptr);
 
-  PushConstantData data{glm::vec3{1.f}, context.frameInfo.dt};
+  PushConstantData data{transformationCount};
   vkCmdPushConstants(context.frameInfo.cmd, *computePipeline,
                      VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstantData),
                      &data);
 
-  vkCmdDispatch(context.frameInfo.cmd, 256, 1, 1);
+  vkCmdDispatch(context.frameInfo.cmd,
+                static_cast<uint32_t>(maxParticles / 256), 1, 1);
 
   VkBufferMemoryBarrier barrier{};
   barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
@@ -116,6 +166,9 @@ void ParticleSys::update() {
 }
 
 void ParticleSys::render() {
+  if (transformationCount <= 0)
+    return;
+
   debug::beginLabel(context, context.frameInfo.cmd, "particleSys render",
                     glm::vec4{.7f, .3f, .5f, 1.f});
   graphicsPipeline->bind(context.frameInfo.cmd);
@@ -132,3 +185,4 @@ void ParticleSys::render() {
   debug::endLabel(context, context.frameInfo.cmd);
 }
 } // namespace vkh
+  // namespace vkh

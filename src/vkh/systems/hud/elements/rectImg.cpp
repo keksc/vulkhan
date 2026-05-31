@@ -2,15 +2,13 @@
 
 namespace vkh::hud {
 RectImg::RectImg(View &view, Element *parent, glm::vec2 position, glm::vec2 size,
-           unsigned short imageIndex)
+           size_t imageIndex)
     : Element(view, parent, position, size), imageIndex{imageIndex} {};
 void RectImg::addToDrawInfo(DrawInfo &drawInfo, float depth) {
-  // TODO: this might be optimizable when nothing changes, maybe add a
-  // "changed" flag
-  float x0 = position.x;
-  float x1 = x0 + size.x;
-  float y0 = position.y;
-  float y1 = y0 + size.y;
+  float x0 = absPos.x;
+  float x1 = x0 + absSize.x;
+  float y0 = absPos.y;
+  float y1 = y0 + absSize.y;
 
   uint32_t baseIndex =
       static_cast<uint32_t>(drawInfo.solidColorTriangleVertices.size());

@@ -17,12 +17,12 @@ void HudSys::setView(hud::View *newView) {
 
 hud::View *HudSys::getView() { return view; }
 
-void HudSys::addToDraw(hud::Element &containerElement, float &depth,
+void HudSys::addToDraw(hud::Element &element, float &depth,
                        float oneOverElementCount) {
-  for (const auto &element : containerElement.children) {
-    element->addToDrawInfo(drawInfo, depth);
+  for (const auto &child : element.children) {
+    child->addToDrawInfo(drawInfo, depth);
     float child_depth = depth + oneOverElementCount;
-    addToDraw(*element, child_depth, oneOverElementCount);
+    addToDraw(*child, child_depth, oneOverElementCount);
     depth += oneOverElementCount;
   }
 }
@@ -93,6 +93,11 @@ void HudSys::render() {
                        drawInfo.solidColorTriangleIndices.size());
 
   textSys.render(drawInfo.textIndices.size());
+
+  // clearAttachment.clearValue.depthStencil = {0.f, 0};
+  // vkCmdClearAttachments(context.frameInfo.cmd, 1, &clearAttachment, 1,
+  //                       &clearRect);
+
   debug::endLabel(context, context.frameInfo.cmd);
 }
 } // namespace vkh

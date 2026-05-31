@@ -64,12 +64,28 @@ public:
   virtual bool handleDrop(int count, const char **paths);
 
   std::vector<std::shared_ptr<Element>> children;
-  glm::vec2 position{};
-  glm::vec2 size{};
+
+  View &view;
+
+  virtual void setPosition(glm::vec2 newPosition);
+  virtual void setAbsolutePosition(glm::vec2 newPosition);
+  glm::vec2 getPosition() const;
+  glm::vec2 getAbsolutePosition() const;
+
+  virtual void setSize(glm::vec2 newSize);
+  virtual void setAbsoluteSize(glm::vec2 newSize);
+  glm::vec2 getSize() const;
+  glm::vec2 getAbsoluteSize() const;
+
+  virtual void updateAbsolute();
 
 protected:
-  View &view;
   Element *parent;
+
+  glm::vec2 relPosition{};
+  glm::vec2 relSize{};
+  glm::vec2 absPos{};
+  glm::vec2 absSize{};
 
 private:
   // Store handlers using std::any for type safety

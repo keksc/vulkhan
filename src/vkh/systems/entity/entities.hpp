@@ -112,7 +112,6 @@ public:
   void render();
   void updateBuffers();
 
-  bool checkCollision(const AABB &aabb) const;
   Entity *pickEntity(const Ray &ray, float &distance, float maxDistance = std::numeric_limits<float>::max());
   Entity *getPointingAt(float maxDistance = 1.0f);
 

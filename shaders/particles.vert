@@ -7,7 +7,10 @@ layout(location = 0) out vec3 fragColor;
 #include "globalUbo.glsl"
 
 void main() {
-  gl_Position = ubo.projView * position;
-  gl_PointSize = 8.0 / gl_Position.w;
+  vec3 pos = position.xyz;
+  pos.y += 10.f;
+  pos.xz *= 8.0;
+  gl_Position = ubo.projView * vec4(pos, 1.0);
+  gl_PointSize = 4.0 / gl_Position.w;
   fragColor = color.rgb;
 }

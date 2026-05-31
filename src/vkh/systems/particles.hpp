@@ -3,8 +3,8 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan_core.h>
 
-#include "system.hpp"
 #include "../buffer.hpp"
+#include "system.hpp"
 
 #include <memory>
 
@@ -44,17 +44,23 @@ public:
     }
   };
 
-  static const size_t maxParticles = 65'536;
+  static const size_t maxParticles = 2'097'152;
+
+  void setAttractor(std::vector<glm::mat4> newTransformations);
 
 private:
   struct PushConstantData {
-    glm::vec3 attractorPos{};
-    float dt{};
+    uint32_t transformationCount;
   };
 
+  uint32_t transformationCount = 0;
+
+  std::unique_ptr<Buffer<glm::mat4>> transformationsBuffer;
+
   void createPipeline();
-  void createBuffer();
-  void setupDescriptors();
+  void createVB();
+  void setupDescriptorSetLayout();
+  void setupDescriptorSet();
 
   std::unique_ptr<GraphicsPipeline> graphicsPipeline;
   std::unique_ptr<ComputePipeline> computePipeline;

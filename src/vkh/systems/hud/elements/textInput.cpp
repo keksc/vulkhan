@@ -7,18 +7,15 @@ namespace vkh::hud {
 
 TextInput::TextInput(View &view, Element *parent, glm::vec2 position,
                      const std::string &content, bool selected)
-    : RectImg(view, parent, position, glm::vec2{}, 1), selected{selected} {
-  text = addChild<Text>(position, content);
-  size = text->size;
+    : Text(view, parent, position, content), selected{selected} {
 }
-AutoUpdateString<Text> &TextInput::getContent() const { return text->content; }
 bool TextInput::handleCharacter(unsigned int codepoint) {
   // if (selectedTextInput != this)
   //   return;
   if (!selected)
     return false;
-  text->content += static_cast<char>(codepoint);
-  size = text->size;
+  content += static_cast<char>(codepoint);
+  absSize = absSize;
   return true;
 }
 bool TextInput::handleKey(int key, int scancode, int action, int mods) {
@@ -29,41 +26,41 @@ bool TextInput::handleKey(int key, int scancode, int action, int mods) {
     const char *clipboard = glfwGetClipboardString(NULL);
     if (!clipboard)
       return true;
-    text->content += clipboard;
-    size = text->size;
+    content += clipboard;
+    absSize = absSize;
     return true;
   }
   if (key == GLFW_KEY_C && mods == GLFW_MOD_CONTROL &&
       (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-    if (text->content.empty())
+    if (content.empty())
       return true;
-    glfwSetClipboardString(NULL, text->content.c_str());
-    size = text->size;
+    glfwSetClipboardString(NULL, content.c_str());
+    absSize = absSize;
     return true;
   }
   if (key == GLFW_KEY_BACKSPACE &&
       (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-    if (text->content.empty())
+    if (content.empty())
       return true;
 
     if (mods & GLFW_MOD_CONTROL) {
-      size_t lastSpace = text->content.find_last_of(' ');
+      size_t lastSpace = content.find_last_of(' ');
       if (lastSpace == std::string::npos) {
-        text->content.clear();
+        content.clear();
       } else {
-        text->content.erase(lastSpace);
+        content.erase(lastSpace);
       }
-      size = text->size;
+      absSize = absSize;
       return true;
     }
-    text->content.pop_back();
-    size = text->size;
+    content.pop_back();
+    absSize = absSize;
     return true;
   }
   if (key == GLFW_KEY_ENTER &&
       (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-    text->content.push_back('\n');
-    size = text->size;
+    content.push_back('\n');
+    absSize = absSize;
     return true;
   }
   if (key == GLFW_KEY_ESCAPE) {
