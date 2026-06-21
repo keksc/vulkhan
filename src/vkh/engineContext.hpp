@@ -76,6 +76,7 @@ struct EngineContext {
     std::function<void(unsigned int)> character;
     std::function<void(int, const char **)> drop;
     std::function<void(int)> windowFocus;
+    std::function<void(double, double)> scroll;
   };
   std::unordered_map<void *, InputCallbackSystem> inputCallbackSystems;
   void *currentInputCallbackSystemKey;

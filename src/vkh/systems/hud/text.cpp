@@ -110,7 +110,7 @@ void TextSys::createPipeline() {
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "text");
 }
 void TextSys::createGlyphs() {
-  std::filesystem::path fontPath = "fonts/Roboto-Regular.ttf";
+  std::filesystem::path fontPath = "fonts/EBGaramond-Regular.ttf";
   std::vector<char> fontDataChar = readFile(fontPath);
   unsigned char *fontData =
       reinterpret_cast<unsigned char *>(fontDataChar.data());

@@ -2,7 +2,7 @@
 
 #include "../system.hpp"
 
-#include "elements/drawInfo.hpp"
+#include "drawInfo.hpp"
 #include "solidColor.hpp"
 #include "text.hpp"
 

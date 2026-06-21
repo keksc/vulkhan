@@ -3,8 +3,8 @@
 #include "../../debug.hpp"
 #include "../../pipeline.hpp"
 #include "../../swapChain.hpp"
-#include "elements/element.hpp"
-#include "elements/view.hpp"
+#include "element.hpp"
+#include "view.hpp"
 
 namespace vkh {
 HudSys::HudSys(EngineContext &context)

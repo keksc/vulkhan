@@ -7,13 +7,9 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_compile_definitions(
-  GLFW_INCLUDE_VULKAN
-  FASTGLTF_COMPILE_AS_CPP20
-  GLM_FORCE_RADIANS
-  GLM_FORCE_DEPTH_ZERO_TO_ONE
-  GLM_ENABLE_EXPERIMENTAL
-  # FASTGLTF_ENABLE_CPP_MODULES
-  # FASTGLTF_USE_STD_MODULE
+  GLFW_INCLUDE_VULKAN FASTGLTF_COMPILE_AS_CPP20 GLM_FORCE_RADIANS
+  GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_ENABLE_EXPERIMENTAL
+  # FASTGLTF_ENABLE_CPP_MODULES FASTGLTF_USE_STD_MODULE
 )
 
 # set(CMAKE_CXX_SCAN_FOR_MODULES ON)
@@ -59,6 +55,7 @@ target_link_libraries(
   VkFFT
   ktx
   enet
+  wasmtime
   $<$<BOOL:${WIN32}>:opusfile::opusfile>
   $<$<NOT:$<BOOL:${WIN32}>>:${OPUSFILE_LIBRARIES}>)
 
@@ -133,6 +130,7 @@ file(COPY "${PROJECT_SOURCE_DIR}/sounds" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/textures" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/flamegraph.sh"
      DESTINATION "${PROJECT_BINARY_DIR}")
+make_directory(${PROJECT_BINARY_DIR}/mods)
 
 install(TARGETS vulkhan DESTINATION bin)
 install(IMPORTED_RUNTIME_ARTIFACTS glfw DESTINATION bin)
@@ -142,3 +140,42 @@ endif()
 install(DIRECTORY ${PROJECT_BINARY_DIR}/shaders ${PROJECT_BINARY_DIR}/fonts
                   ${PROJECT_BINARY_DIR}/sounds ${PROJECT_BINARY_DIR}/models
                   ${PROJECT_BINARY_DIR}/textures DESTINATION bin)
+
+file(GLOB_RECURSE WASM_MOD_SOURCES "${PROJECT_SOURCE_DIR}/modding/*.cpp")
+set(MODS_BINARY_DIR "${PROJECT_BINARY_DIR}/modding_build")
+set(MODS_INSTALL_DIR "${PROJECT_BINARY_DIR}/mods")
+file(MAKE_DIRECTORY "${MODS_INSTALL_DIR}")
+
+execute_process(
+  COMMAND
+    ${CMAKE_COMMAND} -E env CC=$ENV{CC} CXX=$ENV{CXX} PATH=$ENV{PATH}
+    ${CMAKE_COMMAND} -B "${MODS_BINARY_DIR}" -S "${PROJECT_SOURCE_DIR}/modding"
+    -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+    -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+    -DMODS_OUTPUT_DIR=${MODS_INSTALL_DIR})
+
+# 1. parse the compiled variable list out of CMakeCache.txt
+if(EXISTS "${MODS_BINARY_DIR}/CMakeCache.txt")
+  file(STRINGS "${MODS_BINARY_DIR}/CMakeCache.txt" CACHE_ENTRY
+       REGEX "^MOD_BINARIES:INTERNAL=")
+  if(CACHE_ENTRY)
+    string(REGEX REPLACE "^MOD_BINARIES:INTERNAL=" "" WASM_MOD_OUTPUT_FILES
+                         "${CACHE_ENTRY}")
+  endif()
+endif()
+
+if(NOT WASM_MOD_OUTPUT_FILES)
+  MESSAGE("NO WASM MOD OUTPUT FILES")
+  set(WASM_MOD_OUTPUT_FILES "${MODS_INSTALL_DIR}/betterNothing.oneirosMod"
+                            "${MODS_INSTALL_DIR}/absurdCheat.oneirosMod")
+endif()
+
+add_custom_command(
+  OUTPUT ${WASM_MOD_OUTPUT_FILES}
+  COMMAND ${CMAKE_COMMAND} -E env CC=$ENV{CC} CXX=$ENV{CXX} PATH=$ENV{PATH}
+          ${CMAKE_COMMAND} --build "${MODS_BINARY_DIR}"
+  DEPENDS ${WASM_MOD_SOURCES}
+  COMMENT "Checking and rebuilding WebAssembly modifications...")
+
+add_custom_target(wasm_mods DEPENDS ${WASM_MOD_OUTPUT_FILES})
+add_dependencies(vulkhan wasm_mods)
