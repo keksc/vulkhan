@@ -1,14 +1,14 @@
 #include "featherDuckGuard.hpp"
 
+#include "../../UI//text.hpp"
 #include "../../vkh/scene.hpp"
-#include "../../vkh/systems/hud/elements/text.hpp"
-#include "../../vkh/systems/hud/elements/view.hpp"
+#include "../../vkh/systems/hud/view.hpp"
 
 FeatherDuckGuard::FeatherDuckGuard(vkh::EngineContext &context,
                                    vkh::EntitySys &entitySys,
                                    vkh::hud::View &view)
     : context{context} {
-  headline = view.container.addChild<vkh::hud::Text>(
+  headline = view.container.addChild<UI::Text>(
       glm::vec2{0.f, .5f}, "Feather Duck Guard", glm::vec3{0.f}, 3.f);
 
   scene = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(

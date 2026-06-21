@@ -2,8 +2,8 @@
 
 #include "systems/entity/entities.hpp"
 
-#include <map>
 #include <glm/glm.hpp>
+#include <map>
 
 #include <vector>
 
@@ -36,7 +36,8 @@ enum class EventType {
   CursorPosition,
   Character,
   Drop,
-  WindowFocus
+  WindowFocus,
+  Scroll,
 };
 
 template <EventType E> struct EventTraits;
@@ -63,6 +64,9 @@ template <> struct EventTraits<EventType::Drop> {
 };
 template <> struct EventTraits<EventType::WindowFocus> {
   using CallbackType = std::function<bool(int focused)>;
+};
+template <> struct EventTraits<EventType::Scroll> {
+  using CallbackType = std::function<bool(double xoffset, double yoffset)>;
 };
 }; // namespace input
 } // namespace vkh

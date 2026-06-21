@@ -1,9 +1,9 @@
 #include <GLFW/glfw3.h>
-#include <chrono>
+#include <glm/gtx/string_cast.hpp>
 #include <magic_enum/magic_enum.hpp>
 
 // #include "entities/bosses/featherDuckGuard.hpp"
-#include "UI.hpp"
+#include "modding.hpp"
 #include "vkh/audio.hpp"
 #include "vkh/camera.hpp"
 #include "vkh/cleanup.hpp"
@@ -14,24 +14,28 @@
 #include "vkh/renderer.hpp"
 #include "vkh/swapChain.hpp"
 #include "vkh/systems/entity/entities.hpp"
-#include "vkh/systems/hud/elements/polygon.hpp"
 #include "vkh/systems/hud/hud.hpp"
+#include "vkh/systems/hud/view.hpp"
 #include "vkh/systems/particles.hpp"
 #include "vkh/systems/skybox.hpp"
 #include "vkh/systems/smoke/smoke.hpp"
 #include "vkh/systems/water/water.hpp"
 #include "vkh/window.hpp"
 
-#include "vkh/systems/hud/elements/button.hpp"
-#include "vkh/systems/hud/elements/canvas.hpp"
-#include "vkh/systems/hud/elements/rectImg.hpp"
-#include "vkh/systems/hud/elements/text.hpp"
-#include "vkh/systems/hud/elements/textInput.hpp"
+#include "UI/bindEdit.hpp"
+#include "UI/button.hpp"
+#include "UI/canvas.hpp"
+#include "UI/rectImg.hpp"
+#include "UI/scrollable.hpp"
+#include "UI/stylizedBtn.hpp"
+#include "UI/text.hpp"
+#include "UI/textInput.hpp"
 
 #include "../server/packet.hpp"
 #include "dungeonGenerator.hpp"
 #include "network.hpp"
 
+#include <chrono>
 #include <random>
 #include <ranges>
 #include <string>
@@ -104,6 +108,8 @@ void run() {
   vkh::renderer::init(context);
 
   {
+    ModManager modMgr;
+
     std::chrono::time_point<std::chrono::high_resolution_clock> audioFadeBegin;
     const float audioFadeSpeed = 2.5f;
 
@@ -112,14 +118,14 @@ void run() {
     // vkh::audio::Sound bgm("sounds/Enter Remollon.opus");
     // bgm.play();
 
-    // vkh::SkyboxSys skyboxSys(context);
-    // vkh::EntitySys entitySys(context);
+    vkh::SkyboxSys skyboxSys(context);
+    vkh::EntitySys entitySys(context);
     vkh::SmokeSys smokeSys(context);
     // vkh::WaterSys waterSys(context, skyboxSys);
     vkh::ParticleSys particleSys(context);
 
-    // auto &entities = entitySys.entities;
-    // generateDungeon(context, entitySys);
+    auto &entities = entitySys.entities;
+    generateDungeon(context, entitySys);
     // auto piano = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
     //     context, "models/piano-decent.glb", entitySys.texturesSetLayout);
     // for (size_t i = 0; i < piano->meshes.size(); i++)
@@ -184,13 +190,13 @@ void run() {
 
     // FeatherDuckGuard featherDuckGuard(context, entitySys, worldView);
 
-    auto canvas = canvasView.container.addChild<vkh::hud::Canvas>(
-        glm::vec2{}, glm::vec2{1.f}, 0);
+    auto canvas = canvasView.container.addChild<UI::Canvas>(glm::vec2{},
+                                                            glm::vec2{1.f}, 0);
 
     // vkh::audio::Sound uiSound("sounds/ui.wav");
     // vkh::audio::Sound
     // paperSound("sounds/568962__efrane__ripping-paper-10.wav");
-    auto canvasBtn = pauseView.container.addChild<UIBtn>(
+    auto canvasBtn = pauseView.container.addChild<UI::StylizedBtn>(
         glm::vec2{.8f, 0.f}, glm::vec2{.2f, .2f}, 0,
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
@@ -201,7 +207,7 @@ void run() {
           }
         },
         "Go to canvas");
-    auto smokeBtn = pauseView.container.addChild<vkh::hud::Button>(
+    auto smokeBtn = pauseView.container.addChild<UI::Button>(
         glm::vec2{.8f, .8f}, glm::vec2{.2f, .2f}, 0,
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
@@ -219,7 +225,7 @@ void run() {
           }
           return false;
         });
-    auto settingsBtn = pauseView.container.addChild<vkh::hud::Button>(
+    auto settingsBtn = pauseView.container.addChild<UI::Button>(
         glm::vec2{}, glm::vec2{.2f, .2f}, 0,
         [&](int button, int action, int) {
           if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
@@ -230,37 +236,39 @@ void run() {
           }
         },
         "Edit settings");
-    settingsView.container.addChild<vkh::hud::Text>(glm::vec2{}, "Keybinds");
 
-    std::unique_ptr<Network> network;
-    auto addr = pauseView.container.addChild<vkh::hud::TextInput>(
-        glm::vec2{0.f, 0.5f}, "server address");
-    pauseView.container.addChild<vkh::hud::Button>(
-        glm::vec2{0.f, 0.6f}, glm::vec2{.2f}, 0,
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
-            try {
-              network = std::make_unique<Network>(addr->content.c_str());
-            } catch (const std::exception &e) {
-              std::println("{}", e.what());
-            }
-        },
-        "Connect");
-    pauseView.container.addChild<vkh::hud::Button>(
-        glm::vec2{.2f, 0.6f}, glm::vec2{.2f}, 0,
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
-            network = nullptr;
-        },
-        "Disonnect");
+    glm::vec2 keyBtnSize{.1f};
 
-    std::shared_ptr<KeybindEdit> selectedButton;
+    auto settingsScroll = settingsView.container.addChild<UI::Scrollable>(
+        glm::vec2{}, glm::vec2{1.f}, glm::vec2{0.f, .25f}, glm::vec2{0.f},
+        glm::vec2{-1.f + static_cast<float>(vkh::input::keybinds.size()) *
+                             keyBtnSize});
+    settingsScroll->addChild<UI::Text>(glm::vec2{}, "Keybinds");
 
-    using namespace std::string_literals;
+    std::shared_ptr<UI::BindEdit> selectedButton;
 
-    glm::dvec2 worldCursorPos{};
-    glm::vec2 worldYawAndPitch{};
-    settingsView.container.addEventHandler<vkh::input::EventType::Key>(
+    unsigned short i = 0;
+    for (auto &[action, bind] : vkh::input::keybinds | std::views::reverse) {
+      auto kbEdit = settingsScroll->addChild<UI::BindEdit>(
+          glm::vec2{0.5f, 0.f + .1f * i}, keyBtnSize, 0,
+          [&](int button, int action, int) {},
+          std::string(magic_enum::enum_name(action)) + ":" +
+              vkh::input::getKeyName(bind));
+      kbEdit->setCallback([&, kbEdit](int button, int action, int) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+          selectedButton = kbEdit;
+        }
+      });
+      kbEdit->action = action;
+      // auto mouseEdit = settingsScroll->addChild<UI::BindEdit>(
+      //     glm::vec2{0.5f, 0.f + .1f * i}, keyBtnSize, 0,
+      //     [&](int button, int action, int) {},
+      //     std::string(magic_enum::enum_name(action)) + ":" +
+      //         vkh::input::getKeyName(bind));
+      i++;
+    }
+
+    settingsScroll->addEventHandler<vkh::input::EventType::Key>(
         [&](int key, int scancode, int action, int mods) {
           if (action != GLFW_PRESS)
             return false;
@@ -288,6 +296,33 @@ void run() {
           }
           return false;
         });
+
+    std::unique_ptr<Network> network;
+    auto addr = pauseView.container.addChild<UI::TextInput>(
+        glm::vec2{0.f, 0.5f}, "server address");
+    pauseView.container.addChild<UI::Button>(
+        glm::vec2{0.f, 0.6f}, glm::vec2{.2f}, 0,
+        [&](int button, int action, int) {
+          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+            try {
+              network = std::make_unique<Network>(addr->content.c_str());
+            } catch (const std::exception &e) {
+              std::println("{}", e.what());
+            }
+        },
+        "Connect");
+    pauseView.container.addChild<UI::Button>(
+        glm::vec2{.2f, 0.6f}, glm::vec2{.2f}, 0,
+        [&](int button, int action, int) {
+          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+            network = nullptr;
+        },
+        "Disonnect");
+
+    using namespace std::string_literals;
+
+    glm::dvec2 worldCursorPos{};
+    glm::vec2 worldYawAndPitch{};
     pauseView.container.addEventHandler<vkh::input::EventType::Key>(
         [&](int key, int scancode, int action, int mods) {
           if (!(action == GLFW_PRESS && key == GLFW_KEY_ESCAPE))
@@ -301,23 +336,10 @@ void run() {
           return true;
         });
 
-    unsigned short i = 0;
-    for (auto &[action, bind] : vkh::input::keybinds | std::views::reverse) {
-      auto kbEdit = settingsView.container.addChild<KeybindEdit>(
-          glm::vec2{0.5f, 0.f + .1f * i}, glm::vec2{.1f}, 0,
-          [&](int button, int action, int) {},
-          std::string(magic_enum::enum_name(action)) + ":" +
-              vkh::input::getKeyName(bind));
-      kbEdit->setCallback([&, kbEdit](int button, int action, int) {
-        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-          selectedButton = kbEdit;
-        }
-      });
-      kbEdit->action = action;
-      i++;
-    }
-
     bool updateParticleSysAttractor = false;
+    std::vector<glm::mat4> newTransform = genTransform();
+    std::vector<glm::mat4> prevTransform = newTransform;
+    float timeOfNewTransform = 0.f;
 
     worldView.container.addEventHandler<vkh::input::EventType::Key>(
         [&](int key, int scancode, int action, int mods) {
@@ -333,7 +355,13 @@ void run() {
           if (key == GLFW_KEY_R &&
               (action == GLFW_PRESS || action == GLFW_REPEAT)) {
             updateParticleSysAttractor = true;
+            timeOfNewTransform = context.time;
             return true;
+          }
+          if (key == GLFW_KEY_G && action == GLFW_PRESS) {
+            for (auto &mat : newTransform) {
+              std::println("{}", glm::to_string(mat));
+            }
           }
           return false;
         });
@@ -356,22 +384,18 @@ void run() {
       size_t id =
           hudSys.solidColorSys.addTextureFromFile("textures/crosshair.png");
       const float sizeOver2 = 0.02f;
-      auto crosshair = worldView.container.addChild<vkh::hud::RectImg>(
+      auto crosshair = worldView.container.addChild<UI::RectImg>(
           glm::vec2{.5f - sizeOver2}, glm::vec2{sizeOver2 * 2}, id);
     }
 
-    auto fpsRect = worldView.container.addChild<vkh::hud::RectImg>(
+    auto fpsRect = worldView.container.addChild<UI::RectImg>(
         glm::vec2{}, glm::vec2{.3f, .3f}, 0);
-    auto fpsText = fpsRect->addChild<vkh::hud::Text>(glm::vec2{});
+    auto fpsText = fpsRect->addChild<UI::Text>(glm::vec2{});
 
     auto orientationTxt =
-        worldView.container.addChild<vkh::hud::Text>(glm::vec2{1.f, -1.f});
+        worldView.container.addChild<UI::Text>(glm::vec2{1.f, -1.f});
 
     vkh::EntitySys::Entity *lastPicked = nullptr;
-
-    std::vector<glm::mat4> newTransform = genTransform();
-    std::vector<glm::mat4> prevTransform = newTransform;
-    float timeOfNewTransform = 0.f;
 
     auto currentTime = std::chrono::high_resolution_clock::now();
     auto initTime = currentTime;
@@ -386,7 +410,7 @@ void run() {
 
       context.time = std::chrono::duration<float>(newTime - initTime).count();
 
-      animateBubbly(context, hudSys.getView()->container);
+      UI::animateBubbly(context, hudSys.getView()->container);
 
       // featherDuckGuard.update();
 
@@ -474,23 +498,23 @@ void run() {
       vkh::input::update(context, empty);
 
       // Entity picking visualization
-      // {
-      //   auto pointed = entitySys.getPointingAt(1.0f);
-      //   if (pointed != lastPicked) {
-      //     if (lastPicked) {
-      //       lastPicked->color = glm::vec4(1.0f); // Reset
-      //     }
-      //
-      //     lastPicked = pointed;
-      //
-      //     if (lastPicked) {
-      //       lastPicked->color =
-      //           glm::vec4(2.0f, 0.5f, 0.5f, 1.0f); // Highlight Red-ish
-      //     }
-      //   }
-      // }
+      {
+        auto pointed = entitySys.getPointingAt(1.0f);
+        if (pointed != lastPicked) {
+          if (lastPicked) {
+            lastPicked->color = glm::vec4(1.0f); // Reset
+          }
 
-      // entitySys.updateBuffers();
+          lastPicked = pointed;
+
+          if (lastPicked) {
+            lastPicked->color =
+                glm::vec4(2.0f, 0.5f, 0.5f, 1.0f); // Highlight Red-ish
+          }
+        }
+      }
+
+      entitySys.updateBuffers();
 
       vkh::audio::update(context);
       context.camera.projectionMatrix =
@@ -524,25 +548,24 @@ void run() {
           if (updateParticleSysAttractor) {
             prevTransform = newTransform;
             newTransform = genTransform();
+            updateParticleSysAttractor = false;
           }
           std::vector<glm::mat4> blendedTransform(newTransform.size());
           for (size_t i = 0; i < newTransform.size(); i++) {
             if (i > prevTransform.size() - 1) {
               blendedTransform[i] = glm::mat4{0.f};
-              timeOfNewTransform = context.time;
               continue;
             }
             float p = (context.time - timeOfNewTransform) * .5f;
             blendedTransform[i] =
                 glm::mix(prevTransform[i], newTransform[i], p);
           }
-          updateParticleSysAttractor = false;
           particleSys.setAttractor(blendedTransform);
 
           particleSys.update();
 
-          // entitySys.updateJoints();
-          // entitySys.cull(commandBuffer);
+          entitySys.updateJoints();
+          entitySys.cull(commandBuffer);
         }
         if (hudSys.getView() == &smokeView) {
           smokeSys.update();
@@ -552,8 +575,8 @@ void run() {
 
         // MSAA subpass
         if (hudSys.getView() == &worldView) {
-          // skyboxSys.render();
-          // entitySys.render();
+          skyboxSys.render();
+          entitySys.render();
           // waterSys.render();
         }
         hudSys.render();

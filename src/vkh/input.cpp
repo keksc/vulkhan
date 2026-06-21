@@ -73,11 +73,6 @@ void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos) {
       .cursorPosition(xpos, ypos);
 }
 
-int scroll{};
-void scrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
-  scroll += static_cast<int>(yoffset);
-}
-
 void mouseButtonCallback(GLFWwindow *window, int button, int action, int mods) {
   static std::chrono::high_resolution_clock::time_point lastClick{};
 
@@ -116,16 +111,25 @@ void windowFocusCallback(GLFWwindow *window, int focused) {
       .windowFocus(focused);
 }
 
+void scrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
+  auto context =
+      reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
+  if (!context->currentInputCallbackSystemKey)
+    return;
+  context->inputCallbackSystems[context->currentInputCallbackSystemKey].scroll(
+      xoffset, yoffset);
+}
+
 void init(EngineContext &context) {
   glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
   glfwSetInputMode(context.window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
   glfwSetKeyCallback(context.window, keyCallback);
   glfwSetCharCallback(context.window, charCallback);
   glfwSetCursorPosCallback(context.window, cursorPositionCallback);
-  glfwSetScrollCallback(context.window, scrollCallback);
   glfwSetMouseButtonCallback(context.window, mouseButtonCallback);
   glfwSetDropCallback(context.window, dropCallback);
   glfwSetWindowFocusCallback(context.window, windowFocusCallback);
+  glfwSetScrollCallback(context.window, scrollCallback);
 
   keybinds[Action::MoveForward] = GLFW_KEY_W;
   keybinds[Action::MoveBackward] = GLFW_KEY_S;

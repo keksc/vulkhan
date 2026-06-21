@@ -16,63 +16,67 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        llvmPkgs = pkgs.llvmPackages;
 
         fastgltf = pkgs.stdenv.mkDerivation {
           pname = "fastgltf";
           version = "0.9.0";
-
           src = pkgs.fetchFromGitHub {
             owner = "spnda";
             repo = "fastgltf";
             rev = "c8bbb236822a55d320568e8b0a0042fc1ace6a8e";
             sha256 = "sha256-Pi2HS5iAGPvfFV20HXMct+Dyyghyzm7Q35FJq3+L2Xw==";
           };
-
-          nativeBuildInputs = with pkgs; [
-            cmake
-          ];
-          buildInputs = with pkgs; [
-            simdjson
-          ];
-          cmakeFlags = [
-            "-DFASTGLTF_USE_SYSTEM_SIMDJSON=ON"
-          ];
+          nativeBuildInputs = [ pkgs.cmake ];
+          buildInputs = [ pkgs.simdjson ];
+          cmakeFlags = [ "-DFASTGLTF_USE_SYSTEM_SIMDJSON=ON" ];
         };
       in
       {
         devShells.default = pkgs.mkShell {
           name = "devenv";
 
-          packages = with pkgs; [
-            vulkan-loader
-            vulkan-validation-layers
-            vulkan-tools
-            vulkan-headers
-            glfw
-            glm
-            cmake
-            glslang
-            ninja
-            openal
-            stb
-            curl
-            ktx-tools
-            magic-enum
-            simdjson
+          packages = [
+            pkgs.vulkan-loader
+            pkgs.vulkan-validation-layers
+            pkgs.vulkan-tools
+            pkgs.vulkan-headers
+            pkgs.glfw
+            pkgs.glm
+            pkgs.cmake
+            pkgs.glslang
+            pkgs.ninja
+            pkgs.openal
+            pkgs.stb
+            pkgs.curl
+            pkgs.ktx-tools
+            pkgs.magic-enum
+            pkgs.simdjson
             fastgltf
-            gcc
-            enet
-            pkg-config
-            spirv-headers
-            spirv-tools
-            shaderc
-            opusfile
-            libogg
+            pkgs.gcc
+            pkgs.enet
+            pkgs.pkg-config
+            pkgs.spirv-headers
+            pkgs.spirv-tools
+            pkgs.shaderc
+            pkgs.opusfile
+            pkgs.libogg
+            pkgs.wasmtime
+            
+            # WASM modding
+            llvmPkgs.lld
+            pkgs.binaryen
+            pkgs.wabt
+            pkgs.wamr
           ];
 
           shellHook = ''
-            exec $(getent passwd "$USER" | cut -d: -f7)
+            # Exposing explicit paths for the WASM toolchain to read without overriding host CC/CXX
+            export WASM_CLANG="${llvmPkgs.clang-unwrapped}/bin/clang"
+            export WASM_CLANGXX="${llvmPkgs.clang-unwrapped}/bin/clang++"
+            
             export CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH:${fastgltf}:${pkgs.simdjson}
+            exec $(getent passwd "$USER" | cut -d: -f7)
           '';
         };
 
@@ -81,33 +85,36 @@
           version = "0.0.0";
           src = ./.;
 
-          nativeBuildInputs = with pkgs; [
-            cmake
-            makeWrapper
-            copyDesktopItems
+          nativeBuildInputs = [
+            pkgs.cmake
+            pkgs.makeWrapper
+            pkgs.copyDesktopItems
           ];
 
-          buildInputs = with pkgs; [
-            vulkan-loader
-            vulkan-headers
-            glfw
-            glm
-            openal
-            curl
-            ktx-tools
-            magic-enum
-            stb
-            glslang
-            simdjson
+          buildInputs = [
+            pkgs.vulkan-loader
+            pkgs.vulkan-headers
+            pkgs.glfw
+            pkgs.glm
+            pkgs.openal
+            pkgs.curl
+            pkgs.ktx-tools
+            pkgs.magic-enum
+            pkgs.stb
+            pkgs.glslang
+            pkgs.simdjson
             fastgltf
-            spirv-headers
-            spirv-tools
-            enet
-            pkg-config
-            ninja
-            shaderc
-            opusfile
-            libogg
+            pkgs.spirv-headers
+            pkgs.spirv-tools
+            pkgs.enet
+            pkgs.pkg-config
+            pkgs.ninja
+            pkgs.shaderc
+            pkgs.opusfile
+            pkgs.libogg
+            pkgs.wasmtime
+
+            llvmPkgs.lld
           ];
 
           desktopItems = [

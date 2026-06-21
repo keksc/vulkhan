@@ -11,9 +11,11 @@ class EngineContext;
 template <typename T> class Scene;
 namespace hud {
 class View;
-class Text;
-} // namespace hud
+}
 } // namespace vkh
+namespace UI {
+class Text;
+} // namespace UI
 
 class FeatherDuckGuard {
 public:
@@ -35,7 +37,7 @@ private:
 
   std::shared_ptr<vkh::Scene<vkh::EntitySys::Vertex>> scene;
 
-  std::shared_ptr<vkh::hud::Text> headline;
+  std::shared_ptr<UI::Text> headline;
   std::vector<std::reference_wrapper<vkh::EntitySys::Entity>> sceneEntities;
 
   vkh::EngineContext &context;
