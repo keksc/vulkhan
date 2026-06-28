@@ -243,6 +243,21 @@ std::vector<char> readFile(const std::filesystem::path &filepath) {
   file.close();
   return buffer;
 }
+void writeFile(const std::filesystem::path &filepath, const void *data,
+               size_t size) {
+  if (filepath.has_parent_path()) {
+    std::filesystem::create_directories(filepath.parent_path());
+  }
+
+  std::ofstream file{filepath, std::ios::binary};
+  if (!file.is_open()) {
+    throw std::runtime_error("failed to open file for writing: " +
+                             filepath.string());
+  }
+
+  file.write(reinterpret_cast<const char *>(data), size);
+  file.close();
+}
 
 vk::Image createImageWithInfo(EngineContext &context,
                               const vk::ImageCreateInfo &imageInfo,

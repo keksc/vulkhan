@@ -4,11 +4,13 @@
 
 #include "buffer.hpp"
 #include "descriptors.hpp"
+#include "pipeline.hpp"
 
 namespace vkh {
 
 void cleanup(EngineContext &context) {
   if (context.vulkan.device) {
+    Pipeline::saveAndCleanCache(context);
     context.vulkan.device.destroyDescriptorSetLayout(
         context.vulkan.globalDescriptorSetLayout, nullptr);
     context.vulkan.device.destroySampler(context.vulkan.defaultSampler,
