@@ -9,7 +9,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/quaternion.hpp>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 #include "AxisAlignedBoundingBox.hpp"
 #include "buffer.hpp"
@@ -74,8 +74,8 @@ public:
       uint32_t indexOffset{};
       uint32_t indexCount{};
       size_t materialIndex;
-      void draw(VkCommandBuffer commandBuffer) {
-        vkCmdDrawIndexed(commandBuffer, indexCount, 1, indexOffset, 0, 0);
+      void draw(vk::CommandBuffer commandBuffer) {
+        commandBuffer.drawIndexed(indexCount, 1, indexOffset, 0, 0);
       }
     };
     std::vector<Primitive> primitives;
@@ -126,7 +126,7 @@ public:
   std::vector<Skin> skins;
 
   Scene(EngineContext &context, const std::filesystem::path &path,
-        VkDescriptorSetLayout setLayout, bool disableMaterial = false)
+        vk::DescriptorSetLayout setLayout, bool disableMaterial = false)
       : context{context}, disableMaterial{disableMaterial} {
     loadModel(path, setLayout);
   }
@@ -144,10 +144,10 @@ public:
     uint8_t b = static_cast<uint8_t>(color.b * 255.0f + 0.5f);
     uint8_t a = static_cast<uint8_t>(color.a * 255.0f + 0.5f);
     imageInfo.color = (a << 24) | (b << 16) | (g << 8) | r;
-    imageInfo.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
     imageInfo.usage =
-        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
+    imageInfo.format = vk::Format::eR8G8B8A8Unorm;
     std::string name = std::format("{:#x} color image", imageInfo.color);
     imageInfo.name = name.c_str();
     images.emplace_back(context, imageInfo);
@@ -158,16 +158,16 @@ public:
   Scene(const Scene &) = delete;
   Scene &operator=(const Scene &) = delete;
 
-  void bind(EngineContext &context, VkCommandBuffer commandBuffer,
-            VkPipelineLayout pipelineLayout) {
-    VkBuffer buffers[] = {*vertexBuffer};
-    VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(commandBuffer, 0, 1, buffers, offsets);
-    vkCmdBindIndexBuffer(commandBuffer, *indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+  void bind(EngineContext &context, vk::CommandBuffer commandBuffer,
+            vk::PipelineLayout pipelineLayout) {
+    vk::Buffer buffers[] = {*vertexBuffer};
+    vk::DeviceSize offsets[] = {0};
+    commandBuffer.bindVertexBuffers(0, 1, buffers, offsets);
+    commandBuffer.bindIndexBuffer(*indexBuffer, 0, vk::IndexType::eUint32);
   }
 
   void loadModel(const std::filesystem::path &path,
-                 VkDescriptorSetLayout setLayout) {
+                 vk::DescriptorSetLayout setLayout) {
     auto gltfFile = fastgltf::GltfDataBuffer::FromPath(path);
     if (gltfFile.error() != fastgltf::Error::None) {
       throw std::runtime_error(
@@ -237,7 +237,7 @@ public:
           fastgltf::Accessor &posAccessor =
               gltf.accessors[posAttribute->accessorIndex];
           size_t count = posAccessor.count;
-          
+
           vertices.resize(vertices.size() + count);
           fastgltf::iterateAccessorWithIndex<glm::vec3>(
               gltf, posAccessor,
@@ -314,8 +314,6 @@ public:
                             [&](fastgltf::TRS trs) {
                               nodes[i].translation =
                                   glm::make_vec3(trs.translation.data());
-                              // glTF Quats are X, Y, Z, W. glm::quat
-                              // constructor expects W, X, Y, Z.
                               nodes[i].rotation =
                                   glm::quat(trs.rotation[3], trs.rotation[0],
                                             trs.rotation[1], trs.rotation[2]);
@@ -329,7 +327,6 @@ public:
       }
     }
 
-    // Find the root nodes (nodes without parents) to evaluate the tree
     std::vector<bool> isChild(gltf.nodes.size(), false);
     for (auto &n : nodes) {
       for (auto c : n.children)
@@ -401,7 +398,6 @@ public:
       }
     }
 
-    // Calculate the initial global transforms before rendering
     for (auto root : rootNodes) {
       updateNodeTransforms(root, glm::mat4(1.0f));
     }
@@ -463,40 +459,40 @@ public:
         materials.emplace_back(mat);
       }
 
-      // One descriptor set for the entire scene's texture array
       sceneTextureSet =
           context.vulkan.globalDescriptorAllocator->allocate(setLayout);
 
       if (!images.empty()) {
-        std::vector<VkDescriptorImageInfo> imageInfos;
+        std::vector<vk::DescriptorImageInfo> imageInfos;
         imageInfos.reserve(images.size());
         for (auto &img : images) {
+          // Cast raw VkDescriptorImageInfo from wrapper wrapper structure to
+          // vk:: equivalent if required
           imageInfos.push_back(
               img.getDescriptorInfo(context.vulkan.defaultSampler));
         }
 
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = sceneTextureSet;
-        write.dstBinding = 0;
-        write.dstArrayElement = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = static_cast<uint32_t>(imageInfos.size());
-        write.pImageInfo = imageInfos.data();
+        vk::WriteDescriptorSet write{
+            sceneTextureSet,                           // dstSet
+            0,                                         // dstBinding
+            0,                                         // dstArrayElement
+            static_cast<uint32_t>(imageInfos.size()),  // descriptorCount
+            vk::DescriptorType::eCombinedImageSampler, // descriptorType
+            imageInfos.data()                          // pImageInfo
+        };
 
-        vkUpdateDescriptorSets(context.vulkan.device, 1, &write, 0, nullptr);
+        context.vulkan.device.updateDescriptorSets(1, &write, 0, nullptr);
       }
     }
 
     createBuffers(vertices, indices);
   }
+
   void updateNodeTransforms(size_t nodeIndex,
                             const glm::mat4 &parentTransform) {
     auto &node = nodes[nodeIndex];
     glm::mat4 local = node.matrix;
 
-    // If the node uses TRS components (or is animated), calculate the local
-    // matrix
     if (!node.useMatrix) {
       local = glm::translate(glm::mat4(1.f), node.translation) *
               glm::mat4_cast(node.rotation) *
@@ -505,7 +501,6 @@ public:
 
     node.globalTransform = parentTransform * local;
 
-    // Push the final matrix to the actual mesh drawn by the engine
     if (node.meshIndex.has_value()) {
       meshes[node.meshIndex.value()].transform = node.globalTransform;
     }
@@ -536,8 +531,7 @@ public:
 
       float t1 = sampler.inputs[keyIndex];
       float t2 = sampler.inputs[nextKey];
-      float factor =
-          (t2 > t1) ? (t - t1) / (t2 - t1) : 0.0f; // Linear interpolation
+      float factor = (t2 > t1) ? (t - t1) / (t2 - t1) : 0.0f;
 
       glm::vec4 v1 = sampler.outputsVec4[keyIndex];
       glm::vec4 v2 = sampler.outputsVec4[nextKey];
@@ -553,8 +547,7 @@ public:
         node.scale = glm::mix(glm::vec3(v1), glm::vec3(v2), factor);
       }
 
-      node.useMatrix =
-          false; // Force the node to use our updated TRS components
+      node.useMatrix = false;
     }
 
     for (auto root : rootNodes) {
@@ -563,7 +556,7 @@ public:
   }
 
   std::vector<Image> images;
-  VkDescriptorSet sceneTextureSet = VK_NULL_HANDLE;
+  vk::DescriptorSet sceneTextureSet = nullptr;
   std::vector<Material> materials;
 
   size_t getIndicesSize() const { return indexCount; }
@@ -581,39 +574,43 @@ private:
     indexCount = static_cast<uint32_t>(indices.size());
     vertexCount = static_cast<uint32_t>(vertices.size());
 
-    VkDeviceSize indicesSize = sizeof(uint32_t) * indexCount;
-    VkDeviceSize verticesSize = sizeof(VertexType) * vertexCount;
+    vk::DeviceSize indicesSize = sizeof(uint32_t) * indexCount;
+    vk::DeviceSize verticesSize = sizeof(VertexType) * vertexCount;
 
-    Buffer<std::byte> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                    verticesSize + indicesSize);
+    Buffer<std::byte> stagingBuffer(
+        context, vk::BufferUsageFlagBits::eTransferSrc,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
+        verticesSize + indicesSize);
 
     indexBuffer = std::make_unique<Buffer<uint32_t>>(
         context,
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexCount);
+        vk::BufferUsageFlagBits::eIndexBuffer |
+            vk::BufferUsageFlagBits::eTransferDst,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, indexCount);
 
     vertexBuffer = std::make_unique<Buffer<VertexType>>(
         context,
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexCount);
+        vk::BufferUsageFlagBits::eVertexBuffer |
+            vk::BufferUsageFlagBits::eTransferDst,
+        vk::MemoryPropertyFlagBits::eDeviceLocal, vertexCount);
 
     stagingBuffer.map();
     stagingBuffer.write(indices.data(), indicesSize);
     stagingBuffer.write(vertices.data(), verticesSize, indicesSize);
 
-    VkBufferCopy copyRegion{};
-    copyRegion.srcOffset = 0;
-    copyRegion.dstOffset = 0;
-    copyRegion.size = indicesSize;
+    vk::BufferCopy copyRegion{
+        0,          // srcOffset
+        0,          // dstOffset
+        indicesSize // size
+    };
 
     auto cmd = beginSingleTimeCommands(context);
-    vkCmdCopyBuffer(cmd, stagingBuffer, *indexBuffer, 1, &copyRegion);
+    cmd.copyBuffer(stagingBuffer, *indexBuffer, 1, &copyRegion);
 
     copyRegion.srcOffset = indicesSize;
     copyRegion.size = verticesSize;
-    vkCmdCopyBuffer(cmd, stagingBuffer, *vertexBuffer, 1, &copyRegion);
+    cmd.copyBuffer(stagingBuffer, *vertexBuffer, 1, &copyRegion);
     endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 
     if (meshes.empty()) {

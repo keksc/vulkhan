@@ -4,59 +4,50 @@
 #include "../../debug.hpp"
 #include "../../pipeline.hpp"
 #include "../../swapChain.hpp"
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 namespace vkh {
 
 void EntitySys::createSetLayouts() {
   {
-    VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{
-        .sType =
-            VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
-    VkDescriptorBindingFlags bindingFlags[] = {
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT};
-    bindingFlagsInfo.pBindingFlags = bindingFlags;
-    bindingFlagsInfo.bindingCount = 1;
+    std::vector<vk::DescriptorBindingFlags> bindingFlags = {
+        vk::DescriptorBindingFlagBits::ePartiallyBound};
+
+    vk::DescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{};
+    bindingFlagsInfo.bindingCount = static_cast<uint32_t>(bindingFlags.size());
+    bindingFlagsInfo.pBindingFlags = bindingFlags.data();
+
+    std::vector<vk::DescriptorSetLayoutBinding> bindings = {
+        vk::DescriptorSetLayoutBinding{
+            0,                                         // binding
+            vk::DescriptorType::eCombinedImageSampler, // descriptorType
+            256, // descriptorCount (Max textures per scene array)
+            vk::ShaderStageFlagBits::eFragment, // stageFlags
+            nullptr                             // pImmutableSamplers
+        }};
 
     texturesSetLayout = buildDescriptorSetLayout(
-        context,
-        {
-            VkDescriptorSetLayoutBinding{
-                .binding = 0,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .descriptorCount = 256, // Max textures per scene array
-                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-            },
-        },
-        0, &bindingFlagsInfo);
+        context, bindings, vk::DescriptorSetLayoutCreateFlags{},
+        &bindingFlagsInfo);
   }
 
   {
-    instanceSetLayout = buildDescriptorSetLayout(
-        context, {
-                     VkDescriptorSetLayoutBinding{
-                         .binding = 0,
-                         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                         .descriptorCount = 1,
-                         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-                     },
-                     VkDescriptorSetLayoutBinding{
-                         .binding = 1,
-                         .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                         .descriptorCount = 1,
-                         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-                     },
-                 });
+    std::vector<vk::DescriptorSetLayoutBinding> bindings = {
+        vk::DescriptorSetLayoutBinding{0, vk::DescriptorType::eStorageBuffer, 1,
+                                       vk::ShaderStageFlagBits::eVertex},
+        vk::DescriptorSetLayoutBinding{1, vk::DescriptorType::eStorageBuffer, 1,
+                                       vk::ShaderStageFlagBits::eVertex}};
+
+    instanceSetLayout = buildDescriptorSetLayout(context, bindings);
   }
 }
 
 void EntitySys::createPipeline() {
-  std::vector<VkDescriptorSetLayout> setLayouts{
+  std::vector<vk::DescriptorSetLayout> setLayouts{
       context.vulkan.globalDescriptorSetLayout, texturesSetLayout,
       instanceSetLayout};
 
-  VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-  pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
   pipelineLayoutInfo.pSetLayouts = setLayouts.data();
   pipelineLayoutInfo.pushConstantRangeCount = 0;
@@ -72,39 +63,26 @@ void EntitySys::createPipeline() {
 
   pipelineInfo.subpass = 0;
   pipelineInfo.multisampleInfo.rasterizationSamples =
-      context.vulkan.msaaSamples;
+      static_cast<vk::SampleCountFlagBits>(context.vulkan.msaaSamples);
 
   pipeline =
       std::make_unique<GraphicsPipeline>(context, pipelineInfo, "entities");
 }
 
 void EntitySys::createCullingPipeline() {
-  cullingSetLayout = buildDescriptorSetLayout(
-      context, {
-                   VkDescriptorSetLayoutBinding{
-                       .binding = 0,
-                       .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                       .descriptorCount = 1,
-                       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-                   },
-                   VkDescriptorSetLayoutBinding{
-                       .binding = 1,
-                       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                       .descriptorCount = 1,
-                       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-                   },
-                   VkDescriptorSetLayoutBinding{
-                       .binding = 2,
-                       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                       .descriptorCount = 1,
-                       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-                   },
-               });
+  std::vector<vk::DescriptorSetLayoutBinding> bindings = {
+      vk::DescriptorSetLayoutBinding{0, vk::DescriptorType::eUniformBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute},
+      vk::DescriptorSetLayoutBinding{1, vk::DescriptorType::eStorageBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute},
+      vk::DescriptorSetLayoutBinding{2, vk::DescriptorType::eStorageBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute}};
 
-  VkPipelineLayoutCreateInfo layoutInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-      .setLayoutCount = 1,
-      .pSetLayouts = &cullingSetLayout};
+  cullingSetLayout = buildDescriptorSetLayout(context, bindings);
+
+  vk::PipelineLayoutCreateInfo layoutInfo{};
+  layoutInfo.setLayoutCount = 1;
+  layoutInfo.pSetLayouts = &cullingSetLayout;
 
   cullingPipeline = std::make_unique<ComputePipeline>(
       context, "shaders/culling.comp.spv", layoutInfo, "culling compute");
@@ -114,9 +92,9 @@ void EntitySys::createCullingPipeline() {
   cullingUboBuffers.resize(framesInFlight);
   for (uint32_t i = 0; i < framesInFlight; i++) {
     cullingUboBuffers[i] = std::make_unique<Buffer<CullingUbo>>(
-        context, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        context, vk::BufferUsageFlagBits::eUniformBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
         1);
   }
 }
@@ -130,16 +108,18 @@ EntitySys::EntitySys(EngineContext &context) : System(context) {
   instanceBuffers.resize(framesInFlight);
   indirectDrawBuffers.resize(framesInFlight);
   jointBuffers.resize(framesInFlight);
-  instanceDescriptorSets.resize(framesInFlight, VK_NULL_HANDLE);
+  instanceDescriptorSets.resize(framesInFlight, nullptr);
   framesDirty.resize(framesInFlight, false);
 }
 
 EntitySys::~EntitySys() {
-  vkDestroyDescriptorSetLayout(context.vulkan.device, texturesSetLayout,
-                               nullptr);
-  vkDestroyDescriptorSetLayout(context.vulkan.device, instanceSetLayout,
-                               nullptr);
-  vkDestroyDescriptorSetLayout(context.vulkan.device, cullingSetLayout, nullptr);
+  if (context.vulkan.device) {
+    context.vulkan.device.destroyDescriptorSetLayout(texturesSetLayout,
+                                                     nullptr);
+    context.vulkan.device.destroyDescriptorSetLayout(instanceSetLayout,
+                                                     nullptr);
+    context.vulkan.device.destroyDescriptorSetLayout(cullingSetLayout, nullptr);
+  }
 }
 
 void EntitySys::updateJoints() {
@@ -148,8 +128,6 @@ void EntitySys::updateJoints() {
 
   int frameIndex = context.frameInfo.frameIndex;
 
-  // Ensure buffers are allocated and up-to-date for this frame
-  // before we try to map them dynamically.
   flushBuffers(frameIndex);
 
   if (jointBuffers.empty() || !jointBuffers[frameIndex])
@@ -183,14 +161,11 @@ void EntitySys::updateBuffers() {
     cpuDrawCommands.clear();
     sceneBatches.clear();
     cpuJointData.clear();
-    for (size_t i = 0; i < framesDirty.size(); ++i) framesDirty[i] = true;
+    for (size_t i = 0; i < framesDirty.size(); ++i)
+      framesDirty[i] = true;
     return;
   }
 
-  // With compute culling, we only rebuild structure if structuralDirty is true.
-  // Data updates (transforms, colors) happen every frame but can be optimized later.
-  // However, frustum planes change every frame, so we must update the UBO.
-  
   if (structuralDirty) {
     cpuDrawCommands.clear();
     sceneBatches.clear();
@@ -216,29 +191,31 @@ void EntitySys::updateBuffers() {
       uint32_t instanceCount = static_cast<uint32_t>(k - j);
       auto &entity = entities[j];
       auto &mesh = entity.getMesh();
-      uint32_t meshInstanceStart = static_cast<uint32_t>(cpuInstanceData.size());
+      uint32_t meshInstanceStart =
+          static_cast<uint32_t>(cpuInstanceData.size());
 
       if (structuralDirty) {
-          for (const auto &primitive : mesh.primitives) {
-            VkDrawIndexedIndirectCommand cmd{};
-            cmd.indexCount = primitive.indexCount;
-            cmd.instanceCount = instanceCount; // We will use isVisible in vertex shader instead of instanceCount for now
-            cmd.firstIndex = primitive.indexOffset;
-            cmd.vertexOffset = 0;
-            cmd.firstInstance = meshInstanceStart;
+        for (const auto &primitive : mesh.primitives) {
+          vk::DrawIndexedIndirectCommand cmd{};
+          cmd.indexCount = primitive.indexCount;
+          cmd.instanceCount = instanceCount;
+          cmd.firstIndex = primitive.indexOffset;
+          cmd.vertexOffset = 0;
+          cmd.firstInstance = meshInstanceStart;
 
-            cpuDrawCommands.push_back(cmd);
-            drawCount++;
-          }
+          cpuDrawCommands.push_back(cmd);
+          drawCount++;
+        }
       }
 
-      auto &firstMat = currentScene->materials[mesh.primitives[0].materialIndex];
+      auto &firstMat =
+          currentScene->materials[mesh.primitives[0].materialIndex];
       int32_t texIdx = firstMat.baseColorTextureIndex.value_or(-1);
       int32_t mrTexIdx = firstMat.metallicRoughnessTextureIndex.value_or(-1);
 
       for (size_t inst = j; inst < k; ++inst) {
         AABB worldAABB = entities[inst].getWorldAABB();
-        
+
         GPUInstanceData data;
         data.modelMatrix = entities[inst].transform.mat4() * mesh.transform;
         data.normalMatrix = glm::mat4(entities[inst].transform.normalMatrix());
@@ -249,14 +226,12 @@ void EntitySys::updateBuffers() {
         data.metallicRoughnessTextureIndex = mrTexIdx;
         data.roughnessFactor = firstMat.roughnessFactor;
         data.metallicFactor = firstMat.metallicFactor.x;
-        data.jointOffset = mesh.skinIndex.has_value() ? static_cast<int32_t>(currentJointOffset) : -1;
-        data.isVisible = 1; // Default to visible, compute shader will update
+        data.jointOffset = mesh.skinIndex.has_value()
+                               ? static_cast<int32_t>(currentJointOffset)
+                               : -1;
+        data.isVisible = 1;
 
         cpuInstanceData.push_back(data);
-      }
-      
-      if (mesh.skinIndex.has_value()) {
-          // Simplification for joint offsets in this demo
       }
 
       j = k;
@@ -272,51 +247,54 @@ void EntitySys::updateBuffers() {
     i = j;
   }
 
-  // Update joint data...
   for (auto &entity : entities) {
     auto &mesh = entity.getMesh();
     if (mesh.skinIndex.has_value()) {
       auto &skin = entity.scene->skins[mesh.skinIndex.value()];
       for (size_t i = 0; i < skin.joints.size(); ++i) {
-        cpuJointData.push_back(entity.scene->nodes[skin.joints[i]].globalTransform * skin.inverseBindMatrices[i]);
+        cpuJointData.push_back(
+            entity.scene->nodes[skin.joints[i]].globalTransform *
+            skin.inverseBindMatrices[i]);
       }
     }
   }
 
-  // Update Culling UBO
   int frameIndex = context.frameInfo.frameIndex;
-  auto planes = camera::getFrustumPlanes(context.camera.projectionMatrix * context.camera.viewMatrix);
+  auto planes = camera::getFrustumPlanes(context.camera.projectionMatrix *
+                                         context.camera.viewMatrix);
   CullingUbo ubo{};
-  for(int i=0; i<6; i++) ubo.frustumPlanes[i] = planes[i];
+  for (int i = 0; i < 6; i++)
+    ubo.frustumPlanes[i] = planes[i];
   ubo.totalInstances = static_cast<uint32_t>(cpuInstanceData.size());
-  
+
   cullingUboBuffers[frameIndex]->map();
   cullingUboBuffers[frameIndex]->write(&ubo, sizeof(CullingUbo));
   cullingUboBuffers[frameIndex]->unmap();
 
   structuralDirty = false;
-  for (size_t i = 0; i < framesDirty.size(); ++i) framesDirty[i] = true;
+  for (size_t i = 0; i < framesDirty.size(); ++i)
+    framesDirty[i] = true;
 }
 
 void EntitySys::flushBuffers(int frameIndex) {
   if (!framesDirty[frameIndex])
     return;
 
-  VkDeviceSize instanceBufferSize =
+  vk::DeviceSize instanceBufferSize =
       cpuInstanceData.size() * sizeof(GPUInstanceData);
-  VkDeviceSize jointBufferSize = std::max<VkDeviceSize>(
+  vk::DeviceSize jointBufferSize = std::max<vk::DeviceSize>(
       cpuJointData.size() * sizeof(glm::mat4), sizeof(glm::mat4));
-  VkDeviceSize cmdBufferSize =
-      cpuDrawCommands.size() * sizeof(VkDrawIndexedIndirectCommand);
+  vk::DeviceSize cmdBufferSize =
+      cpuDrawCommands.size() * sizeof(vk::DrawIndexedIndirectCommand);
 
   bool updateDescriptor = false;
 
   if (!instanceBuffers[frameIndex] ||
       instanceBuffers[frameIndex]->getSize() < instanceBufferSize) {
     instanceBuffers[frameIndex] = std::make_unique<Buffer<GPUInstanceData>>(
-        context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        context, vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
         std::max<uint32_t>(cpuInstanceData.size(), 1));
     updateDescriptor = true;
   }
@@ -324,9 +302,9 @@ void EntitySys::flushBuffers(int frameIndex) {
   if (!jointBuffers[frameIndex] ||
       jointBuffers[frameIndex]->getSize() < jointBufferSize) {
     jointBuffers[frameIndex] = std::make_unique<Buffer<glm::mat4>>(
-        context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        context, vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
         std::max<uint32_t>(cpuJointData.size(), 1));
     updateDescriptor = true;
   }
@@ -334,29 +312,28 @@ void EntitySys::flushBuffers(int frameIndex) {
   if (!indirectDrawBuffers[frameIndex] ||
       indirectDrawBuffers[frameIndex]->getSize() < cmdBufferSize) {
     indirectDrawBuffers[frameIndex] =
-        std::make_unique<Buffer<VkDrawIndexedIndirectCommand>>(
+        std::make_unique<Buffer<vk::DrawIndexedIndirectCommand>>(
             context,
-            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
-                VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            vk::BufferUsageFlagBits::eIndirectBuffer |
+                vk::BufferUsageFlagBits::eTransferDst |
+                vk::BufferUsageFlagBits::eStorageBuffer,
+            vk::MemoryPropertyFlagBits::eHostVisible |
+                vk::MemoryPropertyFlagBits::eHostCoherent,
             std::max<uint32_t>(cpuDrawCommands.size(), 1));
   }
 
-  if (updateDescriptor ||
-      instanceDescriptorSets[frameIndex] == VK_NULL_HANDLE) {
-    if (instanceDescriptorSets[frameIndex] == VK_NULL_HANDLE) {
+  if (updateDescriptor || !instanceDescriptorSets[frameIndex]) {
+    if (!instanceDescriptorSets[frameIndex]) {
       instanceDescriptorSets[frameIndex] =
           context.vulkan.globalDescriptorAllocator->allocate(instanceSetLayout);
     }
     DescriptorWriter writer(context);
-    VkDescriptorBufferInfo bInfo =
+    vk::DescriptorBufferInfo bInfo =
         instanceBuffers[frameIndex]->descriptorInfo();
-    writer.writeBuffer(0, bInfo, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    writer.writeBuffer(0, bInfo, vk::DescriptorType::eStorageBuffer);
 
-    VkDescriptorBufferInfo jInfo = jointBuffers[frameIndex]->descriptorInfo();
-    writer.writeBuffer(1, jInfo, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    vk::DescriptorBufferInfo jInfo = jointBuffers[frameIndex]->descriptorInfo();
+    writer.writeBuffer(1, jInfo, vk::DescriptorType::eStorageBuffer);
 
     writer.updateSet(instanceDescriptorSets[frameIndex]);
   }
@@ -385,55 +362,60 @@ void EntitySys::flushBuffers(int frameIndex) {
   framesDirty[frameIndex] = false;
 }
 
-void EntitySys::cull(VkCommandBuffer cmd) {
+void EntitySys::cull(vk::CommandBuffer cmd) {
   if (sceneBatches.empty())
     return;
 
   int frameIndex = context.frameInfo.frameIndex;
 
   debug::beginLabel(context, cmd, "Culling Dispatch", {.3f, .8f, .3f, 1.f});
-  
-  // Update Culling Descriptor Set
-  if (cullingDescriptorSets[frameIndex] == VK_NULL_HANDLE) {
-      cullingDescriptorSets[frameIndex] = context.vulkan.globalDescriptorAllocator->allocate(cullingSetLayout);
+
+  if (!cullingDescriptorSets[frameIndex]) {
+    cullingDescriptorSets[frameIndex] =
+        context.vulkan.globalDescriptorAllocator->allocate(cullingSetLayout);
   }
-  
+
   DescriptorWriter cWriter(context);
-  VkDescriptorBufferInfo uInfo = cullingUboBuffers[frameIndex]->descriptorInfo();
-  VkDescriptorBufferInfo iInfo = instanceBuffers[frameIndex]->descriptorInfo();
-  VkDescriptorBufferInfo dInfo = indirectDrawBuffers[frameIndex]->descriptorInfo();
-  
-  cWriter.writeBuffer(0, uInfo, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-  cWriter.writeBuffer(1, iInfo, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-  cWriter.writeBuffer(2, dInfo, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  vk::DescriptorBufferInfo uInfo =
+      cullingUboBuffers[frameIndex]->descriptorInfo();
+  vk::DescriptorBufferInfo iInfo =
+      instanceBuffers[frameIndex]->descriptorInfo();
+  vk::DescriptorBufferInfo dInfo =
+      indirectDrawBuffers[frameIndex]->descriptorInfo();
+
+  cWriter.writeBuffer(0, uInfo, vk::DescriptorType::eUniformBuffer);
+  cWriter.writeBuffer(1, iInfo, vk::DescriptorType::eStorageBuffer);
+  cWriter.writeBuffer(2, dInfo, vk::DescriptorType::eStorageBuffer);
   cWriter.updateSet(cullingDescriptorSets[frameIndex]);
 
-  // Transition indirect buffer for compute write
-  VkBufferMemoryBarrier indirectBarrier{};
-  indirectBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-  indirectBarrier.srcAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-  indirectBarrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+  vk::BufferMemoryBarrier indirectBarrier{};
+  indirectBarrier.srcAccessMask = vk::AccessFlagBits::eIndirectCommandRead;
+  indirectBarrier.dstAccessMask =
+      vk::AccessFlagBits::eShaderWrite | vk::AccessFlagBits::eShaderRead;
   indirectBarrier.buffer = *indirectDrawBuffers[frameIndex];
   indirectBarrier.size = indirectDrawBuffers[frameIndex]->getSize();
 
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 
-                       0, 0, nullptr, 1, &indirectBarrier, 0, nullptr);
+  cmd.pipelineBarrier(vk::PipelineStageFlagBits::eDrawIndirect,
+                      vk::PipelineStageFlagBits::eComputeShader,
+                      vk::DependencyFlags(), nullptr, indirectBarrier, nullptr);
 
   cullingPipeline->bind(cmd);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cullingPipeline->getLayout(), 0, 1,
-                          &cullingDescriptorSets[frameIndex], 0, nullptr);
-  
-  uint32_t groupCount = (static_cast<uint32_t>(cpuInstanceData.size()) + 63) / 64;
+  cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+                         cullingPipeline->getLayout(), 0, 1,
+                         &cullingDescriptorSets[frameIndex], 0, nullptr);
+
+  uint32_t groupCount =
+      (static_cast<uint32_t>(cpuInstanceData.size()) + 63) / 64;
   if (groupCount > 0) {
-    vkCmdDispatch(cmd, groupCount, 1, 1);
+    cmd.dispatch(groupCount, 1, 1);
   }
 
-  // Transition back to indirect read
-  indirectBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-  indirectBarrier.dstAccessMask = VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-  
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, 
-                       0, 0, nullptr, 1, &indirectBarrier, 0, nullptr);
+  indirectBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
+  indirectBarrier.dstAccessMask = vk::AccessFlagBits::eIndirectCommandRead;
+
+  cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                      vk::PipelineStageFlagBits::eDrawIndirect,
+                      vk::DependencyFlags(), nullptr, indirectBarrier, nullptr);
 
   debug::endLabel(context, cmd);
 }
@@ -445,33 +427,33 @@ void EntitySys::render() {
   auto cmd = context.frameInfo.cmd;
   int frameIndex = context.frameInfo.frameIndex;
 
-  // Ensure buffers are flushed just in case
   flushBuffers(frameIndex);
 
   debug::beginLabel(context, cmd, "Indirect Entities", {.7f, .3f, 1.f, 1.f});
 
   pipeline->bind(cmd);
 
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 1,
-                          &context.vulkan.globalDescriptorSets[frameIndex], 0,
-                          nullptr);
+  cmd.bindDescriptorSets(
+      vk::PipelineBindPoint::eGraphics, pipeline->getLayout(), 0, 1,
+      &context.vulkan.globalDescriptorSets[frameIndex], 0, nullptr);
 
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 2, 1,
-                          &instanceDescriptorSets[frameIndex], 0, nullptr);
+  cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                         pipeline->getLayout(), 2, 1,
+                         &instanceDescriptorSets[frameIndex], 0, nullptr);
 
   for (const auto &batch : sceneBatches) {
     batch.scene->bind(context, cmd, *pipeline);
 
-    VkDescriptorSet texSet = batch.scene->sceneTextureSet;
-    if (texSet != VK_NULL_HANDLE) {
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 1,
-                              1, &texSet, 0, nullptr);
+    vk::DescriptorSet texSet = batch.scene->sceneTextureSet;
+    if (texSet) {
+      cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                             pipeline->getLayout(), 1, 1, &texSet, 0, nullptr);
     }
 
-    vkCmdDrawIndexedIndirect(
-        cmd, *(indirectDrawBuffers[frameIndex]),
-        batch.firstDrawCommandOffset * sizeof(VkDrawIndexedIndirectCommand),
-        batch.drawCommandCount, sizeof(VkDrawIndexedIndirectCommand));
+    cmd.drawIndexedIndirect(
+        *indirectDrawBuffers[frameIndex],
+        batch.firstDrawCommandOffset * sizeof(vk::DrawIndexedIndirectCommand),
+        batch.drawCommandCount, sizeof(vk::DrawIndexedIndirectCommand));
   }
 
   debug::endLabel(context, cmd);
@@ -502,4 +484,5 @@ EntitySys::Entity *EntitySys::getPointingAt(float maxDistance) {
   float distance;
   return pickEntity(ray, distance, maxDistance);
 }
+
 } // namespace vkh

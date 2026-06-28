@@ -3,7 +3,7 @@
 #include <cassert>
 #include <cstring>
 #include <glm/ext.hpp>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 #include "deviceHelpers.hpp"
 #include "engineContext.hpp"
@@ -11,131 +11,154 @@
 namespace vkh {
 template <typename T> class Buffer {
 public:
-  Buffer(EngineContext &context, VkBufferUsageFlags usage,
-         VkMemoryPropertyFlags memoryProperties, unsigned int instanceCount = 1)
+  Buffer(EngineContext &context, vk::BufferUsageFlags usage,
+         vk::MemoryPropertyFlags memoryProperties,
+         unsigned int instanceCount = 1)
       : context{context} {
     // alignmentSize = getAlignment(createInfo.instanceSize, 1);
     instanceSize = sizeof(T);
     bufSize = instanceSize * instanceCount;
     createBuffer(context, bufSize, usage, memoryProperties, buf, memory);
   }
+
   ~Buffer() {
     unmap();
-    vkDestroyBuffer(context.vulkan.device, buf, nullptr);
-    vkFreeMemory(context.vulkan.device, memory, nullptr);
+    if (buf) {
+      context.vulkan.device.destroyBuffer(buf);
+    }
+    if (memory) {
+      context.vulkan.device.freeMemory(memory);
+    }
   }
 
+  // Disable copy semantics
+  Buffer(const Buffer &) = delete;
   Buffer &operator=(const Buffer &) = delete;
 
-  void *map(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0) {
+  // Enable move semantics (highly recommended for Vulkan wrappers)
+  Buffer(Buffer &&other) noexcept : context{other.context} {
+    *this = std::move(other);
+  }
+  Buffer &operator=(Buffer &&other) noexcept {
+    if (this != &other) {
+      unmap();
+      if (buf)
+        context.vulkan.device.destroyBuffer(buf);
+      if (memory)
+        context.vulkan.device.freeMemory(memory);
+
+      mapped = other.mapped;
+      buf = other.buf;
+      memory = other.memory;
+      bufSize = other.bufSize;
+      instanceSize = other.instanceSize;
+      alignmentSize = other.alignmentSize;
+
+      other.mapped = nullptr;
+      other.buf = nullptr;
+      other.memory = nullptr;
+    }
+    return *this;
+  }
+
+  void *map(vk::DeviceSize size = VK_WHOLE_SIZE, vk::DeviceSize offset = 0) {
     assert(buf && memory && "Called map on buffer before create");
-    vkMapMemory(context.vulkan.device, memory, offset, size, 0, &mapped);
+    mapped = context.vulkan.device.mapMemory(memory, offset, size,
+                                             vk::MemoryMapFlags(0));
     return mapped;
   }
+
   void unmap() {
     if (mapped) {
-      vkUnmapMemory(context.vulkan.device, memory);
+      context.vulkan.device.unmapMemory(memory);
       mapped = nullptr;
     }
   }
 
-  void write(const void *data, VkDeviceSize size = VK_WHOLE_SIZE,
-             VkDeviceSize offset = 0) {
+  void write(const void *data, vk::DeviceSize size = VK_WHOLE_SIZE,
+             vk::DeviceSize offset = 0) {
     assert(mapped && "Cannot copy to unmapped buffer");
 
     if (size == VK_WHOLE_SIZE) {
-      memcpy(mapped, data, bufSize);
+      std::memcpy(mapped, data, bufSize);
     } else {
-      char *memOffset = (char *)mapped;
+      char *memOffset = static_cast<char *>(mapped);
       memOffset += offset;
-      memcpy(memOffset, data, size);
+      std::memcpy(memOffset, data, size);
     }
   }
-  VkResult flush(VkDeviceSize size = VK_WHOLE_SIZE, VkDeviceSize offset = 0) {
-    VkMappedMemoryRange mappedRange{};
-    mappedRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
-    mappedRange.memory = memory;
-    mappedRange.offset = offset;
-    mappedRange.size = size;
-    return vkFlushMappedMemoryRanges(context.vulkan.device, 1, &mappedRange);
+
+  void flush(vk::DeviceSize size = VK_WHOLE_SIZE, vk::DeviceSize offset = 0) {
+    vk::MappedMemoryRange mappedRange{memory, offset, size};
+    if (context.vulkan.device.flushMappedMemoryRanges(1, &mappedRange) !=
+        vk::Result::eSuccess)
+      throw std::runtime_error("Failed to flush mapped memory range");
   }
-  VkDescriptorBufferInfo descriptorInfo(VkDeviceSize size = VK_WHOLE_SIZE,
-                                        VkDeviceSize offset = 0) {
-    return VkDescriptorBufferInfo{
+
+  vk::DescriptorBufferInfo descriptorInfo(vk::DeviceSize size = VK_WHOLE_SIZE,
+                                          vk::DeviceSize offset = 0) {
+    return vk::DescriptorBufferInfo{
         buf,
         offset,
-        VK_WHOLE_SIZE,
+        size,
     };
   }
-  VkResult invalidate(VkDeviceSize size = VK_WHOLE_SIZE,
-                      VkDeviceSize offset = 0) {
-    VkMappedMemoryRange mappedRange{};
-    mappedRange.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
-    mappedRange.memory = memory;
-    mappedRange.offset = offset;
-    mappedRange.size = size;
-    return vkInvalidateMappedMemoryRanges(context.vulkan.device, 1,
-                                          &mappedRange);
+
+  void invalidate(vk::DeviceSize size = VK_WHOLE_SIZE,
+                  vk::DeviceSize offset = 0) {
+    vk::MappedMemoryRange mappedRange{memory, offset, size};
+    if (context.vulkan.device.invalidateMappedMemoryRanges(1, &mappedRange) !=
+        vk::Result::eSuccess)
+      throw std::runtime_error("Failed to invalidate mapped memory range");
   }
 
   void writeToIndex(void *data, int index);
-  VkResult flushIndex(int index);
-  VkDescriptorBufferInfo descriptorInfoForIndex(int index);
-  VkResult invalidateIndex(int index);
+  void flushIndex(int index);
+  vk::DescriptorBufferInfo descriptorInfoForIndex(int index);
+  void invalidateIndex(int index);
 
-  operator VkBuffer &() { return buf; }
-  operator VkBuffer *() { return &buf; }
+  operator vk::Buffer &() { return buf; }
+  operator const vk::Buffer &() const { return buf; }
 
   void *getMappedAddr() const { return mapped; }
 
   template <typename U>
-  void copyFromBuffer(Buffer<U> &srcBuffer, VkDeviceSize size = VK_WHOLE_SIZE,
-                      VkDeviceSize srcOffset = 0, VkDeviceSize dstOffset = 0) {
+  void copyFromBuffer(Buffer<U> &srcBuffer, vk::DeviceSize size = VK_WHOLE_SIZE,
+                      vk::DeviceSize srcOffset = 0,
+                      vk::DeviceSize dstOffset = 0) {
     auto cmd = beginSingleTimeCommands(context);
     recordCopyFromBuffer(cmd, srcBuffer, size, srcOffset, dstOffset);
     endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
   }
+
   template <typename U>
-  void recordCopyFromBuffer(VkCommandBuffer cmdBuffer, Buffer<U> &srcBuffer,
-                            VkDeviceSize size = VK_WHOLE_SIZE,
-                            VkDeviceSize srcOffset = 0,
-                            VkDeviceSize dstOffset = 0) {
-    VkBufferCopy copyRegion{};
-    copyRegion.srcOffset = srcOffset;
-    copyRegion.dstOffset = dstOffset;
-    copyRegion.size = size == VK_WHOLE_SIZE ? bufSize : size;
-    vkCmdCopyBuffer(cmdBuffer, srcBuffer, buf, 1, &copyRegion);
+  void recordCopyFromBuffer(vk::CommandBuffer cmdBuffer, Buffer<U> &srcBuffer,
+                            vk::DeviceSize size = VK_WHOLE_SIZE,
+                            vk::DeviceSize srcOffset = 0,
+                            vk::DeviceSize dstOffset = 0) {
+    vk::BufferCopy copyRegion{srcOffset, dstOffset,
+                              size == VK_WHOLE_SIZE ? bufSize : size};
+    cmdBuffer.copyBuffer(srcBuffer, buf, 1, &copyRegion);
   }
 
-  VkDeviceSize getSize() const { return bufSize; }
+  vk::DeviceSize getSize() const { return bufSize; }
 
 private:
-  void allocateMemory(VkMemoryPropertyFlags properties) {
-    assert(buf != VK_NULL_HANDLE);
+  void allocateMemory(vk::MemoryPropertyFlags properties) {
+    assert(buf);
 
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(context.vulkan.device, buf, &memRequirements);
+    vk::MemoryRequirements memRequirements =
+        context.vulkan.device.getBufferMemoryRequirements(buf);
 
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex =
-        findMemoryType(context, memRequirements.memoryTypeBits, properties);
+    vk::MemoryAllocateInfo allocInfo{
+        memRequirements.size,
+        findMemoryType(context, memRequirements.memoryTypeBits, properties)};
 
-    vkAllocateMemory(context.vulkan.device, &allocInfo, nullptr, &memory);
+    memory = context.vulkan.device.allocateMemory(allocInfo);
   }
-  /**
-   * Returns the minimum instance size required to be compatible with devices
-   * minOffsetAlignment
-   *
-   * @param instanceSize The size of an instance
-   * @param minOffsetAlignment The minimum required alignment, in bytes, for the
-   * offset member (eg minUniformBufferOffsetAlignment)
-   *
-   * @return VkResult of the buffer mapping call
-   */
-  VkDeviceSize getAlignment(VkDeviceSize instanceSize,
-                            VkDeviceSize minOffsetAlignment) {
+
+  vk::DeviceSize getAlignment(vk::DeviceSize instanceSize,
+                              vk::DeviceSize minOffsetAlignment) {
     if (minOffsetAlignment > 0) {
       return (instanceSize + minOffsetAlignment - 1) &
              ~(minOffsetAlignment - 1);
@@ -146,10 +169,10 @@ private:
   EngineContext &context;
 
   void *mapped = nullptr;
-  VkBuffer buf;
-  VkDeviceMemory memory;
-  VkDeviceSize bufSize;
-  VkDeviceSize instanceSize;
-  VkDeviceSize alignmentSize;
+  vk::Buffer buf;
+  vk::DeviceMemory memory;
+  vk::DeviceSize bufSize;
+  vk::DeviceSize instanceSize;
+  vk::DeviceSize alignmentSize;
 };
 } // namespace vkh

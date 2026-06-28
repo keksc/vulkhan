@@ -1,76 +1,60 @@
 #include "deviceHelpers.hpp"
 
-#include <vulkan/vulkan_core.h>
-
 #include <fstream>
+#include <vector>
+#include <vulkan/vulkan.hpp>
 
 #include "swapChain.hpp"
 
 namespace vkh {
+
 SwapChainSupportDetails getSwapChainSupport(EngineContext &context) {
   return querySwapChainSupport(context, context.vulkan.physicalDevice);
 }
+
 QueueFamilyIndices findPhysicalQueueFamilies(EngineContext &context) {
   return findQueueFamilies(context, context.vulkan.physicalDevice);
 }
+
 SwapChainSupportDetails querySwapChainSupport(EngineContext &context,
-                                              VkPhysicalDevice device) {
+                                              vk::PhysicalDevice device) {
   SwapChainSupportDetails details;
-  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, context.vulkan.surface,
-                                            &details.capabilities);
+  details.capabilities =
+      device.getSurfaceCapabilitiesKHR(context.vulkan.surface);
+  details.formats = device.getSurfaceFormatsKHR(context.vulkan.surface);
+  details.presentModes =
+      device.getSurfacePresentModesKHR(context.vulkan.surface);
 
-  uint32_t formatCount;
-  vkGetPhysicalDeviceSurfaceFormatsKHR(device, context.vulkan.surface,
-                                       &formatCount, nullptr);
-
-  if (formatCount != 0) {
-    details.formats.resize(formatCount);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(device, context.vulkan.surface,
-                                         &formatCount, details.formats.data());
-  }
-
-  uint32_t presentModeCount;
-  vkGetPhysicalDeviceSurfacePresentModesKHR(device, context.vulkan.surface,
-                                            &presentModeCount, nullptr);
-
-  if (presentModeCount != 0) {
-    details.presentModes.resize(presentModeCount);
-    vkGetPhysicalDeviceSurfacePresentModesKHR(device, context.vulkan.surface,
-                                              &presentModeCount,
-                                              details.presentModes.data());
-  }
   return details;
 }
+
 QueueFamilyIndices findQueueFamilies(EngineContext &context,
-                                     VkPhysicalDevice device) {
+                                     vk::PhysicalDevice device) {
   QueueFamilyIndices indices;
 
-  uint32_t queueFamilyCount = 0;
-  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
-
-  std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount,
-                                           queueFamilies.data());
+  auto queueFamilies = device.getQueueFamilyProperties();
 
   int i = 0;
   for (const auto &queueFamily : queueFamilies) {
     if (queueFamily.queueCount > 0 &&
-        queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+        (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics)) {
       indices.graphicsFamily = i;
       indices.graphicsFamilyHasValue = true;
     }
-    VkBool32 presentSupport = false;
-    vkGetPhysicalDeviceSurfaceSupportKHR(device, i, context.vulkan.surface,
-                                         &presentSupport);
+
+    vk::Bool32 presentSupport =
+        device.getSurfaceSupportKHR(i, context.vulkan.surface);
     if (queueFamily.queueCount > 0 && presentSupport) {
       indices.presentFamily = i;
       indices.presentFamilyHasValue = true;
     }
+
     if (queueFamily.queueCount > 0 &&
-        queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT) {
+        (queueFamily.queueFlags & vk::QueueFlagBits::eCompute)) {
       indices.computeFamily = i;
       indices.computeFamilyHasValue = true;
     }
+
     if (indices.isComplete()) {
       break;
     }
@@ -80,11 +64,12 @@ QueueFamilyIndices findQueueFamilies(EngineContext &context,
 
   return indices;
 }
+
 uint32_t findMemoryType(EngineContext &context, uint32_t typeFilter,
-                        VkMemoryPropertyFlags properties) {
-  VkPhysicalDeviceMemoryProperties memProperties;
-  vkGetPhysicalDeviceMemoryProperties(context.vulkan.physicalDevice,
-                                      &memProperties);
+                        vk::MemoryPropertyFlags properties) {
+  vk::PhysicalDeviceMemoryProperties memProperties =
+      context.vulkan.physicalDevice.getMemoryProperties();
+
   for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
     if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags &
                                     properties) == properties) {
@@ -94,147 +79,154 @@ uint32_t findMemoryType(EngineContext &context, uint32_t typeFilter,
 
   throw std::runtime_error("failed to find suitable memory type!");
 }
-VkFormat findSupportedFormat(EngineContext &context,
-                             const std::vector<VkFormat> &candidates,
-                             VkImageTiling tiling,
-                             VkFormatFeatureFlags features) {
-  for (VkFormat format : candidates) {
-    VkFormatProperties props;
-    vkGetPhysicalDeviceFormatProperties(context.vulkan.physicalDevice, format,
-                                        &props);
 
-    if (tiling == VK_IMAGE_TILING_LINEAR &&
+vk::Format findSupportedFormat(EngineContext &context,
+                               const std::vector<vk::Format> &candidates,
+                               vk::ImageTiling tiling,
+                               vk::FormatFeatureFlags features) {
+  for (vk::Format format : candidates) {
+    vk::FormatProperties props =
+        context.vulkan.physicalDevice.getFormatProperties(format);
+
+    if (tiling == vk::ImageTiling::eLinear &&
         (props.linearTilingFeatures & features) == features) {
       return format;
-    } else if (tiling == VK_IMAGE_TILING_OPTIMAL &&
+    } else if (tiling == vk::ImageTiling::eOptimal &&
                (props.optimalTilingFeatures & features) == features) {
       return format;
     }
   }
   throw std::runtime_error("failed to find supported format!");
 }
-void createBuffer(EngineContext &context, VkDeviceSize size,
-                  VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
-                  VkBuffer &buffer, VkDeviceMemory &bufferMemory) {
-  VkBufferCreateInfo bufferInfo{};
-  bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  bufferInfo.size = size;
-  bufferInfo.usage = usage;
-  bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-  if (vkCreateBuffer(context.vulkan.device, &bufferInfo, nullptr, &buffer) !=
-      VK_SUCCESS) {
+void createBuffer(EngineContext &context, vk::DeviceSize size,
+                  vk::BufferUsageFlags usage,
+                  vk::MemoryPropertyFlags properties, vk::Buffer &buffer,
+                  vk::DeviceMemory &bufferMemory) {
+  vk::BufferCreateInfo bufferInfo{{},    // flags
+                                  size,  // size
+                                  usage, // usage
+                                  vk::SharingMode::eExclusive};
+
+  try {
+    buffer = context.vulkan.device.createBuffer(bufferInfo);
+  } catch (const vk::SystemError &) {
     throw std::runtime_error("failed to create vertex buffer!");
   }
 
-  VkMemoryRequirements memRequirements;
-  vkGetBufferMemoryRequirements(context.vulkan.device, buffer,
-                                &memRequirements);
+  vk::MemoryRequirements memRequirements =
+      context.vulkan.device.getBufferMemoryRequirements(buffer);
 
-  VkMemoryAllocateInfo allocInfo{};
-  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  allocInfo.allocationSize = memRequirements.size;
-  allocInfo.memoryTypeIndex =
-      findMemoryType(context, memRequirements.memoryTypeBits, properties);
+  vk::MemoryAllocateInfo allocInfo{
+      memRequirements.size,
+      findMemoryType(context, memRequirements.memoryTypeBits, properties)};
 
-  if (vkAllocateMemory(context.vulkan.device, &allocInfo, nullptr,
-                       &bufferMemory) != VK_SUCCESS) {
+  try {
+    bufferMemory = context.vulkan.device.allocateMemory(allocInfo);
+  } catch (const vk::SystemError &) {
     throw std::runtime_error("failed to allocate vertex buffer memory!");
   }
 
-  vkBindBufferMemory(context.vulkan.device, buffer, bufferMemory, 0);
+  context.vulkan.device.bindBufferMemory(buffer, bufferMemory, 0);
 }
-VkCommandBuffer beginSingleTimeCommands(EngineContext &context) {
-  VkCommandBufferAllocateInfo allocInfo{};
-  allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  allocInfo.commandPool = context.vulkan.commandPool;
-  allocInfo.commandBufferCount = 1;
 
-  VkCommandBuffer commandBuffer;
-  vkAllocateCommandBuffers(context.vulkan.device, &allocInfo, &commandBuffer);
+vk::CommandBuffer beginSingleTimeCommands(EngineContext &context) {
+  vk::CommandBufferAllocateInfo allocInfo{
+      context.vulkan.commandPool, vk::CommandBufferLevel::ePrimary,
+      1 // count
+  };
 
-  VkCommandBufferBeginInfo beginInfo{};
-  beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  vk::CommandBuffer commandBuffer;
+  try {
+    std::vector<vk::CommandBuffer> bufs =
+        context.vulkan.device.allocateCommandBuffers(allocInfo);
+    commandBuffer = bufs[0];
+  } catch (const vk::SystemError &) {
+    throw std::runtime_error("failed to allocate command buffers!");
+  }
 
-  vkBeginCommandBuffer(commandBuffer, &beginInfo);
+  vk::CommandBufferBeginInfo beginInfo{
+      vk::CommandBufferUsageFlagBits::eOneTimeSubmit};
+
+  commandBuffer.begin(beginInfo);
   return commandBuffer;
 }
 
 void endSingleTimeCommands(EngineContext &context,
-                           VkCommandBuffer commandBuffer, VkQueue queue) {
-  vkEndCommandBuffer(commandBuffer);
+                           vk::CommandBuffer commandBuffer, vk::Queue queue) {
+  commandBuffer.end();
 
-  VkSubmitInfo submitInfo{};
-  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-  submitInfo.commandBufferCount = 1;
-  submitInfo.pCommandBuffers = &commandBuffer;
+  vk::SubmitInfo submitInfo{
+      0, nullptr, nullptr, // Wait semaphores
+      1, &commandBuffer    // Command buffers
+  };
 
-  vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
-  vkQueueWaitIdle(queue);
+  if (queue.submit(1, &submitInfo, nullptr) != vk::Result::eSuccess)
+    throw std::runtime_error(
+        "Failed to submit single time command buffer to queue");
+  queue.waitIdle();
 
-  vkFreeCommandBuffers(context.vulkan.device, context.vulkan.commandPool, 1,
-                       &commandBuffer);
+  context.vulkan.device.freeCommandBuffers(context.vulkan.commandPool, 1,
+                                           &commandBuffer);
 }
-void copyBuffer(EngineContext &context, VkBuffer srcBuffer, VkBuffer dstBuffer,
-                VkDeviceSize size) {
-  VkCommandBuffer commandBuffer = beginSingleTimeCommands(context);
 
-  VkBufferCopy copyRegion{};
-  copyRegion.srcOffset = 0; // Optional
-  copyRegion.dstOffset = 0; // Optional
-  copyRegion.size = size;
-  vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+void copyBuffer(EngineContext &context, vk::Buffer srcBuffer,
+                vk::Buffer dstBuffer, vk::DeviceSize size) {
+  vk::CommandBuffer commandBuffer = beginSingleTimeCommands(context);
+
+  vk::BufferCopy copyRegion{
+      0,   // srcOffset
+      0,   // dstOffset
+      size // size
+  };
+  commandBuffer.copyBuffer(srcBuffer, dstBuffer, 1, &copyRegion);
 
   endSingleTimeCommands(context, commandBuffer, context.vulkan.graphicsQueue);
 }
-void copyBufferToImage(EngineContext &context, VkBuffer buffer, VkImage image,
-                       uint32_t width, uint32_t height, uint32_t offset) {
-  VkCommandBuffer commandBuffer = beginSingleTimeCommands(context);
 
-  VkBufferImageCopy region{};
-  region.bufferOffset = offset;
-  region.bufferRowLength = 0;
-  region.bufferImageHeight = 0;
+void copyBufferToImage(EngineContext &context, vk::Buffer buffer,
+                       vk::Image image, uint32_t width, uint32_t height,
+                       uint32_t offset) {
+  vk::CommandBuffer commandBuffer = beginSingleTimeCommands(context);
 
-  region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  region.imageSubresource.mipLevel = 0;
-  region.imageSubresource.baseArrayLayer = 0;
-  region.imageSubresource.layerCount = 1;
+  vk::BufferImageCopy region{
+      offset, // bufferOffset
+      0,      // bufferRowLength
+      0,      // bufferImageHeight
+      vk::ImageSubresourceLayers{vk::ImageAspectFlagBits::eColor, 0, 0, 1},
+      vk::Offset3D{0, 0, 0},
+      vk::Extent3D{width, height, 1}};
 
-  region.imageOffset = {0, 0, 0};
-  region.imageExtent = {width, height, 1};
-
-  vkCmdCopyBufferToImage(commandBuffer, buffer, image,
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+  commandBuffer.copyBufferToImage(
+      buffer, image, vk::ImageLayout::eTransferDstOptimal, 1, &region);
 
   endSingleTimeCommands(context, commandBuffer, context.vulkan.graphicsQueue);
 }
-VkImageView createImageView(EngineContext &context, VkImage image,
-                            VkFormat format) {
-  VkImageViewCreateInfo viewInfo{};
-  viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  viewInfo.image = image;
-  viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  viewInfo.format = format;
-  viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  viewInfo.subresourceRange.baseMipLevel = 0;
-  viewInfo.subresourceRange.levelCount = 1;
-  viewInfo.subresourceRange.baseArrayLayer = 0;
-  viewInfo.subresourceRange.layerCount = 1;
 
-  VkImageView imageView;
-  if (vkCreateImageView(context.vulkan.device, &viewInfo, nullptr,
-                        &imageView) != VK_SUCCESS) {
+vk::ImageView createImageView(EngineContext &context, vk::Image image,
+                              vk::Format format) {
+  vk::ImageViewCreateInfo viewInfo{
+      {}, // flags
+      image,
+      vk::ImageViewType::e2D,
+      format,
+      vk::ComponentMapping{},
+      vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1}};
+
+  vk::ImageView imageView;
+  try {
+    imageView = context.vulkan.device.createImageView(viewInfo);
+  } catch (const vk::SystemError &) {
     throw std::runtime_error("failed to create texture image view!");
   }
   return imageView;
 }
-VkImageView createTextureImageView(EngineContext &context, VkImage image) {
+
+vk::ImageView createTextureImageView(EngineContext &context, vk::Image image) {
   return createImageView(context, image,
                          context.vulkan.swapChain->getSwapChainImageFormat());
 }
+
 std::vector<char> readFile(const std::filesystem::path &filepath) {
   std::ifstream file{filepath, std::ios::ate | std::ios::binary};
 
@@ -251,36 +243,35 @@ std::vector<char> readFile(const std::filesystem::path &filepath) {
   file.close();
   return buffer;
 }
-VkImage createImageWithInfo(EngineContext &context,
-                            const VkImageCreateInfo &imageInfo,
-                            VkDeviceMemory &imageMemory) {
-  VkImage image;
-  if (vkCreateImage(context.vulkan.device, &imageInfo, nullptr, &image) !=
-      VK_SUCCESS) {
+
+vk::Image createImageWithInfo(EngineContext &context,
+                              const vk::ImageCreateInfo &imageInfo,
+                              vk::DeviceMemory &imageMemory) {
+  vk::Image image;
+  try {
+    image = context.vulkan.device.createImage(imageInfo);
+  } catch (const vk::SystemError &) {
     throw std::runtime_error("failed to create image!");
   }
 
-  VkMemoryRequirements memRequirements;
-  vkGetImageMemoryRequirements(context.vulkan.device, image, &memRequirements);
+  vk::MemoryRequirements memRequirements =
+      context.vulkan.device.getImageMemoryRequirements(image);
 
-  VkMemoryAllocateInfo allocInfo{};
-  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-  allocInfo.allocationSize = memRequirements.size;
-  allocInfo.memoryTypeIndex =
+  vk::MemoryAllocateInfo allocInfo{
+      memRequirements.size,
       findMemoryType(context, memRequirements.memoryTypeBits,
-                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+                     vk::MemoryPropertyFlagBits::eDeviceLocal)};
 
-  if (vkAllocateMemory(context.vulkan.device, &allocInfo, nullptr,
-                       &imageMemory) != VK_SUCCESS) {
+  try {
+    imageMemory = context.vulkan.device.allocateMemory(allocInfo);
+  } catch (const vk::SystemError &) {
     throw std::runtime_error("failed to allocate image memory!");
   }
 
-  if (vkBindImageMemory(context.vulkan.device, image, imageMemory, 0) !=
-      VK_SUCCESS) {
-    throw std::runtime_error("failed to bind image memory!");
-  }
+  context.vulkan.device.bindImageMemory(image, imageMemory, 0);
   return image;
 }
+
 size_t getNonCoherentAtomSizeAlignment(EngineContext &context,
                                        size_t originalSize) {
   const size_t kAtomSize =
@@ -291,6 +282,7 @@ size_t getNonCoherentAtomSizeAlignment(EngineContext &context,
   }
   return alignedSize;
 }
+
 size_t getUniformBufferAlignment(EngineContext &context, size_t originalSize) {
   const size_t minUboAlignment = context.vulkan.physicalDeviceProperties.limits
                                      .minUniformBufferOffsetAlignment;

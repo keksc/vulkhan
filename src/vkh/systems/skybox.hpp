@@ -1,45 +1,51 @@
 #pragma once
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 #include "../image.hpp"
 #include "system.hpp"
 #include <memory>
+#include <vector>
 
 namespace vkh {
+
 class GraphicsPipeline;
 template <typename T> class Scene;
+
 class SkyboxSys : public System {
 public:
   struct Vertex {
     glm::vec3 pos{};
 
-    static std::vector<VkVertexInputBindingDescription>
+    static std::vector<vk::VertexInputBindingDescription>
     getBindingDescriptions() {
-      std::vector<VkVertexInputBindingDescription> bindingDescriptions(1);
+      std::vector<vk::VertexInputBindingDescription> bindingDescriptions(1);
       bindingDescriptions[0].binding = 0;
       bindingDescriptions[0].stride = sizeof(Vertex);
-      bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+      bindingDescriptions[0].inputRate = vk::VertexInputRate::eVertex;
       return bindingDescriptions;
     }
-    static std::vector<VkVertexInputAttributeDescription>
-    getAttributeDescriptions() {
-      std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
 
-      attributeDescriptions.emplace_back(0, 0, VK_FORMAT_R32G32B32_SFLOAT,
+    static std::vector<vk::VertexInputAttributeDescription>
+    getAttributeDescriptions() {
+      std::vector<vk::VertexInputAttributeDescription> attributeDescriptions{};
+
+      attributeDescriptions.emplace_back(0, 0, vk::Format::eR32G32B32Sfloat,
                                          offsetof(Vertex, pos));
 
       return attributeDescriptions;
     }
   };
+
   SkyboxSys(EngineContext &context);
   ~SkyboxSys();
-  // This system should be the first to be rendered
+
+  // This system should be among the first to be rendered
   void render();
 
-  VkDescriptorSetLayout setLayout;
-  VkDescriptorSet set;
+  vk::DescriptorSetLayout setLayout;
+  vk::DescriptorSet set;
 
 private:
   void createSetLayout();
@@ -48,4 +54,5 @@ private:
   Image cubeMap;
   std::unique_ptr<Scene<Vertex>> cubeScene;
 };
+
 } // namespace vkh

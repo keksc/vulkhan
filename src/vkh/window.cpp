@@ -12,12 +12,14 @@
 #include <filesystem>
 
 namespace vkh {
-VkExtent2D Window::getExtent() {
+
+vk::Extent2D Window::getExtent() {
   return {static_cast<uint32_t>(size.x), static_cast<uint32_t>(size.y)};
-};
+}
+
 void Window::setFullscreen(bool fullscreen) {
   if (fullscreen) {
-    glfwSetWindowMonitor(*this, NULL, 100, 100, 800, 600, 0);
+    glfwSetWindowMonitor(*this, nullptr, 100, 100, 800, 600, 0);
   } else {
     GLFWmonitor *monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode *mode = glfwGetVideoMode(monitor);
@@ -25,6 +27,7 @@ void Window::setFullscreen(bool fullscreen) {
                          mode->refreshRate);
   }
 }
+
 bool Window::isFocused() { return glfwGetWindowAttrib(*this, GLFW_FOCUSED); }
 Window::operator GLFWwindow *() { return glfwWindow; }
 
@@ -36,6 +39,7 @@ void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
   context->window.size.y = height;
   context->window.aspectRatio = static_cast<float>(width) / height;
 }
+
 void loadCursor(EngineContext &context, const std::filesystem::path &path,
                 GLFWcursor *cursor) {
   int w, h, texChannels;
@@ -50,6 +54,7 @@ void loadCursor(EngineContext &context, const std::filesystem::path &path,
   context.window.cursors.arrow = glfwCreateCursor(&image, 0, 0);
   stbi_image_free(pixels);
 }
+
 void initWindow(EngineContext &context) {
   glfwInitHint(GLFW_WAYLAND_LIBDECOR, GLFW_FALSE);
   glfwInit();
@@ -72,10 +77,12 @@ void initWindow(EngineContext &context) {
   glfwGetWindowContentScale(context.window, &context.window.contentScale.x,
                             &context.window.contentScale.y);
 }
+
 void cleanupWindow(EngineContext &context) {
   glfwDestroyCursor(context.window.cursors.arrow);
   glfwDestroyCursor(context.window.cursors.ibeam);
   glfwDestroyWindow(context.window);
   glfwTerminate();
 }
+
 } // namespace vkh

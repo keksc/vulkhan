@@ -7,7 +7,9 @@
 #include <memory>
 
 namespace vkh {
+
 class GraphicsPipeline;
+
 class SmokeSys : public System {
 public:
   SmokeSys(EngineContext &context);
@@ -23,5 +25,6 @@ private:
   std::unique_ptr<Buffer<float>> stagingBuffer;
 
   const unsigned int interpolatedScale = 4;
-}; // namespace particlesSys
+};
+
 } // namespace vkh

@@ -4,7 +4,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtx/norm.hpp>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 #include "../../descriptors.hpp"
 #include "../../pipeline.hpp"
@@ -15,12 +15,12 @@
 #include <random>
 
 namespace vkh {
+
 void SmokeSys::createPipeline() {
-  std::vector<VkDescriptorSetLayout> setLayouts{
+  std::vector<vk::DescriptorSetLayout> setLayouts{
       context.vulkan.globalDescriptorSetLayout, fluidGrid.updateSetLayout};
 
-  VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-  pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
   pipelineLayoutInfo.pSetLayouts = setLayouts.data();
 
@@ -30,25 +30,26 @@ void SmokeSys::createPipeline() {
   GraphicsPipeline::enableAlphaBlending(pipelineInfo);
   pipelineInfo.vertpath = "shaders/smoke/smoke.vert.spv";
   pipelineInfo.fragpath = "shaders/smoke/smoke.frag.spv";
-  pipelineInfo.depthStencilInfo.depthTestEnable = VK_TRUE;
-  pipelineInfo.depthStencilInfo.depthWriteEnable = VK_TRUE;
+  pipelineInfo.depthStencilInfo.depthTestEnable = true;
+  pipelineInfo.depthStencilInfo.depthWriteEnable = true;
   pipelineInfo.subpass = 1;
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "smoke");
 }
 
 SmokeSys::SmokeSys(EngineContext &context)
     : System(context), fluidGrid(context, glm::uvec2{600, 600}, 1.f) {
-  stagingBuffer =
-      std::make_unique<Buffer<float>>(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                      fluidGrid.smokeMap.size());
+  stagingBuffer = std::make_unique<Buffer<float>>(
+      context, vk::BufferUsageFlagBits::eTransferSrc,
+      vk::MemoryPropertyFlagBits::eHostVisible |
+          vk::MemoryPropertyFlagBits::eHostCoherent,
+      fluidGrid.smokeMap.size());
   stagingBuffer->map();
   createPipeline();
 }
 
 std::mt19937 rng{std::random_device{}()};
 std::uniform_int_distribution<> velocity(-10, 10);
+
 void SmokeSys::update() {
   static glm::ivec2 prevCursorPos;
   static glm::ivec2 dcp;
@@ -97,15 +98,18 @@ void SmokeSys::update() {
 }
 
 void SmokeSys::render() {
-  pipeline->bind(context.frameInfo.cmd);
+  auto cmd = context.frameInfo.cmd;
+  pipeline->bind(cmd);
 
-  VkDescriptorSet sets[] = {
+  std::array<vk::DescriptorSet, 2> sets = {
       context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex],
       fluidGrid.dyeImageSet};
-  vkCmdBindDescriptorSets(context.frameInfo.cmd,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
-                          sets, 0, nullptr);
 
-  vkCmdDraw(context.frameInfo.cmd, 3, 1, 0, 0);
+  cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipeline, 0,
+                         static_cast<uint32_t>(sets.size()), sets.data(), 0,
+                         nullptr);
+
+  cmd.draw(3, 1, 0, 0);
 }
+
 } // namespace vkh

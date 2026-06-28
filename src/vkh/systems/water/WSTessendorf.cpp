@@ -3,109 +3,113 @@
 #include "../../buffer.hpp"
 #include "../../debug.hpp"
 #include "../../descriptors.hpp"
-#include "../../pipeline.hpp"
 #include "../../image.hpp"
+#include "../../pipeline.hpp"
+#include <format>
+#include <stdexcept>
+#include <vulkan/vulkan.hpp>
 
 namespace vkh {
+
 void WSTessendorf::createDescriptors() {
-  std::vector<VkDescriptorSetLayoutBinding> bindings = {
-      VkDescriptorSetLayoutBinding{
-          .binding = 0,
-          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-          .descriptorCount = 1,
-          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-      },
-      VkDescriptorSetLayoutBinding{
-          .binding = 1,
-          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-          .descriptorCount = 1,
-          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-      },
-      VkDescriptorSetLayoutBinding{
-          .binding = 2,
-          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-          .descriptorCount = 1,
-          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-      },
+  std::vector<vk::DescriptorSetLayoutBinding> bindings = {
+      vk::DescriptorSetLayoutBinding{0, vk::DescriptorType::eStorageBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute,
+                                     nullptr},
+      vk::DescriptorSetLayoutBinding{1, vk::DescriptorType::eStorageBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute,
+                                     nullptr},
+      vk::DescriptorSetLayoutBinding{2, vk::DescriptorType::eStorageBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute,
+                                     nullptr},
   };
   preFFTSetLayout = buildDescriptorSetLayout(context, bindings);
-  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
-                    reinterpret_cast<uint64_t>(preFFTSetLayout),
+  debug::setObjName(context, vk::ObjectType::eDescriptorSetLayout,
+                    reinterpret_cast<uint64_t>(
+                        static_cast<VkDescriptorSetLayout>(preFFTSetLayout)),
                     "WaterSys pre FFT descriptor set layout");
   preFFTSet =
       context.vulkan.globalDescriptorAllocator->allocate(preFFTSetLayout);
+
   DescriptorWriter writer(context);
   writer.writeBuffer(0, FFTData->descriptorInfo(),
-                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                     vk::DescriptorType::eStorageBuffer);
   writer.writeBuffer(1, baseWaveHeightField->descriptorInfo(),
-                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                     vk::DescriptorType::eStorageBuffer);
   writer.writeBuffer(2, waveVectors->descriptorInfo(),
-                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                     vk::DescriptorType::eStorageBuffer);
   writer.updateSet(preFFTSet);
 
-  std::vector<VkDescriptorSetLayoutBinding> postBindings = {
-      VkDescriptorSetLayoutBinding{
-          .binding = 0,
-          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-          .descriptorCount = 1,
-          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-      },
-      VkDescriptorSetLayoutBinding{
-          .binding = 1,
-          .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-          .descriptorCount = 1,
-          .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-      }};
+  std::vector<vk::DescriptorSetLayoutBinding> postBindings = {
+      vk::DescriptorSetLayoutBinding{0, vk::DescriptorType::eStorageBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute,
+                                     nullptr},
+      vk::DescriptorSetLayoutBinding{1, vk::DescriptorType::eStorageImage, 1,
+                                     vk::ShaderStageFlagBits::eCompute,
+                                     nullptr}};
 
   postFFTSetLayout = buildDescriptorSetLayout(context, postBindings);
-  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
-                    reinterpret_cast<uint64_t>(postFFTSetLayout),
+  debug::setObjName(context, vk::ObjectType::eDescriptorSetLayout,
+                    reinterpret_cast<uint64_t>(
+                        static_cast<VkDescriptorSetLayout>(postFFTSetLayout)),
                     "WaterSys post FFT descriptor set layout");
   postFFTSet =
       context.vulkan.globalDescriptorAllocator->allocate(postFFTSetLayout);
   writer.clear();
   writer.writeBuffer(0, FFTData->descriptorInfo(),
-                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                     vk::DescriptorType::eStorageBuffer);
   writer.writeImage(
       1, displacementFoamMap->getDescriptorInfo(context.vulkan.defaultSampler),
-      VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+      vk::DescriptorType::eStorageImage);
   writer.updateSet(postFFTSet);
 }
 
 WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
-  VkFenceCreateInfo fenceCreateInfo{};
-  fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  vkCreateFence(context.vulkan.device, &fenceCreateInfo, nullptr, &fence);
+  vk::FenceCreateInfo fenceCreateInfo{};
+  if (context.vulkan.device.createFence(&fenceCreateInfo, nullptr, &fence) !=
+      vk::Result::eSuccess) {
+    throw std::runtime_error("failed to create fence");
+  }
 
   FFTData = std::make_unique<Buffer<std::complex<float>>>(
-      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 3 * tileSizeSquared);
+      context, vk::BufferUsageFlagBits::eStorageBuffer,
+      vk::MemoryPropertyFlagBits::eDeviceLocal, 3 * tileSizeSquared);
 
   baseWaveHeightField = std::make_unique<Buffer<BaseWaveHeight>>(
-      context, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, tileSizeSquared);
+      context, vk::BufferUsageFlagBits::eStorageBuffer,
+      vk::MemoryPropertyFlagBits::eDeviceLocal, tileSizeSquared);
 
   waveVectors = std::make_unique<Buffer<WaveVector>>(
       context,
-      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, tileSizeSquared);
+      vk::BufferUsageFlagBits::eTransferDst |
+          vk::BufferUsageFlagBits::eStorageBuffer,
+      vk::MemoryPropertyFlagBits::eDeviceLocal, tileSizeSquared);
 
   ImageCreateInfo_empty createInfo{};
   createInfo.size = glm::uvec2{tileSize};
-  createInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-  createInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                     VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
-  createInfo.layout = VK_IMAGE_LAYOUT_GENERAL;
+  createInfo.format = vk::Format::eR16G16B16A16Sfloat;
+  createInfo.usage = vk::ImageUsageFlagBits::eTransferDst |
+                     vk::ImageUsageFlagBits::eSampled |
+                     vk::ImageUsageFlagBits::eStorage;
+  createInfo.layout = vk::ImageLayout::eGeneral;
   createInfo.name = "water displacement map";
   displacementFoamMap = std::make_unique<Image>(context, createInfo);
 
+  // VkFFT Interop configuration using raw handles extracted via casting
+  // wrappers
   VkFFTConfiguration config{};
-  config.physicalDevice = &context.vulkan.physicalDevice;
-  config.device = &context.vulkan.device;
-  config.queue = &context.vulkan.computeQueue;
-  config.commandPool = &context.vulkan.commandPool;
+  VkPhysicalDevice rawPhysDevice = context.vulkan.physicalDevice;
+  VkDevice rawDevice = context.vulkan.device;
+  VkQueue rawComputeQueue = context.vulkan.computeQueue;
+  VkCommandPool rawCmdPool = context.vulkan.commandPool;
+  VkFence rawFence = fence;
+
+  config.physicalDevice = &rawPhysDevice;
+  config.device = &rawDevice;
+  config.queue = &rawComputeQueue;
+  config.commandPool = &rawCmdPool;
   config.isCompilerInitialized = 0;
-  config.fence = &fence;
+  config.fence = &rawFence;
   config.FFTdim = 2;
   config.size[0] = tileSize;
   config.size[1] = tileSize;
@@ -119,7 +123,8 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
 
   uint64_t bufSize =
       3 * config.size[0] * config.size[1] * sizeof(std::complex<float>);
-  config.buffer = *FFTData;
+  VkBuffer rawBuffer = static_cast<vk::Buffer>(*FFTData);
+  config.buffer = &rawBuffer;
   config.bufferSize = &bufSize;
   config.bufferNum = 1;
   config.makeInversePlanOnly = 1;
@@ -131,26 +136,20 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
 
   createDescriptors();
 
-  VkSpecializationMapEntry specMapEntry{};
-  specMapEntry.size = sizeof(uint32_t);
-  specMapEntry.constantID = 0;
-  specMapEntry.offset = 0;
+  vk::SpecializationMapEntry specMapEntry{0, 0, sizeof(uint32_t)};
 
-  VkSpecializationInfo specInfo{};
-  specInfo.mapEntryCount = 1;
-  specInfo.dataSize = sizeof(uint32_t);
-  specInfo.pMapEntries = &specMapEntry;
-  specInfo.pData = &tileSize;
+  vk::SpecializationInfo specInfo{1, &specMapEntry, sizeof(uint32_t),
+                                  &tileSize};
 
-  VkPipelineLayoutCreateInfo FFTLayoutInfo{};
-  FFTLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  vk::PipelineLayoutCreateInfo FFTLayoutInfo{};
   FFTLayoutInfo.setLayoutCount = 1;
   FFTLayoutInfo.pSetLayouts = &preFFTSetLayout;
-  VkPushConstantRange pushConstantRange{};
-  pushConstantRange.size = sizeof(PushConstantData);
-  pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+  vk::PushConstantRange pushConstantRange{vk::ShaderStageFlagBits::eCompute, 0,
+                                          sizeof(PushConstantData)};
   FFTLayoutInfo.pushConstantRangeCount = 1;
   FFTLayoutInfo.pPushConstantRanges = &pushConstantRange;
+
   preFFTPipeline = std::make_unique<ComputePipeline>(
       context, "shaders/water/preFFT.comp.spv", FFTLayoutInfo,
       "water pre FFT pipeline", &specInfo);
@@ -160,20 +159,20 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
       context, "shaders/water/postFFT.comp.spv", FFTLayoutInfo,
       "water post FFT pipeline", &specInfo);
 
-  VkPipelineLayoutCreateInfo baseWaveHeightFieldLayoutInfo{};
-  baseWaveHeightFieldLayoutInfo.sType =
-      VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  vk::PipelineLayoutCreateInfo baseWaveHeightFieldLayoutInfo{};
   baseWaveHeightFieldLayoutInfo.setLayoutCount = 1;
   baseWaveHeightFieldLayoutInfo.pSetLayouts = &preFFTSetLayout;
+
   ComputePipeline baseWaveHeightFieldPipeline(
       context, "shaders/water/baseWaveHeightField.comp.spv",
       baseWaveHeightFieldLayoutInfo, "water base wave height field pipeline",
       &specInfo);
 
-  Buffer<WaveVector> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                   tileSizeSquared);
+  Buffer<WaveVector> stagingBuffer(
+      context, vk::BufferUsageFlagBits::eTransferSrc,
+      vk::MemoryPropertyFlagBits::eHostVisible |
+          vk::MemoryPropertyFlagBits::eHostCoherent,
+      tileSizeSquared);
 
   std::vector<WaveVector> waveVecs;
   computeWaveVectors(waveVecs);
@@ -184,19 +183,21 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   auto cmd = beginSingleTimeCommands(context);
   waveVectors->recordCopyFromBuffer(cmd, stagingBuffer);
   baseWaveHeightFieldPipeline.bind(cmd);
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                          baseWaveHeightFieldPipeline, 0, 1, &preFFTSet, 0,
-                          nullptr);
-  vkCmdDispatch(cmd, tileSize / 16, tileSize / 16, 1);
+
+  cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+                         baseWaveHeightFieldPipeline.getLayout(), 0, 1,
+                         &preFFTSet, 0, nullptr);
+  cmd.dispatch(tileSize / 16, tileSize / 16, 1);
   endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
 }
 
 WSTessendorf::~WSTessendorf() {
   deleteVkFFT(&app);
-  vkDestroyFence(context.vulkan.device, fence, nullptr);
-  vkDestroyDescriptorSetLayout(context.vulkan.device, preFFTSetLayout, nullptr);
-  vkDestroyDescriptorSetLayout(context.vulkan.device, postFFTSetLayout,
-                               nullptr);
+  if (context.vulkan.device) {
+    context.vulkan.device.destroyFence(fence, nullptr);
+    context.vulkan.device.destroyDescriptorSetLayout(preFFTSetLayout, nullptr);
+    context.vulkan.device.destroyDescriptorSetLayout(postFFTSetLayout, nullptr);
+  }
 }
 
 void WSTessendorf::computeWaveVectors(std::vector<WaveVector> &waveVecs) {
@@ -211,62 +212,67 @@ void WSTessendorf::computeWaveVectors(std::vector<WaveVector> &waveVecs) {
   }
 }
 
-void WSTessendorf::recordComputeWaves(VkCommandBuffer &cmd, float t) {
+void WSTessendorf::recordComputeWaves(vk::CommandBuffer &cmd, float t) {
   debug::beginLabel(context, cmd, "Compute waves", {.2f, .2f, 1.f, 1.f});
   {
     PushConstantData data{.t = t, .dt = context.frameInfo.dt};
     debug::beginLabel(context, cmd, "pre FFT", {.2f, .2f, 1.f, 1.f});
     {
-      vkCmdPushConstants(cmd, preFFTPipeline->getLayout(),
-                         VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                         sizeof(PushConstantData), &data);
+      cmd.pushConstants(preFFTPipeline->getLayout(),
+                        vk::ShaderStageFlagBits::eCompute, 0,
+                        sizeof(PushConstantData), &data);
       preFFTPipeline->bind(cmd);
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                              preFFTPipeline->getLayout(), 0, 1, &preFFTSet, 0,
-                              nullptr);
-      vkCmdDispatch(cmd, tileSize / 16, tileSize / 16, 1);
+      cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+                             preFFTPipeline->getLayout(), 0, 1, &preFFTSet, 0,
+                             nullptr);
+      cmd.dispatch(tileSize / 16, tileSize / 16, 1);
     }
     debug::endLabel(context, cmd);
 
-    VkMemoryBarrier memoryBarrier{};
-    memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-    memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                         &memoryBarrier, 0, nullptr, 0, nullptr);
+    vk::MemoryBarrier memoryBarrier{vk::AccessFlagBits::eShaderWrite,
+                                    vk::AccessFlagBits::eShaderRead};
+
+    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                        vk::PipelineStageFlagBits::eComputeShader,
+                        vk::DependencyFlags{}, 1, &memoryBarrier, 0, nullptr, 0,
+                        nullptr);
 
     debug::beginLabel(context, cmd, "FFT", {.2f, .2f, 1.f, 1.f});
     {
       VkFFTLaunchParams launchParams{};
-      launchParams.buffer = *FFTData;
-      launchParams.commandBuffer = &cmd;
+      VkBuffer rawBuffer = static_cast<vk::Buffer>(*FFTData);
+      VkCommandBuffer rawCmd = cmd;
+      launchParams.buffer = &rawBuffer;
+      launchParams.commandBuffer = &rawCmd;
       VkFFTResult result = VkFFTAppend(&app, 1, &launchParams);
     }
     debug::endLabel(context, cmd);
 
-    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1,
-                         &memoryBarrier, 0, nullptr, 0, nullptr);
+    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                        vk::PipelineStageFlagBits::eComputeShader,
+                        vk::DependencyFlags{}, 1, &memoryBarrier, 0, nullptr, 0,
+                        nullptr);
 
     debug::beginLabel(context, cmd, "post FFT", {.2f, .2f, 1.f, 1.f});
     {
-      displacementFoamMap->recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_GENERAL);
+      displacementFoamMap->recordTransitionLayout(cmd,
+                                                  vk::ImageLayout::eGeneral);
 
-      vkCmdPushConstants(cmd, postFFTPipeline->getLayout(),
-                         VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                         sizeof(PushConstantData), &data);
+      cmd.pushConstants(postFFTPipeline->getLayout(),
+                        vk::ShaderStageFlagBits::eCompute, 0,
+                        sizeof(PushConstantData), &data);
       postFFTPipeline->bind(cmd);
-      vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                              postFFTPipeline->getLayout(), 0, 1, &postFFTSet,
-                              0, nullptr);
-      vkCmdDispatch(cmd, tileSize / 16, tileSize / 16, 1);
+      cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+                             postFFTPipeline->getLayout(), 0, 1, &postFFTSet, 0,
+                             nullptr);
+      cmd.dispatch(tileSize / 16, tileSize / 16, 1);
 
       displacementFoamMap->recordTransitionLayout(
-          cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+          cmd, vk::ImageLayout::eShaderReadOnlyOptimal);
     }
     debug::endLabel(context, cmd);
   }
   debug::endLabel(context, cmd);
 }
+
 } // namespace vkh

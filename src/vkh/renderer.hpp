@@ -1,24 +1,27 @@
 #pragma once
 
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 #include "engineContext.hpp"
 
 namespace vkh {
 namespace renderer {
+
 void init(EngineContext &context);
 void cleanup(EngineContext &context);
 
 bool isFrameInProgress();
 
-VkCommandBuffer getCurrentCommandBuffer();
+vk::CommandBuffer getCurrentCommandBuffer();
 
 int getFrameIndex();
 
-VkCommandBuffer beginFrame(EngineContext &context);
+vk::CommandBuffer beginFrame(EngineContext &context);
 void endFrame(EngineContext &context);
+
 void beginSwapChainRenderPass(EngineContext &context,
-                              VkCommandBuffer commandBuffer);
-void endSwapChainRenderPass(VkCommandBuffer commandBuffer);
+                              vk::CommandBuffer commandBuffer);
+void endSwapChainRenderPass(vk::CommandBuffer commandBuffer);
+
 } // namespace renderer
 } // namespace vkh

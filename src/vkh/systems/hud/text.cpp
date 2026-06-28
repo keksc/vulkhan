@@ -1,7 +1,6 @@
 #include "text.hpp"
 
-#include <vulkan/vulkan.h>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 #define STB_TRUETYPE_IMPLEMENTATION
 #ifdef WIN32
 #include <stb_truetype.h>
@@ -9,10 +8,9 @@
 #include <stb/stb_truetype.h>
 #endif
 
+#include <cstring>
 #include <memory>
 #include <vector>
-
-#include <cstring>
 
 #include "../../buffer.hpp"
 #include "../../debug.hpp"
@@ -21,22 +19,27 @@
 #include "../../swapChain.hpp"
 
 namespace vkh {
+
 TextSys::GlyphRange TextSys::glyphRange;
+
 TextSys::~TextSys() {
-  vkDestroyDescriptorSetLayout(context.vulkan.device, setLayout, nullptr);
+  if (context.vulkan.device) {
+    context.vulkan.device.destroyDescriptorSetLayout(setLayout, nullptr);
+  }
 }
+
 void TextSys::createBuffers() {
   vertexBuffer = std::make_unique<Buffer<Vertex>>(
-      context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      context, vk::BufferUsageFlagBits::eVertexBuffer,
+      vk::MemoryPropertyFlagBits::eHostVisible |
+          vk::MemoryPropertyFlagBits::eHostCoherent,
       maxVertexCount);
   vertexBuffer->map();
 
   indexBuffer = std::make_unique<Buffer<uint32_t>>(
-      context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+      context, vk::BufferUsageFlagBits::eIndexBuffer,
+      vk::MemoryPropertyFlagBits::eHostVisible |
+          vk::MemoryPropertyFlagBits::eHostCoherent,
       maxIndexCount);
   indexBuffer->map();
 }
@@ -54,44 +57,44 @@ void TextSys::ensureCapacity(size_t vertexCount, size_t indexCount) {
   }
 
   if (needsRecreation) {
-    vkDeviceWaitIdle(context.vulkan.device);
+    context.vulkan.device.waitIdle();
     vertexBuffer = std::make_unique<Buffer<Vertex>>(
-        context, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        context, vk::BufferUsageFlagBits::eVertexBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
         maxVertexCount);
     vertexBuffer->map();
 
     indexBuffer = std::make_unique<Buffer<uint32_t>>(
-        context, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        context, vk::BufferUsageFlagBits::eIndexBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
         maxIndexCount);
     indexBuffer->map();
   }
 }
 
 void TextSys::createDescriptors() {
-  setLayout = buildDescriptorSetLayout(
-      context, {VkDescriptorSetLayoutBinding{
-                   .binding = 0,
-                   .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                   .descriptorCount = 1,
-                   .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-               }});
+  std::vector<vk::DescriptorSetLayoutBinding> bindings = {
+      vk::DescriptorSetLayoutBinding{
+          0, vk::DescriptorType::eCombinedImageSampler, 1,
+          vk::ShaderStageFlagBits::eFragment, nullptr}};
+
+  setLayout = buildDescriptorSetLayout(context, bindings);
   set = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
+
   DescriptorWriter writer(context);
   writer.writeImage(0,
                     fontAtlas->getDescriptorInfo(context.vulkan.defaultSampler),
-                    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+                    vk::DescriptorType::eCombinedImageSampler);
   writer.updateSet(set);
 }
+
 void TextSys::createPipeline() {
-  std::array<VkDescriptorSetLayout, 2> setLayouts{
+  std::array<vk::DescriptorSetLayout, 2> setLayouts{
       context.vulkan.globalDescriptorSetLayout, setLayout};
 
-  VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-  pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
   pipelineLayoutInfo.pSetLayouts = setLayouts.data();
 
@@ -103,12 +106,13 @@ void TextSys::createPipeline() {
   GraphicsPipeline::enableAlphaBlending(pipelineInfo);
   pipelineInfo.vertpath = "shaders/text.vert.spv";
   pipelineInfo.fragpath = "shaders/text.frag.spv";
-  pipelineInfo.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
+  pipelineInfo.depthStencilInfo.depthCompareOp = vk::CompareOp::eGreaterOrEqual;
   pipelineInfo.subpass = 0;
   pipelineInfo.multisampleInfo.rasterizationSamples =
-      context.vulkan.msaaSamples;
+      static_cast<vk::SampleCountFlagBits>(context.vulkan.msaaSamples);
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "text");
 }
+
 void TextSys::createGlyphs() {
   std::filesystem::path fontPath = "fonts/EBGaramond-Regular.ttf";
   std::vector<char> fontDataChar = readFile(fontPath);
@@ -138,11 +142,11 @@ void TextSys::createGlyphs() {
   stbtt_PackEnd(&packContext);
 
   ImageCreateInfo_data imageInfo{};
-  imageInfo.format = VK_FORMAT_R8_UNORM;
+  imageInfo.format = vk::Format::eR8Unorm;
   imageInfo.size = bitmapExtent;
   imageInfo.data = atlasData;
   std::string imageName = std::format("font atlas for {}", fontPath.string());
-  imageInfo.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  imageInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
   imageInfo.name = imageName.c_str();
   fontAtlas = std::make_unique<Image>(context, imageInfo);
 
@@ -168,31 +172,34 @@ void TextSys::createGlyphs() {
   }
   delete[] atlasData;
 }
+
 TextSys::TextSys(EngineContext &context) : System(context) {
   createGlyphs();
   createBuffers();
   createDescriptors();
-
   createPipeline();
 }
+
 void TextSys::render(size_t indicesSize) {
-  debug::beginLabel(context, context.frameInfo.cmd, "TextSys rendering",
+  auto cmd = context.frameInfo.cmd;
+
+  debug::beginLabel(context, cmd, "TextSys rendering",
                     glm::vec4{.2f, .7f, .6f, 1.f});
-  pipeline->bind(context.frameInfo.cmd);
+  pipeline->bind(cmd);
 
-  VkBuffer buffers[] = {*vertexBuffer};
-  VkDeviceSize offsets[] = {0};
-  vkCmdBindVertexBuffers(context.frameInfo.cmd, 0, 1, buffers, offsets);
-  vkCmdBindIndexBuffer(context.frameInfo.cmd, *indexBuffer, 0,
-                       VK_INDEX_TYPE_UINT32);
-  VkDescriptorSet descriptorSets[2] = {
+  vk::Buffer buffers[] = {*vertexBuffer};
+  vk::DeviceSize offsets[] = {0};
+  cmd.bindVertexBuffers(0, 1, buffers, offsets);
+  cmd.bindIndexBuffer(*indexBuffer, 0, vk::IndexType::eUint32);
+
+  std::array<vk::DescriptorSet, 2> descriptorSets = {
       context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], set};
-  vkCmdBindDescriptorSets(context.frameInfo.cmd,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
-                          descriptorSets, 0, nullptr);
+  cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipeline, 0,
+                         static_cast<uint32_t>(descriptorSets.size()),
+                         descriptorSets.data(), 0, nullptr);
 
-  vkCmdDrawIndexed(context.frameInfo.cmd, static_cast<uint32_t>(indicesSize), 1,
-                   0, 0, 0);
-  debug::endLabel(context, context.frameInfo.cmd);
+  cmd.drawIndexed(static_cast<uint32_t>(indicesSize), 1, 0, 0, 0);
+  debug::endLabel(context, cmd);
 }
+
 } // namespace vkh

@@ -1,14 +1,17 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <vulkan/vulkan.hpp>
 
 #include "../../image.hpp"
 #include "../../pipeline.hpp"
 #include "../system.hpp"
 
+#include <memory>
 #include <vector>
 
 namespace vkh {
+
 class FluidGrid : public System {
 public:
   FluidGrid(EngineContext &context, glm::uvec2 cellCount, float cellSize);
@@ -68,9 +71,9 @@ public:
   float getSmokeAtWorldPos(glm::vec2 worldPos);
 
   // std::unique_ptr<ComputePipeline> updatePipeline;
-  VkDescriptorSetLayout updateSetLayout;
+  vk::DescriptorSetLayout updateSetLayout;
   std::unique_ptr<Image> dyeImage;
-  VkDescriptorSet dyeImageSet;
+  vk::DescriptorSet dyeImageSet;
 
 private:
   float getPressure(glm::uvec2 cell);
@@ -79,4 +82,5 @@ private:
   float sampleField(const std::vector<float> &field, float x, float y,
                     int strideY, int boundX, int boundY);
 };
+
 } // namespace vkh

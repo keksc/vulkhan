@@ -1,18 +1,23 @@
 #pragma once
 
-#include "../system.hpp"
-#include "../skybox.hpp"
+#include <glm/glm.hpp>
+#include <vulkan/vulkan.hpp>
 
+#include "../skybox.hpp"
+#include "../system.hpp"
 #include "WSTessendorf.hpp"
+
+#include <cstddef>
 #include <memory>
 #include <vector>
-#include <glm/glm.hpp>
 
 namespace vkh {
+
 template <typename T> class Buffer;
 template <typename T> class Scene;
 class GraphicsPipeline;
 class EngineContext;
+
 class WaterSys : public System {
 public:
   WaterSys(EngineContext &context, SkyboxSys &skyboxSys);
@@ -25,6 +30,7 @@ public:
 
 private:
   SkyboxSys &skyboxSys;
+
   struct Vertex {
     glm::vec3 pos;
     glm::vec2 uv;
@@ -32,30 +38,21 @@ private:
     Vertex(const glm::vec3 &position, const glm::vec2 &texCoord)
         : pos(position), uv(texCoord) {}
 
-    constexpr static VkVertexInputBindingDescription GetBindingDescription() {
-      return VkVertexInputBindingDescription{.binding = 0,
-                                             .stride = sizeof(Vertex),
-                                             .inputRate =
-                                                 VK_VERTEX_INPUT_RATE_VERTEX};
+    constexpr static vk::VertexInputBindingDescription GetBindingDescription() {
+      return vk::VertexInputBindingDescription{0, sizeof(Vertex),
+                                               vk::VertexInputRate::eVertex};
     }
 
-    static std::vector<VkVertexInputAttributeDescription>
+    static std::vector<vk::VertexInputAttributeDescription>
     GetAttributeDescriptions() {
-      return std::vector<VkVertexInputAttributeDescription>{
-          {.location = 0,
-           .binding = 0,
-           .format = VK_FORMAT_R32G32B32_SFLOAT,
-           .offset = offsetof(Vertex, pos)},
-          {.location = 1,
-           .binding = 0,
-           .format = VK_FORMAT_R32G32_SFLOAT,
-           .offset = offsetof(Vertex, uv)}};
+      return std::vector<vk::VertexInputAttributeDescription>{
+          {0, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, pos)},
+          {1, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex, uv)}};
     }
 
-    static const inline std::vector<VkVertexInputBindingDescription>
+    static const inline std::vector<vk::VertexInputBindingDescription>
         bindingDescriptions{GetBindingDescription()};
-
-    static const inline std::vector<VkVertexInputAttributeDescription>
+    static const inline std::vector<vk::VertexInputAttributeDescription>
         attribDescriptions{GetAttributeDescriptions()};
   };
 
@@ -63,8 +60,8 @@ private:
   float vertexDistance{WSTessendorf::tileLength /
                        static_cast<float>(tileResolution)};
 
-  VkDescriptorSetLayout setLayout;
-  std::vector<VkDescriptorSet> sets;
+  vk::DescriptorSetLayout setLayout;
+  std::vector<vk::DescriptorSet> sets;
   std::vector<Buffer<std::byte>> uniformBuffers;
   std::unique_ptr<GraphicsPipeline> pipeline;
   std::unique_ptr<Scene<Vertex>> scene;
@@ -89,9 +86,10 @@ private:
   void createDescriptorSets(const uint32_t count);
   std::vector<Vertex> createGridVertices();
   std::vector<uint32_t> createGridIndices();
-  void updateDescriptorSet(VkDescriptorSet set);
+  void updateDescriptorSet(vk::DescriptorSet set);
   void updateUniformBuffer();
   void createDescriptorSetLayout();
   void createMesh();
 };
+
 } // namespace vkh

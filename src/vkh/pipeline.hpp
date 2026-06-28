@@ -2,9 +2,10 @@
 
 #include <filesystem>
 #include <vector>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 namespace vkh {
+
 class EngineContext;
 
 struct PipelineCreateInfo {
@@ -17,76 +18,78 @@ struct PipelineCreateInfo {
   std::filesystem::path tescpath;
   std::filesystem::path tesepath;
 
-  std::vector<VkVertexInputBindingDescription> bindingDescriptions;
-  std::vector<VkVertexInputAttributeDescription> attributeDescriptions;
-  VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-      .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-      .primitiveRestartEnable = VK_FALSE,
+  std::vector<vk::VertexInputBindingDescription> bindingDescriptions;
+  std::vector<vk::VertexInputAttributeDescription> attributeDescriptions;
+
+  vk::PipelineInputAssemblyStateCreateInfo inputAssemblyInfo{
+      {}, vk::PrimitiveTopology::eTriangleList, false};
+
+  vk::PipelineViewportStateCreateInfo viewportInfo{{}, 1, nullptr, 1, nullptr};
+
+  vk::PipelineRasterizationStateCreateInfo rasterizationInfo{
+      {},
+      false,
+      false,
+      vk::PolygonMode::eFill,
+      vk::CullModeFlagBits::eNone,
+      vk::FrontFace::eClockwise,
+      false,
+      0.0f,
+      0.0f,
+      0.0f,
+      1.0f};
+
+  vk::PipelineMultisampleStateCreateInfo multisampleInfo{
+      {}, vk::SampleCountFlagBits::e1, false, 1.0f, nullptr, false, false};
+
+  vk::PipelineColorBlendAttachmentState colorBlendAttachment{
+      false,
+      vk::BlendFactor::eZero,
+      vk::BlendFactor::eZero,
+      vk::BlendOp::eAdd,
+      vk::BlendFactor::eZero,
+      vk::BlendFactor::eZero,
+      vk::BlendOp::eAdd,
+      vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+          vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA};
+
+  vk::PipelineColorBlendStateCreateInfo colorBlendInfo{
+      {}, false, vk::LogicOp::eCopy, 1, &colorBlendAttachment};
+
+  vk::PipelineDepthStencilStateCreateInfo depthStencilInfo{
+      {}, true, true, vk::CompareOp::eGreater, false, false, {},
+      {}, 0.0f, 1.0f};
+
+  std::vector<vk::DynamicState> dynamicStateEnables{
+      vk::DynamicState::eViewport,
+      vk::DynamicState::eScissor,
   };
-  VkPipelineViewportStateCreateInfo viewportInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-      .viewportCount = 1,
-      .scissorCount = 1,
-  };
-  VkPipelineRasterizationStateCreateInfo rasterizationInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-      .polygonMode = VK_POLYGON_MODE_FILL,
-      .cullMode = VK_CULL_MODE_NONE,
-      .frontFace = VK_FRONT_FACE_CLOCKWISE,
-      .lineWidth = 1.0f,
-  };
-  VkPipelineMultisampleStateCreateInfo multisampleInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-      .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-      .minSampleShading = 1.0f,
-  };
-  VkPipelineColorBlendAttachmentState colorBlendAttachment{
-      .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-  };
-  VkPipelineColorBlendStateCreateInfo colorBlendInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-      .attachmentCount = 1,
-      .pAttachments = &colorBlendAttachment,
-  };
-  VkPipelineDepthStencilStateCreateInfo depthStencilInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-      .depthTestEnable = VK_TRUE,
-      .depthWriteEnable = VK_TRUE,
-      .depthCompareOp = VK_COMPARE_OP_GREATER,
-  };
-  std::vector<VkDynamicState> dynamicStateEnables{
-      VK_DYNAMIC_STATE_VIEWPORT,
-      VK_DYNAMIC_STATE_SCISSOR,
-  };
-  VkRenderPass renderPass = nullptr;
-  VkPipelineLayoutCreateInfo layoutInfo{
-      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-  };
+
+  vk::RenderPass renderPass = nullptr;
+  vk::PipelineLayoutCreateInfo layoutInfo{};
   uint32_t subpass = 0;
 };
 
 class Pipeline {
 public:
-  Pipeline(EngineContext &context, VkPipelineBindPoint bindPoint);
+  Pipeline(EngineContext &context, vk::PipelineBindPoint bindPoint);
   virtual ~Pipeline();
 
   Pipeline(const Pipeline &) = delete;
   Pipeline &operator=(const Pipeline &) = delete;
 
-  VkPipelineLayout getLayout() { return layout; }
+  vk::PipelineLayout getLayout() { return layout; }
 
-  operator VkPipeline() { return pipeline; }
-  operator VkPipelineLayout() { return layout; }
+  operator vk::Pipeline() { return pipeline; }
+  operator vk::PipelineLayout() { return layout; }
 
-  void bind(VkCommandBuffer commandBuffer);
+  void bind(vk::CommandBuffer commandBuffer);
 
 protected:
   EngineContext &context;
-  VkPipeline pipeline;
-  VkPipelineBindPoint bindPoint;
-  VkPipelineLayout layout;
+  vk::Pipeline pipeline;
+  vk::PipelineBindPoint bindPoint;
+  vk::PipelineLayout layout;
 };
 
 class GraphicsPipeline : public Pipeline {
@@ -101,10 +104,9 @@ class ComputePipeline : public Pipeline {
 public:
   ComputePipeline(EngineContext &context,
                   const std::filesystem::path &shaderpath,
-                  VkPipelineLayoutCreateInfo layoutInfo =
-                      {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO},
+                  vk::PipelineLayoutCreateInfo layoutInfo = {},
                   const char *name = "Unnamed pipeline",
-                  VkSpecializationInfo *specializationInfo = nullptr);
+                  vk::SpecializationInfo *specializationInfo = nullptr);
 };
 
 } // namespace vkh
