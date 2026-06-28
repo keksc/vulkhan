@@ -3,7 +3,7 @@
 
 #include <GLFW/glfw3.h>
 #include <magic_enum/magic_enum.hpp>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 #include <print>
 #include <set>
@@ -16,6 +16,7 @@
 #include "deviceHelpers.hpp"
 
 namespace vkh {
+
 const std::vector<const char *> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
 const std::vector<const char *> deviceExtensions = {
@@ -23,10 +24,16 @@ const std::vector<const char *> deviceExtensions = {
 
 bool checkValidationLayerSupport() {
   uint32_t layerCount;
-  vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+  if (vk::enumerateInstanceLayerProperties(&layerCount, nullptr) !=
+      vk::Result::eSuccess) {
+    return false;
+  }
 
-  std::vector<VkLayerProperties> availableLayers(layerCount);
-  vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+  std::vector<vk::LayerProperties> availableLayers(layerCount);
+  if (vk::enumerateInstanceLayerProperties(
+          &layerCount, availableLayers.data()) != vk::Result::eSuccess) {
+    return false;
+  }
 
   for (const char *layerName : validationLayers) {
     bool layerFound = false;
@@ -47,24 +54,25 @@ bool checkValidationLayerSupport() {
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL
-debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-              VkDebugUtilsMessageTypeFlagsEXT messageType,
-              const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+debugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+              vk::DebugUtilsMessageTypeFlagsEXT messageTypes,
+              const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData,
               void *pUserData) {
+
   std::println("validation layers: {}", pCallbackData->pMessage);
 
   return VK_FALSE;
 }
 
 void populateDebugMessengerCreateInfo(
-    VkDebugUtilsMessengerCreateInfoEXT &createInfo) {
-  createInfo = {.sType =
-                    VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
-  createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                               VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-  createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                           VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                           VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+    vk::DebugUtilsMessengerCreateInfoEXT &createInfo) {
+  createInfo = vk::DebugUtilsMessengerCreateInfoEXT{};
+  createInfo.messageSeverity =
+      vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
+      vk::DebugUtilsMessageSeverityFlagBitsEXT::eError;
+  createInfo.messageType = vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
+                           vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
+                           vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance;
   createInfo.pfnUserCallback = debugCallback;
 }
 
@@ -85,10 +93,16 @@ std::vector<const char *> getRequiredExtensions(EngineContext &context) {
 
 void checkGflwRequiredInstanceExtensions(EngineContext &context) {
   uint32_t extensionCount = 0;
-  vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
-  std::vector<VkExtensionProperties> extensions(extensionCount);
-  vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount,
-                                         extensions.data());
+  if (vk::enumerateInstanceExtensionProperties(
+          nullptr, &extensionCount, nullptr) != vk::Result::eSuccess) {
+    throw std::runtime_error("Failed to query extension properties count");
+  }
+  std::vector<vk::ExtensionProperties> extensions(extensionCount);
+  if (vk::enumerateInstanceExtensionProperties(nullptr, &extensionCount,
+                                               extensions.data()) !=
+      vk::Result::eSuccess) {
+    throw std::runtime_error("Failed to query extension properties data");
+  }
 
   std::unordered_set<std::string> available;
   for (const auto &extension : extensions) {
@@ -110,32 +124,31 @@ void createInstance(EngineContext &context) {
   }
 #endif
 
-  VkApplicationInfo appInfo = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO};
+  vk::ApplicationInfo appInfo{};
   appInfo.pApplicationName = "Vulkhan";
   appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
   appInfo.pEngineName = "No Engine";
   appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
   appInfo.apiVersion = VK_API_VERSION_1_3;
 
-  VkInstanceCreateInfo createInfo = {
-      .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+  vk::InstanceCreateInfo createInfo{};
   createInfo.pApplicationInfo = &appInfo;
 
   auto extensions = getRequiredExtensions(context);
   createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
   createInfo.ppEnabledExtensionNames = extensions.data();
 
-  VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo;
+  vk::DebugUtilsMessengerCreateInfoEXT debugCreateInfo;
 #ifndef NDEBUG
   createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
   createInfo.ppEnabledLayerNames = validationLayers.data();
 
   populateDebugMessengerCreateInfo(debugCreateInfo);
-  createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT *)&debugCreateInfo;
+  createInfo.pNext = &debugCreateInfo;
 #endif
 
-  if (vkCreateInstance(&createInfo, nullptr, &context.vulkan.instance) !=
-      VK_SUCCESS) {
+  if (vk::createInstance(&createInfo, nullptr, &context.vulkan.instance) !=
+      vk::Result::eSuccess) {
     throw std::runtime_error("failed to create instance!");
   }
 
@@ -143,25 +156,42 @@ void createInstance(EngineContext &context) {
 }
 
 void setupDebugMessenger(EngineContext &context) {
-  VkDebugUtilsMessengerCreateInfoEXT createInfo;
+  vk::DebugUtilsMessengerCreateInfoEXT createInfo;
   populateDebugMessengerCreateInfo(createInfo);
-  if (reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
-          vkGetInstanceProcAddr(context.vulkan.instance,
-                                "vkCreateDebugUtilsMessengerEXT"))(
-          context.vulkan.instance, &createInfo, nullptr,
-          &context.vulkan.debugMessenger) != VK_SUCCESS) {
+
+  auto vkCreateDebugUtilsMessengerEXT =
+      reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+          context.vulkan.instance.getProcAddr(
+              "vkCreateDebugUtilsMessengerEXT"));
+
+  if (!vkCreateDebugUtilsMessengerEXT) {
+    throw std::runtime_error(
+        "failed to link vkCreateDebugUtilsMessengerEXT function!");
+  }
+
+  VkDebugUtilsMessengerEXT messenger;
+  VkDebugUtilsMessengerCreateInfoEXT cStyleCreateInfo = createInfo;
+  if (vkCreateDebugUtilsMessengerEXT(
+          static_cast<VkInstance>(context.vulkan.instance), &cStyleCreateInfo,
+          nullptr, &messenger) != VK_SUCCESS) {
     throw std::runtime_error("failed to set up debug messenger!");
   }
+  context.vulkan.debugMessenger = messenger;
 }
 
-bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
+bool checkDeviceExtensionSupport(vk::PhysicalDevice device) {
   uint32_t extensionCount;
-  vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount,
-                                       nullptr);
+  if (device.enumerateDeviceExtensionProperties(
+          nullptr, &extensionCount, nullptr) != vk::Result::eSuccess) {
+    return false;
+  }
 
-  std::vector<VkExtensionProperties> availableExtensions(extensionCount);
-  vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount,
-                                       availableExtensions.data());
+  std::vector<vk::ExtensionProperties> availableExtensions(extensionCount);
+  if (device.enumerateDeviceExtensionProperties(nullptr, &extensionCount,
+                                                availableExtensions.data()) !=
+      vk::Result::eSuccess) {
+    return false;
+  }
 
   std::set<std::string> requiredExtensions(deviceExtensions.begin(),
                                            deviceExtensions.end());
@@ -173,7 +203,7 @@ bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
   return requiredExtensions.empty();
 }
 
-unsigned int getDeviceScore(EngineContext &context, VkPhysicalDevice device) {
+unsigned int getDeviceScore(EngineContext &context, vk::PhysicalDevice device) {
   QueueFamilyIndices indices = findQueueFamilies(context, device);
 
   bool extensionsSupported = checkDeviceExtensionSupport(device);
@@ -186,8 +216,7 @@ unsigned int getDeviceScore(EngineContext &context, VkPhysicalDevice device) {
                         !swapChainSupport.presentModes.empty();
   }
 
-  VkPhysicalDeviceFeatures supportedFeatures;
-  vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
+  vk::PhysicalDeviceFeatures supportedFeatures = device.getFeatures();
 
   if (!(indices.isComplete() && extensionsSupported && swapChainAdequate &&
         supportedFeatures.samplerAnisotropy &&
@@ -197,46 +226,46 @@ unsigned int getDeviceScore(EngineContext &context, VkPhysicalDevice device) {
 
   const auto &props = context.vulkan.physicalDeviceProperties;
   unsigned int score = 1;
-  score += (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
+  score += (props.deviceType == vk::PhysicalDeviceType::eDiscreteGpu);
   return score;
 }
 
-VkSampleCountFlagBits getMaxUsableSampleCount(EngineContext &context) {
+vk::SampleCountFlagBits getMaxUsableSampleCount(EngineContext &context) {
   auto &limits = context.vulkan.physicalDeviceProperties.limits;
 
-  VkSampleCountFlags counts =
+  vk::SampleCountFlags counts =
       limits.framebufferColorSampleCounts & limits.framebufferDepthSampleCounts;
-  if (counts & VK_SAMPLE_COUNT_64_BIT) {
-    return VK_SAMPLE_COUNT_64_BIT;
-  }
-  if (counts & VK_SAMPLE_COUNT_32_BIT) {
-    return VK_SAMPLE_COUNT_32_BIT;
-  }
-  if (counts & VK_SAMPLE_COUNT_16_BIT) {
-    return VK_SAMPLE_COUNT_16_BIT;
-  }
-  if (counts & VK_SAMPLE_COUNT_8_BIT) {
-    return VK_SAMPLE_COUNT_8_BIT;
-  }
-  if (counts & VK_SAMPLE_COUNT_4_BIT) {
-    return VK_SAMPLE_COUNT_4_BIT;
-  }
-  if (counts & VK_SAMPLE_COUNT_2_BIT) {
-    return VK_SAMPLE_COUNT_2_BIT;
-  }
 
-  return VK_SAMPLE_COUNT_1_BIT;
+  if (counts & vk::SampleCountFlagBits::e64)
+    return vk::SampleCountFlagBits::e64;
+  if (counts & vk::SampleCountFlagBits::e32)
+    return vk::SampleCountFlagBits::e32;
+  if (counts & vk::SampleCountFlagBits::e16)
+    return vk::SampleCountFlagBits::e16;
+  if (counts & vk::SampleCountFlagBits::e8)
+    return vk::SampleCountFlagBits::e8;
+  if (counts & vk::SampleCountFlagBits::e4)
+    return vk::SampleCountFlagBits::e4;
+  if (counts & vk::SampleCountFlagBits::e2)
+    return vk::SampleCountFlagBits::e2;
+
+  return vk::SampleCountFlagBits::e1;
 }
 
 void pickPhysicalDevice(EngineContext &context) {
   uint32_t deviceCount = 0;
-  vkEnumeratePhysicalDevices(context.vulkan.instance, &deviceCount, nullptr);
+  if (context.vulkan.instance.enumeratePhysicalDevices(&deviceCount, nullptr) !=
+      vk::Result::eSuccess) {
+    throw std::runtime_error("failed to find GPUs with Vulkan support!");
+  }
   if (deviceCount == 0) {
     throw std::runtime_error("failed to find GPUs with Vulkan support!");
   }
-  std::vector<VkPhysicalDevice> devices(deviceCount);
-  vkEnumeratePhysicalDevices(context.vulkan.instance, &deviceCount,
-                             devices.data());
+  std::vector<vk::PhysicalDevice> devices(deviceCount);
+  if (context.vulkan.instance.enumeratePhysicalDevices(
+          &deviceCount, devices.data()) != vk::Result::eSuccess) {
+    throw std::runtime_error("failed to enumerate physical devices!");
+  }
 
   unsigned int maxScore = 0;
   for (const auto &device : devices) {
@@ -250,17 +279,16 @@ void pickPhysicalDevice(EngineContext &context) {
     }
   }
 
-  if (context.vulkan.physicalDevice == VK_NULL_HANDLE || !maxScore) {
+  if (!context.vulkan.physicalDevice || !maxScore) {
     throw std::runtime_error("failed to find a suitable GPU!");
   }
 
-  vkGetPhysicalDeviceProperties(context.vulkan.physicalDevice,
-                                &context.vulkan.physicalDeviceProperties);
+  context.vulkan.physicalDeviceProperties =
+      context.vulkan.physicalDevice.getProperties();
 
-  VkSampleCountFlagBits maxUsable = getMaxUsableSampleCount(context);
-  context.vulkan.msaaSamples = VK_SAMPLE_COUNT_4_BIT;
-  if (context.vulkan.msaaSamples == 0 ||
-      context.vulkan.msaaSamples > maxUsable) {
+  vk::SampleCountFlagBits maxUsable = getMaxUsableSampleCount(context);
+  context.vulkan.msaaSamples = vk::SampleCountFlagBits::e4;
+  if (context.vulkan.msaaSamples > maxUsable) {
     context.vulkan.msaaSamples = maxUsable;
   }
 }
@@ -269,7 +297,7 @@ void createLogicalDevice(EngineContext &context) {
   QueueFamilyIndices indices =
       findQueueFamilies(context, context.vulkan.physicalDevice);
 
-  std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+  std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
   std::set<uint32_t> uniqueQueueFamilies = {
       indices.graphicsFamily,
       indices.presentFamily,
@@ -277,39 +305,36 @@ void createLogicalDevice(EngineContext &context) {
 
   float queuePriority = 1.0f;
   for (uint32_t queueFamily : uniqueQueueFamilies) {
-    queueCreateInfos.emplace_back(VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-                                  nullptr, 0, queueFamily, 1, &queuePriority);
+    vk::DeviceQueueCreateInfo qInfo{};
+    qInfo.queueFamilyIndex = queueFamily;
+    qInfo.queueCount = 1;
+    qInfo.pQueuePriorities = &queuePriority;
+    queueCreateInfos.push_back(qInfo);
   }
-
-  VkPhysicalDeviceMultisampledRenderToSingleSampledFeaturesEXT
-      multisampledRenderToSingleSampledFeatures{};
 
   VkPhysicalDeviceRobustness2FeaturesKHR robustness2Features{
       .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_KHR,
       .nullDescriptor = VK_TRUE,
   };
-  VkPhysicalDeviceVulkan12Features vulkan12Features{
-      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
-      .pNext = &robustness2Features,
-      .shaderSampledImageArrayNonUniformIndexing = VK_TRUE,
-      .descriptorBindingSampledImageUpdateAfterBind = VK_TRUE,
-      .descriptorBindingPartiallyBound = VK_TRUE,
-      .runtimeDescriptorArray = VK_TRUE,
-  };
-  VkPhysicalDeviceFeatures deviceFeatures{
-      .tessellationShader = VK_TRUE,
-      .multiDrawIndirect = VK_TRUE,
-      .fillModeNonSolid = VK_TRUE,
-      .samplerAnisotropy = VK_TRUE,
-  };
-  VkPhysicalDeviceFeatures2 deviceFeatures2{
-      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-      .pNext = &vulkan12Features,
-      .features = deviceFeatures,
-  };
 
-  VkDeviceCreateInfo createInfo = {.sType =
-                                       VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+  vk::PhysicalDeviceVulkan12Features vulkan12Features{};
+  vulkan12Features.pNext = &robustness2Features;
+  vulkan12Features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+  vulkan12Features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+  vulkan12Features.descriptorBindingPartiallyBound = VK_TRUE;
+  vulkan12Features.runtimeDescriptorArray = VK_TRUE;
+
+  vk::PhysicalDeviceFeatures deviceFeatures{};
+  deviceFeatures.tessellationShader = VK_TRUE;
+  deviceFeatures.multiDrawIndirect = VK_TRUE;
+  deviceFeatures.fillModeNonSolid = VK_TRUE;
+  deviceFeatures.samplerAnisotropy = VK_TRUE;
+
+  vk::PhysicalDeviceFeatures2 deviceFeatures2{};
+  deviceFeatures2.pNext = &vulkan12Features;
+  deviceFeatures2.features = deviceFeatures;
+
+  vk::DeviceCreateInfo createInfo{};
   createInfo.queueCreateInfoCount =
       static_cast<uint32_t>(queueCreateInfos.size());
   createInfo.pQueueCreateInfos = queueCreateInfos.data();
@@ -319,52 +344,54 @@ void createLogicalDevice(EngineContext &context) {
       static_cast<uint32_t>(deviceExtensions.size());
   createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
-  // might not really be necessary anymore because device specific validation
-  // layers have been deprecated
-#ifndef NDEBUG
-  createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
-  createInfo.ppEnabledLayerNames = validationLayers.data();
-#endif
-
-  if (vkCreateDevice(context.vulkan.physicalDevice, &createInfo, nullptr,
-                     &context.vulkan.device) != VK_SUCCESS) {
+  if (context.vulkan.physicalDevice.createDevice(&createInfo, nullptr,
+                                                 &context.vulkan.device) !=
+      vk::Result::eSuccess) {
     throw std::runtime_error("failed to create logical device!");
   }
 
 #ifndef NDEBUG
   context.vulkan.debug.setObjName =
-      reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(vkGetDeviceProcAddr(
-          context.vulkan.device, "vkSetDebugUtilsObjectNameEXT"));
+      reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
+          context.vulkan.device.getProcAddr("vkSetDebugUtilsObjectNameEXT"));
   context.vulkan.debug.beginLabel =
-      reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(vkGetDeviceProcAddr(
-          context.vulkan.device, "vkCmdBeginDebugUtilsLabelEXT"));
+      reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
+          context.vulkan.device.getProcAddr("vkCmdBeginDebugUtilsLabelEXT"));
   context.vulkan.debug.endLabel =
-      reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(vkGetDeviceProcAddr(
-          context.vulkan.device, "vkCmdEndDebugUtilsLabelEXT"));
+      reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
+          context.vulkan.device.getProcAddr("vkCmdEndDebugUtilsLabelEXT"));
+
   if (!context.vulkan.debug.setObjName || !context.vulkan.debug.beginLabel ||
       !context.vulkan.debug.endLabel) {
     throw std::runtime_error("Failed to load VK_EXT_debug_utils device "
                              "functions. Is the extension enabled?");
   }
 #endif
-  debug::setObjName(context, VK_OBJECT_TYPE_DEVICE,
-                    reinterpret_cast<uint64_t>(context.vulkan.device),
-                    "logical device");
 
-  vkGetDeviceQueue(context.vulkan.device, indices.graphicsFamily, 0,
-                   &context.vulkan.graphicsQueue);
-  debug::setObjName(context, VK_OBJECT_TYPE_QUEUE,
-                    reinterpret_cast<uint64_t>(context.vulkan.graphicsQueue),
+  debug::setObjName(
+      context, vk::ObjectType::eDevice,
+      reinterpret_cast<uint64_t>(static_cast<VkDevice>(context.vulkan.device)),
+      "logical device");
+
+  context.vulkan.graphicsQueue =
+      context.vulkan.device.getQueue(indices.graphicsFamily, 0);
+  debug::setObjName(context, vk::ObjectType::eQueue,
+                    reinterpret_cast<uint64_t>(
+                        static_cast<VkQueue>(context.vulkan.graphicsQueue)),
                     "graphics queue");
-  vkGetDeviceQueue(context.vulkan.device, indices.computeFamily, 0,
-                   &context.vulkan.computeQueue);
-  debug::setObjName(context, VK_OBJECT_TYPE_QUEUE,
-                    reinterpret_cast<uint64_t>(context.vulkan.computeQueue),
+
+  context.vulkan.computeQueue =
+      context.vulkan.device.getQueue(indices.computeFamily, 0);
+  debug::setObjName(context, vk::ObjectType::eQueue,
+                    reinterpret_cast<uint64_t>(
+                        static_cast<VkQueue>(context.vulkan.computeQueue)),
                     "compute queue");
-  vkGetDeviceQueue(context.vulkan.device, indices.presentFamily, 0,
-                   &context.vulkan.presentQueue);
-  debug::setObjName(context, VK_OBJECT_TYPE_QUEUE,
-                    reinterpret_cast<uint64_t>(context.vulkan.presentQueue),
+
+  context.vulkan.presentQueue =
+      context.vulkan.device.getQueue(indices.presentFamily, 0);
+  debug::setObjName(context, vk::ObjectType::eQueue,
+                    reinterpret_cast<uint64_t>(
+                        static_cast<VkQueue>(context.vulkan.presentQueue)),
                     "present queue");
 }
 
@@ -372,27 +399,27 @@ void createCommandPool(EngineContext &context) {
   QueueFamilyIndices queueFamilyIndices =
       findQueueFamilies(context, context.vulkan.physicalDevice);
 
-  VkCommandPoolCreateInfo poolInfo = {
-      .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+  vk::CommandPoolCreateInfo poolInfo{};
   poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily;
-  poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT |
-                   VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  poolInfo.flags = vk::CommandPoolCreateFlagBits::eTransient |
+                   vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
 
-  if (vkCreateCommandPool(context.vulkan.device, &poolInfo, nullptr,
-                          &context.vulkan.commandPool) != VK_SUCCESS) {
+  if (context.vulkan.device.createCommandPool(&poolInfo, nullptr,
+                                              &context.vulkan.commandPool) !=
+      vk::Result::eSuccess) {
     throw std::runtime_error("failed to create command pool!");
   }
 }
 
-std::string deviceTypeToString(VkPhysicalDeviceType type) {
+std::string deviceTypeToString(vk::PhysicalDeviceType type) {
   switch (type) {
-  case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+  case vk::PhysicalDeviceType::eIntegratedGpu:
     return "Integrated GPU";
-  case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+  case vk::PhysicalDeviceType::eDiscreteGpu:
     return "Discrete GPU";
-  case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+  case vk::PhysicalDeviceType::eVirtualGpu:
     return "Virtual GPU";
-  case VK_PHYSICAL_DEVICE_TYPE_CPU:
+  case vk::PhysicalDeviceType::eCpu:
     return "CPU";
   default:
     return "Other";
@@ -401,18 +428,17 @@ std::string deviceTypeToString(VkPhysicalDeviceType type) {
 
 void displayInitInfo(EngineContext &context) {
   const auto &props = context.vulkan.physicalDeviceProperties;
-  std::println("{:=<70}", ""); // Table border
+  std::println("{:=<70}", "");
 
-  // Header row
   std::println("{:<30} {:<25}", "Property", "Value");
-  std::println("{:-<70}", ""); // Divider
+  std::println("{:-<70}", "");
 
-  // Device Info
   std::println("{:<30} {:<25}", "Selected GPU",
-               context.vulkan.physicalDeviceProperties.deviceName);
-  std::println(
-      "{:<30} {}.{}.{}", "API Version", VK_VERSION_MAJOR(props.apiVersion),
-      VK_VERSION_MINOR(props.apiVersion), VK_VERSION_PATCH(props.apiVersion));
+               context.vulkan.physicalDeviceProperties.deviceName.data());
+  std::println("{:<30} {}.{}.{}", "API Version",
+               VK_VERSION_MAJOR(static_cast<uint32_t>(props.apiVersion)),
+               VK_VERSION_MINOR(static_cast<uint32_t>(props.apiVersion)),
+               VK_VERSION_PATCH(static_cast<uint32_t>(props.apiVersion)));
 
   std::println("{:<30} {:<25}", "Max frames in flight",
                context.vulkan.maxFramesInFlight);
@@ -420,15 +446,15 @@ void displayInitInfo(EngineContext &context) {
   std::println("{:<30} {:<25}", "MSAA",
                magic_enum::enum_name(context.vulkan.msaaSamples));
 
-  std::println("{:=<70}", ""); // Table border
+  std::println("{:=<70}", "");
 }
 
 void setupGlobResources(EngineContext &context) {
   std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> poolSizeRatios = {
-      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3},
-      {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3},
-      {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3},
-      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4},
+      {vk::DescriptorType::eStorageImage, 3},
+      {vk::DescriptorType::eStorageBuffer, 3},
+      {vk::DescriptorType::eUniformBuffer, 3},
+      {vk::DescriptorType::eCombinedImageSampler, 4},
   };
   context.vulkan.globalDescriptorAllocator =
       std::make_unique<DescriptorAllocatorGrowable>(context);
@@ -437,18 +463,19 @@ void setupGlobResources(EngineContext &context) {
   context.vulkan.globalUBOs.reserve(context.vulkan.maxFramesInFlight);
   for (int i = 0; i < context.vulkan.maxFramesInFlight; i++) {
     auto &buf = context.vulkan.globalUBOs.emplace_back(
-        context, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+        context, vk::BufferUsageFlagBits::eUniformBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible);
     buf.map();
   }
 
-  context.vulkan.globalDescriptorSetLayout = buildDescriptorSetLayout(
-      context, {VkDescriptorSetLayoutBinding{
-                   .binding = 0,
-                   .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                   .descriptorCount = 1,
-                   .stageFlags = VK_SHADER_STAGE_ALL,
-               }});
+  vk::DescriptorSetLayoutBinding binding{};
+  binding.binding = 0;
+  binding.descriptorType = vk::DescriptorType::eUniformBuffer;
+  binding.descriptorCount = 1;
+  binding.stageFlags = vk::ShaderStageFlagBits::eAll;
+
+  context.vulkan.globalDescriptorSetLayout =
+      buildDescriptorSetLayout(context, {binding});
 
   context.vulkan.globalDescriptorSets.reserve(context.vulkan.maxFramesInFlight);
   for (int i = 0; i < context.vulkan.maxFramesInFlight; i++) {
@@ -457,7 +484,7 @@ void setupGlobResources(EngineContext &context) {
         context.vulkan.globalDescriptorSetLayout);
     DescriptorWriter writer(context);
     writer.writeBuffer(0, context.vulkan.globalUBOs[i].descriptorInfo(),
-                       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+                       vk::DescriptorType::eUniformBuffer);
     writer.updateSet(set);
   }
 }
@@ -469,19 +496,25 @@ void init(EngineContext &context) {
   setupDebugMessenger(context);
 #endif
 
-  glfwCreateWindowSurface(context.vulkan.instance, context.window, nullptr,
-                          &context.vulkan.surface);
+  VkSurfaceKHR rawSurface;
+  if (glfwCreateWindowSurface(static_cast<VkInstance>(context.vulkan.instance),
+                              context.window, nullptr,
+                              &rawSurface) != ::VK_SUCCESS) {
+    throw std::runtime_error("failed to create window surface!");
+  }
+  context.vulkan.surface = rawSurface;
+
   pickPhysicalDevice(context);
   createLogicalDevice(context);
-  debug::setObjName(context, VK_OBJECT_TYPE_INSTANCE,
-                    reinterpret_cast<uint64_t>(context.vulkan.instance),
+  debug::setObjName(context, vk::ObjectType::eInstance,
+                    reinterpret_cast<uint64_t>(
+                        static_cast<VkInstance>(context.vulkan.instance)),
                     "instance");
 
   auto swapChainSupport = getSwapChainSupport(context);
   uint32_t imageCount = (swapChainSupport.capabilities.minImageCount <= 2)
                             ? 2
                             : swapChainSupport.capabilities.minImageCount + 1;
-  // maxImageCount 0 means infinite
   if (swapChainSupport.capabilities.maxImageCount != 0 &&
       imageCount > swapChainSupport.capabilities.maxImageCount)
     imageCount = swapChainSupport.capabilities.maxImageCount;
@@ -492,29 +525,31 @@ void init(EngineContext &context) {
   displayInitInfo(context);
 
   const auto &props = context.vulkan.physicalDeviceProperties;
-  VkSamplerCreateInfo samplerInfo{.sType =
-                                      VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-  samplerInfo.magFilter = VK_FILTER_LINEAR;
-  samplerInfo.minFilter = VK_FILTER_LINEAR;
-  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  vk::SamplerCreateInfo samplerInfo{};
+  samplerInfo.magFilter = vk::Filter::eLinear;
+  samplerInfo.minFilter = vk::Filter::eLinear;
+  samplerInfo.addressModeU = vk::SamplerAddressMode::eRepeat;
+  samplerInfo.addressModeV = vk::SamplerAddressMode::eRepeat;
+  samplerInfo.addressModeW = vk::SamplerAddressMode::eRepeat;
   samplerInfo.anisotropyEnable = VK_TRUE;
   samplerInfo.maxAnisotropy = props.limits.maxSamplerAnisotropy;
-  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+  samplerInfo.borderColor = vk::BorderColor::eIntOpaqueBlack;
   samplerInfo.unnormalizedCoordinates = VK_FALSE;
   samplerInfo.compareEnable = VK_FALSE;
-  samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  samplerInfo.compareOp = vk::CompareOp::eAlways;
+  samplerInfo.mipmapMode = vk::SamplerMipmapMode::eLinear;
 
-  if (vkCreateSampler(context.vulkan.device, &samplerInfo, nullptr,
-                      &context.vulkan.defaultSampler) != VK_SUCCESS) {
+  if (context.vulkan.device.createSampler(&samplerInfo, nullptr,
+                                          &context.vulkan.defaultSampler) !=
+      vk::Result::eSuccess) {
     throw std::runtime_error("failed to create texture sampler!");
   }
-  debug::setObjName(context, VK_OBJECT_TYPE_SAMPLER,
-                    reinterpret_cast<uint64_t>(context.vulkan.defaultSampler),
+  debug::setObjName(context, vk::ObjectType::eSampler,
+                    reinterpret_cast<uint64_t>(
+                        static_cast<VkSampler>(context.vulkan.defaultSampler)),
                     "default sampler");
 
   setupGlobResources(context);
 }
+
 } // namespace vkh

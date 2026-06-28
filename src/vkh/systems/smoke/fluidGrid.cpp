@@ -1,6 +1,6 @@
 #include "fluidGrid.hpp"
 #include <cstring>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 #include <glm/gtx/norm.hpp>
 
@@ -25,38 +25,30 @@ FluidGrid::FluidGrid(EngineContext &context, glm::uvec2 cellCount,
 
   ImageCreateInfo_empty createInfo{};
   createInfo.size = cellCount;
-  createInfo.format = VK_FORMAT_R32_SFLOAT;
-  createInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                     VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
-  createInfo.layout = VK_IMAGE_LAYOUT_GENERAL;
+  createInfo.format = vk::Format::eR32Sfloat;
+  createInfo.usage = vk::ImageUsageFlagBits::eTransferDst |
+                     vk::ImageUsageFlagBits::eSampled |
+                     vk::ImageUsageFlagBits::eStorage;
+  createInfo.layout = vk::ImageLayout::eGeneral;
   createInfo.name = "water displacement map";
   dyeImage = std::make_unique<Image>(context, createInfo);
 
-  std::vector<VkDescriptorSetLayoutBinding> bindings = {
-      VkDescriptorSetLayoutBinding{
-          .binding = 0,
-          .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-          .descriptorCount = 1,
-          .stageFlags =
-              VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
-      },
+  std::vector<vk::DescriptorSetLayoutBinding> bindings = {
+      vk::DescriptorSetLayoutBinding{
+          0, vk::DescriptorType::eCombinedImageSampler, 1,
+          vk::ShaderStageFlagBits::eFragment |
+              vk::ShaderStageFlagBits::eCompute,
+          nullptr},
   };
   updateSetLayout = buildDescriptorSetLayout(context, bindings);
   dyeImageSet =
       context.vulkan.globalDescriptorAllocator->allocate(updateSetLayout);
+
   DescriptorWriter writer(context);
   writer.writeImage(0,
                     dyeImage->getDescriptorInfo(context.vulkan.defaultSampler),
-                    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+                    vk::DescriptorType::eCombinedImageSampler);
   writer.updateSet(dyeImageSet);
-  // VkPipelineLayoutCreateInfo layoutInfo{
-  //     .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  // VkDescriptorSetLayout setLayouts[] = {
-  //     context.vulkan.globalDescriptorSetLayout, updateSetLayout};
-  // layoutInfo.pSetLayouts = setLayouts;
-  // layoutInfo.setLayoutCount = 2;
-  // updatePipeline = std::make_unique<ComputePipeline>(
-  //     context, "shaders/smoke/update.comp.spv", layoutInfo);
 
   for (size_t x = 0; x < cellCount.x; x++) {
     solidCellMap[x] = true;
@@ -66,12 +58,6 @@ FluidGrid::FluidGrid(EngineContext &context, glm::uvec2 cellCount,
     solidCellMap[y * cellCount.x] = true;
     solidCellMap[cellCount.x - 1 + y * cellCount.x] = true;
   }
-  // THIS CAUSES A HEAP CORRUPTION BECAUSE OF OUT OF BOUNDS WRITING FOR THE LAST
-  // INDICES
-  //
-  // for (size_t x = 0; x < cellCount.x; x++) {
-  //   solidCellMap[(cellCount.x + 1) * x] = true;
-  // }
 
   for (size_t y = 100; y < 120; y++) {
     for (size_t x = 100; x < 120; x++) {
@@ -79,39 +65,33 @@ FluidGrid::FluidGrid(EngineContext &context, glm::uvec2 cellCount,
         solidCellMap[y * cellCount.x + x] = true;
     }
   }
-
-  // for (size_t x = static_cast<int>(cellCount.x * .5f) - 2;
-  //      x < static_cast<int>(cellCount.x * .5f) + 2; x++) {
-  //   for (size_t y = static_cast<int>(cellCount.x * .5f) - 2;
-  //        y < static_cast<int>(cellCount.x * .5f) + 2; y++) {
-  //     solidCellMap[y * cellCount.x + x] = true;
-  //   }
-  // }
 }
 
 FluidGrid::~FluidGrid() {
-  vkDestroyDescriptorSetLayout(context.vulkan.device, updateSetLayout, nullptr);
+  if (context.vulkan.device) {
+    context.vulkan.device.destroyDescriptorSetLayout(updateSetLayout, nullptr);
+  }
 }
 
 float FluidGrid::sampleField(const std::vector<float> &field, float x, float y,
                              int strideX, int boundX, int boundY) {
-    glm::vec2 pos = glm::vec2(x, y);
-    glm::vec2 minBound = glm::vec2(0.0f);
-    glm::vec2 maxBound = glm::vec2(static_cast<float>(boundX) - 1.001f, 
-                                   static_cast<float>(boundY) - 1.001f);
+  glm::vec2 pos = glm::vec2(x, y);
+  glm::vec2 minBound = glm::vec2(0.0f);
+  glm::vec2 maxBound = glm::vec2(static_cast<float>(boundX) - 1.001f,
+                                 static_cast<float>(boundY) - 1.001f);
 
-    pos = glm::clamp(pos, minBound, maxBound);
+  pos = glm::clamp(pos, minBound, maxBound);
 
-    glm::ivec2 iPos = glm::floor(pos);
-    glm::vec2 t = pos - glm::vec2(iPos);
+  glm::ivec2 iPos = glm::floor(pos);
+  glm::vec2 t = pos - glm::vec2(iPos);
 
-    int idx00 = iPos.x + iPos.y * strideX;
-    int idx01 = idx00 + strideX;          
+  int idx00 = iPos.x + iPos.y * strideX;
+  int idx01 = idx00 + strideX;
 
-    float mix0 = glm::mix(field[idx00], field[idx00 + 1], t.x);
-    float mix1 = glm::mix(field[idx01], field[idx01 + 1], t.x);
+  float mix0 = glm::mix(field[idx00], field[idx00 + 1], t.x);
+  float mix1 = glm::mix(field[idx01], field[idx01 + 1], t.x);
 
-    return glm::mix(mix0, mix1, t.y);
+  return glm::mix(mix0, mix1, t.y);
 }
 
 float FluidGrid::calculateVelocityDivergence(glm::uvec2 cell) {
@@ -133,7 +113,6 @@ void FluidGrid::solvePressure() {
   const float scale = 0.25f;
   const float dt_rho_size = (density * cellSize / dt);
 
-// Pre-calculate divergence into tempPressure to save cycles in the solver loop
 #pragma omp parallel for collapse(2)
   for (int y = 1; y < h - 1; y++) {
     for (int x = 1; x < w - 1; x++) {
@@ -146,7 +125,6 @@ void FluidGrid::solvePressure() {
     }
   }
 
-  // Red-Black Gauss-Seidel for better convergence and parallelization
   for (int iter = 0; iter < 40; iter++) {
     for (int rb = 0; rb < 2; rb++) {
 #pragma omp parallel for
@@ -263,4 +241,5 @@ float FluidGrid::getSmokeAtWorldPos(glm::vec2 worldPos) {
   return sampleField(smokeMap, worldPos.x - 0.5f, worldPos.y - 0.5f,
                      cellCount.x, cellCount.x, cellCount.y);
 }
+
 } // namespace vkh

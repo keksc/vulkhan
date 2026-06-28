@@ -1,20 +1,22 @@
 #pragma once
 
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 #include "../swapChain.hpp"
 #include "system.hpp"
 
-#include <vector>
 #include <memory>
+#include <vector>
 
 namespace vkh {
+
 class ComputePipeline;
+
 class PostProcessingSys : public System {
 public:
   PostProcessingSys(EngineContext &context);
 
-  void run(VkCommandBuffer cmd, uint32_t imageIndex);
+  void run(vk::CommandBuffer cmd, uint32_t imageIndex);
   void recreateDescriptors();
 
 private:
@@ -22,9 +24,10 @@ private:
   void createPipeline();
 
   std::unique_ptr<ComputePipeline> pipeline;
-  VkDescriptorSetLayout setLayout;
-  std::vector<VkDescriptorSet> descriptorSets;
+  vk::DescriptorSetLayout setLayout;
+  std::vector<vk::DescriptorSet> descriptorSets;
 
   SwapChain *savedSwapChain{};
 };
+
 } // namespace vkh

@@ -7,7 +7,8 @@
 
 namespace vkh {
 namespace renderer {
-std::vector<VkCommandBuffer> commandBuffers;
+
+std::vector<vk::CommandBuffer> commandBuffers;
 
 uint32_t currentImageIndex;
 int currentFrameIndex{0};
@@ -19,7 +20,7 @@ void recreateSwapChain(EngineContext &context) {
     extent = context.window.getExtent();
     glfwWaitEvents();
   }
-  vkDeviceWaitIdle(context.vulkan.device);
+  context.vulkan.device.waitIdle();
 
   if (context.vulkan.swapChain == nullptr) {
     context.vulkan.swapChain = std::make_unique<SwapChain>(context);
@@ -40,14 +41,13 @@ void recreateSwapChain(EngineContext &context) {
 void createCommandBuffers(EngineContext &context) {
   commandBuffers.resize(context.vulkan.maxFramesInFlight);
 
-  VkCommandBufferAllocateInfo allocInfo{};
-  allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  vk::CommandBufferAllocateInfo allocInfo{};
+  allocInfo.level = vk::CommandBufferLevel::ePrimary;
   allocInfo.commandPool = context.vulkan.commandPool;
   allocInfo.commandBufferCount = static_cast<uint32_t>(commandBuffers.size());
 
-  if (vkAllocateCommandBuffers(context.vulkan.device, &allocInfo,
-                               commandBuffers.data()) != VK_SUCCESS) {
+  if (context.vulkan.device.allocateCommandBuffers(
+          &allocInfo, commandBuffers.data()) != vk::Result::eSuccess) {
     throw std::runtime_error("failed to allocate command buffers!");
   }
 }
@@ -58,9 +58,9 @@ void init(EngineContext &context) {
 }
 
 void freeCommandBuffers(EngineContext &context) {
-  vkFreeCommandBuffers(context.vulkan.device, context.vulkan.commandPool,
-                       static_cast<uint32_t>(commandBuffers.size()),
-                       commandBuffers.data());
+  context.vulkan.device.freeCommandBuffers(
+      context.vulkan.commandPool, static_cast<uint32_t>(commandBuffers.size()),
+      commandBuffers.data());
   commandBuffers.clear();
 }
 
@@ -71,30 +71,30 @@ void cleanup(EngineContext &context) {
 
 bool isFrameInProgress() { return isFrameStarted; }
 
-VkCommandBuffer getCurrentCommandBuffer() {
+vk::CommandBuffer getCurrentCommandBuffer() {
   return commandBuffers[currentFrameIndex];
 }
 
 int getFrameIndex() { return currentFrameIndex; }
 
-VkCommandBuffer beginFrame(EngineContext &context) {
-  auto result = context.vulkan.swapChain->acquireNextImage(&currentImageIndex);
-  if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+vk::CommandBuffer beginFrame(EngineContext &context) {
+  auto result = static_cast<vk::Result>(
+      context.vulkan.swapChain->acquireNextImage(&currentImageIndex));
+  if (result == vk::Result::eErrorOutOfDateKHR) {
     recreateSwapChain(context);
     return nullptr;
   }
 
-  if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+  if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
     throw std::runtime_error("failed to acquire swap chain image!");
   }
 
   isFrameStarted = true;
 
   auto commandBuffer = getCurrentCommandBuffer();
-  VkCommandBufferBeginInfo beginInfo{};
-  beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  vk::CommandBufferBeginInfo beginInfo{};
 
-  if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+  if (commandBuffer.begin(&beginInfo) != vk::Result::eSuccess) {
     throw std::runtime_error("failed to begin recording command buffer!");
   }
   return commandBuffer;
@@ -102,17 +102,18 @@ VkCommandBuffer beginFrame(EngineContext &context) {
 
 void endFrame(EngineContext &context) {
   auto commandBuffer = getCurrentCommandBuffer();
-  if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
-    throw std::runtime_error("failed to record command buffer!");
-  }
+  commandBuffer.end();
 
-  auto result = context.vulkan.swapChain->submitCommandBuffers(
-      &commandBuffer, &currentImageIndex);
-  if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
+  auto result =
+      static_cast<vk::Result>(context.vulkan.swapChain->submitCommandBuffers(
+          &commandBuffer, &currentImageIndex));
+
+  if (result == vk::Result::eErrorOutOfDateKHR ||
+      result == vk::Result::eSuboptimalKHR ||
       context.window.framebufferResized) {
     context.window.framebufferResized = false;
     recreateSwapChain(context);
-  } else if (result != VK_SUCCESS) {
+  } else if (result != vk::Result::eSuccess) {
     throw std::runtime_error("failed to present swap chain image!");
   }
 
@@ -122,30 +123,28 @@ void endFrame(EngineContext &context) {
 }
 
 void beginSwapChainRenderPass(EngineContext &context,
-                              VkCommandBuffer commandBuffer) {
-  VkRenderPassBeginInfo renderPassInfo{};
-  renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                              vk::CommandBuffer commandBuffer) {
+  vk::RenderPassBeginInfo renderPassInfo{};
   renderPassInfo.renderPass = context.vulkan.swapChain->renderPass;
   renderPassInfo.framebuffer =
       context.vulkan.swapChain->getFrameBuffer(currentImageIndex);
-
-  renderPassInfo.renderArea.offset = {0, 0};
+  renderPassInfo.renderArea.offset = vk::Offset2D{0, 0};
   renderPassInfo.renderArea.extent = context.vulkan.swapChain->swapChainExtent;
 
-  // In renderer.cpp
-  std::array<VkClearValue, 4> clearValues{};
-  clearValues[0].color = {0.0f, 0.0f, 0.0f, 1.0f}; // Resolve Color (1x)
-  clearValues[1].depthStencil = {0.0f, 0};         // Resolve Depth (1x)
-  clearValues[2].color = {0.0f, 0.0f, 0.0f, 1.0f}; // MSAA Color (4x)
-  clearValues[3].depthStencil = {0.0f, 0};         // MSAA Depth (4x)
+  std::array<vk::ClearValue, 4> clearValues{};
+  clearValues[0].color =
+      vk::ClearColorValue{std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}};
+  clearValues[1].depthStencil = vk::ClearDepthStencilValue{0.0f, 0};
+  clearValues[2].color =
+      vk::ClearColorValue{std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}};
+  clearValues[3].depthStencil = vk::ClearDepthStencilValue{0.0f, 0};
 
   renderPassInfo.clearValueCount = static_cast<uint32_t>(clearValues.size());
   renderPassInfo.pClearValues = clearValues.data();
 
-  vkCmdBeginRenderPass(commandBuffer, &renderPassInfo,
-                       VK_SUBPASS_CONTENTS_INLINE);
+  commandBuffer.beginRenderPass(&renderPassInfo, vk::SubpassContents::eInline);
 
-  VkViewport viewport{};
+  vk::Viewport viewport{};
   viewport.x = 0.0f;
   viewport.y = 0.0f;
   viewport.width =
@@ -154,13 +153,17 @@ void beginSwapChainRenderPass(EngineContext &context,
       static_cast<float>(context.vulkan.swapChain->swapChainExtent.height);
   viewport.minDepth = 0.0f;
   viewport.maxDepth = 1.0f;
-  VkRect2D scissor{{0, 0}, context.vulkan.swapChain->swapChainExtent};
-  vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-  vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+  vk::Rect2D scissor{vk::Offset2D{0, 0},
+                     context.vulkan.swapChain->swapChainExtent};
+
+  commandBuffer.setViewport(0, 1, &viewport);
+  commandBuffer.setScissor(0, 1, &scissor);
 }
 
-void endSwapChainRenderPass(VkCommandBuffer commandBuffer) {
-  vkCmdEndRenderPass(commandBuffer);
+void endSwapChainRenderPass(vk::CommandBuffer commandBuffer) {
+  commandBuffer.endRenderPass();
 }
+
 } // namespace renderer
 } // namespace vkh

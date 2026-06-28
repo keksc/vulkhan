@@ -1,6 +1,6 @@
 #pragma once
 
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 #include "engineContext.hpp"
 
@@ -13,7 +13,7 @@ namespace vkh {
 class DescriptorAllocatorGrowable {
 public:
   struct PoolSizeRatio {
-    VkDescriptorType type;
+    vk::DescriptorType type;
     float ratio;
   };
 
@@ -23,40 +23,47 @@ public:
   void clearPools();
   void destroyPools();
 
-  VkDescriptorSet allocate(VkDescriptorSetLayout layout, void *pNext = nullptr);
+  vk::DescriptorSet allocate(vk::DescriptorSetLayout layout,
+                             void *pNext = nullptr);
 
 private:
-  VkDescriptorPool getPool();
-  VkDescriptorPool createPool(uint32_t setCount,
-                              std::span<PoolSizeRatio> poolRatios);
+  vk::DescriptorPool getPool();
+  vk::DescriptorPool createPool(uint32_t setCount,
+                                std::span<PoolSizeRatio> poolRatios);
 
   std::vector<PoolSizeRatio> ratios;
-  std::vector<VkDescriptorPool> fullPools;
-  std::vector<VkDescriptorPool> readyPools;
+  std::vector<vk::DescriptorPool> fullPools;
+  std::vector<vk::DescriptorPool> readyPools;
   uint32_t setsPerPool;
 
   EngineContext &context;
 };
+
 class DescriptorWriter {
 public:
   DescriptorWriter(EngineContext &context);
 
-  void writeImage(uint32_t binding, VkDescriptorImageInfo imageInfo,
-                  VkDescriptorType type);
-  void writeBuffer(uint32_t binding, VkDescriptorBufferInfo bufferInfo,
-                   VkDescriptorType type);
+  void writeImage(uint32_t binding, vk::DescriptorImageInfo imageInfo,
+                  vk::DescriptorType type);
+  void writeBuffer(uint32_t binding, vk::DescriptorBufferInfo bufferInfo,
+                   vk::DescriptorType type);
 
   void clear();
-  void updateSet(VkDescriptorSet set);
+  void updateSet(vk::DescriptorSet set);
 
 private:
-  std::deque<VkDescriptorImageInfo> imageInfos;
-  std::deque<VkDescriptorBufferInfo> bufferInfos;
-  std::vector<VkWriteDescriptorSet> writes;
+  std::deque<vk::DescriptorImageInfo> imageInfos;
+  std::deque<vk::DescriptorBufferInfo> bufferInfos;
+  std::vector<vk::WriteDescriptorSet> writes;
 
   EngineContext &context;
 };
-VkDescriptorSetLayout buildDescriptorSetLayout(
-    EngineContext &context, std::vector<VkDescriptorSetLayoutBinding> bindings,
-    VkDescriptorSetLayoutCreateFlags flags = 0, void *pNext = nullptr);
+
+vk::DescriptorSetLayout buildDescriptorSetLayout(
+    EngineContext &context,
+    const std::vector<vk::DescriptorSetLayoutBinding> &bindings,
+    vk::DescriptorSetLayoutCreateFlags flags =
+        vk::DescriptorSetLayoutCreateFlags{},
+    void *pNext = nullptr);
+
 } // namespace vkh

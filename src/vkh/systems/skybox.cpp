@@ -4,6 +4,7 @@
 #include "../pipeline.hpp"
 #include "../scene.hpp"
 #include "../swapChain.hpp"
+#include <vulkan/vulkan.hpp>
 
 namespace vkh {
 
@@ -14,21 +15,22 @@ struct PushConstantData {
 
 void SkyboxSys::createSetLayout() {
   setLayout = buildDescriptorSetLayout(
-      context, {VkDescriptorSetLayoutBinding{
-                   .binding = 0,
-                   .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                   .descriptorCount = 1,
-                   .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-               }});
-  debug::setObjName(context, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
-                    reinterpret_cast<uint64_t>(setLayout),
-                    "skyboxSys set layout");
+      context, {vk::DescriptorSetLayoutBinding{
+                   0, vk::DescriptorType::eCombinedImageSampler, 1,
+                   vk::ShaderStageFlagBits::eFragment, nullptr}});
+
+  debug::setObjName(
+      context, vk::ObjectType::eDescriptorSetLayout,
+      reinterpret_cast<uint64_t>(static_cast<VkDescriptorSetLayout>(setLayout)),
+      "skyboxSys set layout");
   set = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
+
   DescriptorWriter writer(context);
   writer.writeImage(0, cubeMap.getDescriptorInfo(context.vulkan.defaultSampler),
-                    VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+                    vk::DescriptorType::eCombinedImageSampler);
   writer.updateSet(set);
 }
+
 SkyboxSys::SkyboxSys(EngineContext &context)
     : System(context), cubeMap(context, "textures/night.ktx2") {
   createSetLayout();
@@ -36,17 +38,14 @@ SkyboxSys::SkyboxSys(EngineContext &context)
   cubeScene = std::make_unique<Scene<Vertex>>(context, "models/cube.glb",
                                               setLayout, true);
 
-  VkPushConstantRange pushConstantRange{};
-  pushConstantRange.stageFlags =
-      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-  pushConstantRange.offset = 0;
-  pushConstantRange.size = sizeof(PushConstantData);
+  vk::PushConstantRange pushConstantRange{
+      vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
+      sizeof(PushConstantData)};
 
-  std::vector<VkDescriptorSetLayout> setLayouts{
+  std::vector<vk::DescriptorSetLayout> setLayouts{
       context.vulkan.globalDescriptorSetLayout, setLayout};
 
-  VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-  pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
   pipelineLayoutInfo.pSetLayouts = setLayouts.data();
   pipelineLayoutInfo.pushConstantRangeCount = 1;
@@ -57,9 +56,9 @@ SkyboxSys::SkyboxSys(EngineContext &context)
   pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.attributeDescriptions = Vertex::getAttributeDescriptions();
   pipelineInfo.bindingDescriptions = Vertex::getBindingDescriptions();
-  pipelineInfo.depthStencilInfo.depthTestEnable = VK_TRUE;
-  pipelineInfo.depthStencilInfo.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
-  pipelineInfo.depthStencilInfo.depthWriteEnable = VK_FALSE;
+  pipelineInfo.depthStencilInfo.depthTestEnable = true;
+  pipelineInfo.depthStencilInfo.depthCompareOp = vk::CompareOp::eGreaterOrEqual;
+  pipelineInfo.depthStencilInfo.depthWriteEnable = false;
   pipelineInfo.vertpath = "shaders/skybox.vert.spv";
   pipelineInfo.fragpath = "shaders/skybox.frag.spv";
 
@@ -70,21 +69,28 @@ SkyboxSys::SkyboxSys(EngineContext &context)
   pipeline =
       std::make_unique<GraphicsPipeline>(context, pipelineInfo, "skybox");
 }
-SkyboxSys::~SkyboxSys() {
-  vkDestroyDescriptorSetLayout(context.vulkan.device, setLayout, nullptr);
-}
-void SkyboxSys::render() {
-  debug::beginLabel(context, context.frameInfo.cmd, "skybox rendering",
-                    {.3f, .3f, 1.f, 1.f});
-  pipeline->bind(context.frameInfo.cmd);
 
-  VkDescriptorSet sets[] = {
-      context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], set};
-  vkCmdBindDescriptorSets(context.frameInfo.cmd,
-                          VK_PIPELINE_BIND_POINT_GRAPHICS, *pipeline, 0, 2,
-                          sets, 0, nullptr);
-  cubeScene->bind(context, context.frameInfo.cmd, *pipeline);
-  cubeScene->meshes.begin()->primitives.begin()->draw(context.frameInfo.cmd);
-  debug::endLabel(context, context.frameInfo.cmd);
+SkyboxSys::~SkyboxSys() {
+  if (context.vulkan.device) {
+    context.vulkan.device.destroyDescriptorSetLayout(setLayout, nullptr);
+  }
 }
+
+void SkyboxSys::render() {
+  auto &cmd = context.frameInfo.cmd;
+
+  debug::beginLabel(context, cmd, "skybox rendering", {.3f, .3f, 1.f, 1.f});
+  pipeline->bind(cmd);
+
+  std::vector<vk::DescriptorSet> sets = {
+      context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], set};
+  cmd.bindDescriptorSets(
+      vk::PipelineBindPoint::eGraphics, pipeline->getLayout(), 0,
+      static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
+
+  cubeScene->bind(context, cmd, *pipeline);
+  cubeScene->meshes.begin()->primitives.begin()->draw(cmd);
+  debug::endLabel(context, cmd);
+}
+
 } // namespace vkh

@@ -1,17 +1,20 @@
 #pragma once
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 #include "../buffer.hpp"
 #include "system.hpp"
 
 #include <memory>
+#include <vector>
 
 namespace vkh {
+
 class GraphicsPipeline;
 class ComputePipeline;
 template <typename T> class Buffer;
+
 class ParticleSys : public System {
 public:
   ParticleSys(EngineContext &context);
@@ -23,21 +26,22 @@ public:
     glm::vec4 pos{};
     glm::vec4 col{};
 
-    static std::vector<VkVertexInputBindingDescription>
+    static std::vector<vk::VertexInputBindingDescription>
     getBindingDescriptions() {
-      std::vector<VkVertexInputBindingDescription> bindingDescriptions(1);
+      std::vector<vk::VertexInputBindingDescription> bindingDescriptions(1);
       bindingDescriptions[0].binding = 0;
       bindingDescriptions[0].stride = sizeof(Vertex);
-      bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+      bindingDescriptions[0].inputRate = vk::VertexInputRate::eVertex;
       return bindingDescriptions;
     }
-    static std::vector<VkVertexInputAttributeDescription>
-    getAttributeDescriptions() {
-      std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
 
-      attributeDescriptions.emplace_back(0, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+    static std::vector<vk::VertexInputAttributeDescription>
+    getAttributeDescriptions() {
+      std::vector<vk::VertexInputAttributeDescription> attributeDescriptions{};
+
+      attributeDescriptions.emplace_back(0, 0, vk::Format::eR32G32B32A32Sfloat,
                                          offsetof(Vertex, pos));
-      attributeDescriptions.emplace_back(1, 0, VK_FORMAT_R32G32B32A32_SFLOAT,
+      attributeDescriptions.emplace_back(1, 0, vk::Format::eR32G32B32A32Sfloat,
                                          offsetof(Vertex, col));
 
       return attributeDescriptions;
@@ -66,7 +70,8 @@ private:
   std::unique_ptr<ComputePipeline> computePipeline;
 
   std::unique_ptr<Buffer<Vertex>> vertexBuffer;
-  VkDescriptorSetLayout setLayout;
-  VkDescriptorSet set;
-}; // namespace particlesSys
+  vk::DescriptorSetLayout setLayout;
+  vk::DescriptorSet set;
+};
+
 } // namespace vkh

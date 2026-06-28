@@ -1,13 +1,17 @@
 #pragma once
 
-#include <vulkan/vulkan_core.h>
 #include <glm/glm.hpp>
+#include <vulkan/vulkan.hpp>
 
 #include "window.hpp"
 
+#include <functional>
 #include <memory>
+#include <unordered_map>
+#include <vector>
 
 namespace vkh {
+
 class DescriptorAllocatorGrowable;
 template <typename T> class Buffer;
 
@@ -24,11 +28,13 @@ struct GlobalUbo {
 const int NUM_BUFFERS = 2;
 
 class SwapChain;
+
 struct EngineContext {
   EngineContext &operator=(const EngineContext &) = delete;
   Window window;
+
   struct {
-    VkInstance instance;
+    vk::Instance instance;
 #ifndef NDEBUG
     struct {
       PFN_vkSetDebugUtilsObjectNameEXT setObjName;
@@ -36,30 +42,32 @@ struct EngineContext {
       PFN_vkCmdEndDebugUtilsLabelEXT endLabel;
     } debug;
 #endif
-    VkDebugUtilsMessengerEXT debugMessenger;
+    vk::DebugUtilsMessengerEXT debugMessenger;
 
-    VkSurfaceKHR surface;
-    VkPhysicalDevice physicalDevice;
-    VkPhysicalDeviceProperties physicalDeviceProperties;
-    VkDevice device;
-    VkQueue graphicsQueue;
-    VkQueue computeQueue;
-    VkQueue presentQueue;
-    VkCommandPool commandPool;
+    vk::SurfaceKHR surface;
+    vk::PhysicalDevice physicalDevice;
+    vk::PhysicalDeviceProperties physicalDeviceProperties;
+    vk::Device device;
+    vk::Queue graphicsQueue;
+    vk::Queue computeQueue;
+    vk::Queue presentQueue;
+    vk::CommandPool commandPool;
     std::unique_ptr<SwapChain> swapChain;
     uint32_t maxFramesInFlight;
     std::unique_ptr<DescriptorAllocatorGrowable> globalDescriptorAllocator{};
-    VkDescriptorSetLayout globalDescriptorSetLayout;
+    vk::DescriptorSetLayout globalDescriptorSetLayout;
     std::vector<Buffer<GlobalUbo>> globalUBOs;
-    std::vector<VkDescriptorSet> globalDescriptorSets;
-    VkSampler defaultSampler;
-    VkSampleCountFlagBits msaaSamples;
+    std::vector<vk::DescriptorSet> globalDescriptorSets;
+    vk::Sampler defaultSampler;
+    vk::SampleCountFlagBits msaaSamples;
   } vulkan;
+
   struct {
     int frameIndex;
     float dt;
-    VkCommandBuffer cmd;
+    vk::CommandBuffer cmd;
   } frameInfo;
+
   struct {
     float yaw = 0.f;
     float pitch = 0.f;
@@ -69,6 +77,7 @@ struct EngineContext {
     glm::mat4 viewMatrix{1.f};
     glm::mat4 inverseViewMatrix{1.f};
   } camera;
+
   struct InputCallbackSystem {
     std::function<void(int, int, int)> mouseButton;
     std::function<void(int, int, int, int)> key;
@@ -78,11 +87,15 @@ struct EngineContext {
     std::function<void(int)> windowFocus;
     std::function<void(double, double)> scroll;
   };
+
   std::unordered_map<void *, InputCallbackSystem> inputCallbackSystems;
   void *currentInputCallbackSystemKey;
+
   struct {
     glm::vec2 cursorPos;
   } input;
+
   float time;
 };
+
 } // namespace vkh

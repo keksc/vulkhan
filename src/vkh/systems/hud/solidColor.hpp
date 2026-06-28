@@ -2,7 +2,7 @@
 
 #include <filesystem>
 #include <glm/glm.hpp>
-#include <vulkan/vulkan_core.h>
+#include <vulkan/vulkan.hpp>
 
 #include "../system.hpp"
 
@@ -10,9 +10,11 @@
 #include <vector>
 
 namespace vkh {
+
 template <typename T> class Buffer;
 class GraphicsPipeline;
 class Image;
+
 class SolidColorSys : public System {
 public:
   SolidColorSys(EngineContext &context);
@@ -22,23 +24,25 @@ public:
     glm::vec3 position{};
     glm::vec2 uv{};
     int texIndex{0};
-    static std::vector<VkVertexInputBindingDescription>
+
+    static std::vector<vk::VertexInputBindingDescription>
     getBindingDescriptions() {
-      std::vector<VkVertexInputBindingDescription> bindingDescriptions(1);
+      std::vector<vk::VertexInputBindingDescription> bindingDescriptions(1);
       bindingDescriptions[0].binding = 0;
       bindingDescriptions[0].stride = sizeof(TriangleVertex);
-      bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+      bindingDescriptions[0].inputRate = vk::VertexInputRate::eVertex;
       return bindingDescriptions;
     }
-    static std::vector<VkVertexInputAttributeDescription>
-    getAttributeDescriptions() {
-      std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
 
-      attributeDescriptions.emplace_back(0, 0, VK_FORMAT_R32G32B32_SFLOAT,
+    static std::vector<vk::VertexInputAttributeDescription>
+    getAttributeDescriptions() {
+      std::vector<vk::VertexInputAttributeDescription> attributeDescriptions{};
+
+      attributeDescriptions.emplace_back(0, 0, vk::Format::eR32G32B32Sfloat,
                                          offsetof(TriangleVertex, position));
-      attributeDescriptions.emplace_back(1, 0, VK_FORMAT_R32G32_SFLOAT,
+      attributeDescriptions.emplace_back(1, 0, vk::Format::eR32G32Sfloat,
                                          offsetof(TriangleVertex, uv));
-      attributeDescriptions.emplace_back(2, 0, VK_FORMAT_R32_SINT,
+      attributeDescriptions.emplace_back(2, 0, vk::Format::eR32Sint,
                                          offsetof(TriangleVertex, texIndex));
       return attributeDescriptions;
     }
@@ -47,21 +51,23 @@ public:
   struct LineVertex {
     glm::vec3 position{};
     glm::vec3 color{};
-    static std::vector<VkVertexInputBindingDescription>
+
+    static std::vector<vk::VertexInputBindingDescription>
     getBindingDescriptions() {
-      std::vector<VkVertexInputBindingDescription> bindingDescriptions(1);
+      std::vector<vk::VertexInputBindingDescription> bindingDescriptions(1);
       bindingDescriptions[0].binding = 0;
       bindingDescriptions[0].stride = sizeof(LineVertex);
-      bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+      bindingDescriptions[0].inputRate = vk::VertexInputRate::eVertex;
       return bindingDescriptions;
     }
-    static std::vector<VkVertexInputAttributeDescription>
-    getAttributeDescriptions() {
-      std::vector<VkVertexInputAttributeDescription> attributeDescriptions{};
 
-      attributeDescriptions.emplace_back(0, 0, VK_FORMAT_R32G32B32_SFLOAT,
+    static std::vector<vk::VertexInputAttributeDescription>
+    getAttributeDescriptions() {
+      std::vector<vk::VertexInputAttributeDescription> attributeDescriptions{};
+
+      attributeDescriptions.emplace_back(0, 0, vk::Format::eR32G32B32Sfloat,
                                          offsetof(LineVertex, position));
-      attributeDescriptions.emplace_back(1, 0, VK_FORMAT_R32G32B32_SFLOAT,
+      attributeDescriptions.emplace_back(1, 0, vk::Format::eR32G32B32Sfloat,
                                          offsetof(LineVertex, color));
 
       return attributeDescriptions;
@@ -96,7 +102,8 @@ private:
 
   std::unique_ptr<GraphicsPipeline> trianglePipeline;
   std::unique_ptr<GraphicsPipeline> linesPipeline;
-  VkDescriptorSetLayout texturesSetLayout;
-  VkDescriptorSet texturesSet;
+  vk::DescriptorSetLayout texturesSetLayout;
+  vk::DescriptorSet texturesSet;
 };
+
 } // namespace vkh

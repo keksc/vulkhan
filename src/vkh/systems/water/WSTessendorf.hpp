@@ -1,9 +1,8 @@
 #pragma once
 
-#include <vulkan/vulkan_core.h>
-
-#include <vkFFT.h>
 #include <glm/glm.hpp>
+#include <vkFFT.h>
+#include <vulkan/vulkan.hpp>
 
 #include "../system.hpp"
 
@@ -12,16 +11,18 @@
 #include <vector>
 
 namespace vkh {
+
 template <typename T> class Buffer;
 class ComputePipeline;
 class EngineContext;
 class Image;
+
 class WSTessendorf : public System {
 public:
   WSTessendorf(EngineContext &context);
   ~WSTessendorf();
 
-  void recordComputeWaves(VkCommandBuffer &cmd, float time);
+  void recordComputeWaves(vk::CommandBuffer &cmd, float time);
 
   static constexpr unsigned int tileSize = 512; // has to be a power of 2
   static constexpr unsigned int tileSizeSquared = tileSize * tileSize;
@@ -55,14 +56,14 @@ private:
   std::unique_ptr<Buffer<std::complex<float>>> FFTData;
   std::unique_ptr<Buffer<BaseWaveHeight>> baseWaveHeightField;
   std::unique_ptr<Buffer<WaveVector>> waveVectors;
-  VkDescriptorSetLayout preFFTSetLayout;
-  VkDescriptorSet preFFTSet;
-  VkDescriptorSetLayout postFFTSetLayout;
-  VkDescriptorSet postFFTSet;
+
+  vk::DescriptorSetLayout preFFTSetLayout;
+  vk::DescriptorSet preFFTSet;
+  vk::DescriptorSetLayout postFFTSetLayout;
+  vk::DescriptorSet postFFTSet;
 
   VkFFTApplication app{};
-
-  VkFence fence;
+  vk::Fence fence;
 
   std::unique_ptr<ComputePipeline> preFFTPipeline;
   std::unique_ptr<ComputePipeline> postFFTPipeline;
@@ -76,4 +77,5 @@ private:
 
   std::unique_ptr<Image> displacementFoamMap;
 };
+
 } // namespace vkh

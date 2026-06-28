@@ -1,7 +1,5 @@
 #include "image.hpp"
 
-#include <vulkan/vulkan_core.h>
-
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #ifdef _WIN32
@@ -20,67 +18,66 @@
 
 namespace vkh {
 
-void Image::recordTransitionLayout(VkCommandBuffer cmd,
-                                   VkImageLayout newLayout) {
+void Image::recordTransitionLayout(vk::CommandBuffer cmd,
+                                   vk::ImageLayout newLayout) {
   if (newLayout == layout)
     return;
-  VkImageSubresourceRange range = {.aspectMask = aspectMask,
-                                   .baseMipLevel = 0,
-                                   .levelCount = mipLevels,
-                                   .baseArrayLayer = 0,
-                                   .layerCount = 1};
+  vk::ImageSubresourceRange range = {aspectMask, 0, mipLevels, 0, 1};
+
   recordTransitionLayout(cmd, newLayout, range);
 }
 
-void Image::recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout,
-                                   VkImageSubresourceRange subresourceRange) {
-  VkImageMemoryBarrier imageMemoryBarrier{
-      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+void Image::recordTransitionLayout(vk::CommandBuffer cmd,
+                                   vk::ImageLayout newLayout,
+                                   vk::ImageSubresourceRange subresourceRange) {
+  vk::ImageMemoryBarrier imageMemoryBarrier{};
   imageMemoryBarrier.oldLayout = layout;
   imageMemoryBarrier.newLayout = newLayout;
   imageMemoryBarrier.image = img;
   imageMemoryBarrier.subresourceRange = subresourceRange;
-  VkPipelineStageFlags srcStageMask = 0;
-  VkPipelineStageFlags dstStageMask = 0;
+
+  vk::PipelineStageFlags srcStageMask = vk::PipelineStageFlagBits::eNone;
+  vk::PipelineStageFlags dstStageMask = vk::PipelineStageFlagBits::eNone;
 
   switch (layout) {
-  case VK_IMAGE_LAYOUT_UNDEFINED:
-    imageMemoryBarrier.srcAccessMask = 0;
-    srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+  case vk::ImageLayout::eUndefined:
+    imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eNone;
+    srcStageMask = vk::PipelineStageFlagBits::eTopOfPipe;
     break;
 
-  case VK_IMAGE_LAYOUT_PREINITIALIZED:
-    imageMemoryBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-    srcStageMask = VK_PIPELINE_STAGE_HOST_BIT;
+  case vk::ImageLayout::ePreinitialized:
+    imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eHostWrite;
+    srcStageMask = vk::PipelineStageFlagBits::eHost;
     break;
 
-  case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-    imageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    srcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+  case vk::ImageLayout::eTransferDstOptimal:
+    imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+    srcStageMask = vk::PipelineStageFlagBits::eTransfer;
     break;
 
-  case VK_IMAGE_LAYOUT_GENERAL:
-    imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    srcStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+  case vk::ImageLayout::eGeneral:
+    imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
+    srcStageMask = vk::PipelineStageFlagBits::eComputeShader;
     break;
 
-  case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-    imageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    srcStageMask = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
-                   VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
-                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  case vk::ImageLayout::eShaderReadOnlyOptimal:
+    imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
+    srcStageMask = vk::PipelineStageFlagBits::eVertexShader |
+                   vk::PipelineStageFlagBits::eTessellationEvaluationShader |
+                   vk::PipelineStageFlagBits::eFragmentShader;
     break;
 
-  case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-    imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    break;
-
-  case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+  case vk::ImageLayout::eColorAttachmentOptimal:
     imageMemoryBarrier.srcAccessMask =
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
-                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        vk::AccessFlagBits::eColorAttachmentWrite;
+    srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    break;
+
+  case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+    imageMemoryBarrier.srcAccessMask =
+        vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+    srcStageMask = vk::PipelineStageFlagBits::eEarlyFragmentTests |
+                   vk::PipelineStageFlagBits::eLateFragmentTests;
     break;
 
   default:
@@ -88,92 +85,93 @@ void Image::recordTransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout,
   }
 
   switch (newLayout) {
-  case VK_IMAGE_LAYOUT_GENERAL:
-    imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    dstStageMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+  case vk::ImageLayout::eGeneral:
+    imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
+    dstStageMask = vk::PipelineStageFlagBits::eComputeShader;
     break;
 
-  case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-    imageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    dstStageMask = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
-                   VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT |
-                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+  case vk::ImageLayout::eShaderReadOnlyOptimal:
+    imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+    dstStageMask = vk::PipelineStageFlagBits::eVertexShader |
+                   vk::PipelineStageFlagBits::eTessellationEvaluationShader |
+                   vk::PipelineStageFlagBits::eFragmentShader;
     break;
 
-  case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-    imageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    dstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+  case vk::ImageLayout::eTransferDstOptimal:
+    imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+    dstStageMask = vk::PipelineStageFlagBits::eTransfer;
     break;
 
-  case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-    imageMemoryBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                                       VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-    dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    break;
-
-  case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+  case vk::ImageLayout::eColorAttachmentOptimal:
     imageMemoryBarrier.dstAccessMask =
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
-                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        vk::AccessFlagBits::eColorAttachmentWrite |
+        vk::AccessFlagBits::eColorAttachmentRead;
+    dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    break;
+
+  case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+    imageMemoryBarrier.dstAccessMask =
+        vk::AccessFlagBits::eDepthStencilAttachmentRead |
+        vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+    dstStageMask = vk::PipelineStageFlagBits::eEarlyFragmentTests |
+                   vk::PipelineStageFlagBits::eLateFragmentTests;
     break;
 
   default:
     break;
   }
 
-  vkCmdPipelineBarrier(cmd, srcStageMask, dstStageMask, 0, 0, nullptr, 0,
-                       nullptr, 1, &imageMemoryBarrier);
+  cmd.pipelineBarrier(srcStageMask, dstStageMask, vk::DependencyFlags{}, 0,
+                      nullptr, 0, nullptr, 1, &imageMemoryBarrier);
   layout = newLayout;
 }
 
-uint32_t Image::getFormatSize(VkFormat format) {
+uint32_t Image::getFormatSize(vk::Format format) {
   switch (format) {
-  case VK_FORMAT_R8_SINT:
-  case VK_FORMAT_R8_SNORM:
-  case VK_FORMAT_R8_UINT:
-  case VK_FORMAT_R8_UNORM:
+  case vk::Format::eR8Sint:
+  case vk::Format::eR8Snorm:
+  case vk::Format::eR8Uint:
+  case vk::Format::eR8Unorm:
     return 1;
-  case VK_FORMAT_R8G8_SINT:
-  case VK_FORMAT_R8G8_SNORM:
-  case VK_FORMAT_R8G8_UINT:
-  case VK_FORMAT_R8G8_UNORM:
-  case VK_FORMAT_R16_SFLOAT:
-  case VK_FORMAT_R16_SINT:
-  case VK_FORMAT_R16_UINT:
+  case vk::Format::eR8G8Sint:
+  case vk::Format::eR8G8Snorm:
+  case vk::Format::eR8G8Uint:
+  case vk::Format::eR8G8Unorm:
+  case vk::Format::eR16Sfloat:
+  case vk::Format::eR16Sint:
+  case vk::Format::eR16Uint:
     return 2;
-  case VK_FORMAT_B8G8R8A8_SRGB:
-  case VK_FORMAT_R8G8B8A8_SRGB:
-  case VK_FORMAT_B8G8R8A8_UNORM:
-  case VK_FORMAT_R8G8B8A8_SINT:
-  case VK_FORMAT_R8G8B8A8_SNORM:
-  case VK_FORMAT_R8G8B8A8_UINT:
-  case VK_FORMAT_R8G8B8A8_UNORM:
-  case VK_FORMAT_R16G16_SFLOAT:
-  case VK_FORMAT_R16G16_SINT:
-  case VK_FORMAT_R16G16_UINT:
-  case VK_FORMAT_R32_SFLOAT:
-  case VK_FORMAT_R32_SINT:
-  case VK_FORMAT_R32_UINT:
+  case vk::Format::eB8G8R8A8Srgb:
+  case vk::Format::eR8G8B8A8Srgb:
+  case vk::Format::eB8G8R8A8Unorm:
+  case vk::Format::eR8G8B8A8Sint:
+  case vk::Format::eR8G8B8A8Snorm:
+  case vk::Format::eR8G8B8A8Uint:
+  case vk::Format::eR8G8B8A8Unorm:
+  case vk::Format::eR16G16Sfloat:
+  case vk::Format::eR16G16Sint:
+  case vk::Format::eR16G16Uint:
+  case vk::Format::eR32Sfloat:
+  case vk::Format::eR32Sint:
+  case vk::Format::eR32Uint:
     return 4;
-  case VK_FORMAT_R16G16B16A16_SFLOAT:
-  case VK_FORMAT_R16G16B16A16_SINT:
-  case VK_FORMAT_R16G16B16A16_UINT:
-  case VK_FORMAT_R32G32_SFLOAT:
-  case VK_FORMAT_R32G32_SINT:
-  case VK_FORMAT_R32G32_UINT:
+  case vk::Format::eR16G16B16A16Sfloat:
+  case vk::Format::eR16G16B16A16Sint:
+  case vk::Format::eR16G16B16A16Uint:
+  case vk::Format::eR32G32Sfloat:
+  case vk::Format::eR32G32Sint:
+  case vk::Format::eR32G32Uint:
     return 4 * 2;
-  case VK_FORMAT_R32G32B32A32_SFLOAT:
-  case VK_FORMAT_R32G32B32A32_SINT:
-  case VK_FORMAT_R32G32B32A32_UINT:
+  case vk::Format::eR32G32B32A32Sfloat:
+  case vk::Format::eR32G32B32A32Sint:
+  case vk::Format::eR32G32B32A32Uint:
     return 4 * 4;
   default:
     throw std::runtime_error("Unsupported format for formatSize");
   }
 }
 
-void Image::transitionLayout(VkImageLayout newLayout) {
+void Image::transitionLayout(vk::ImageLayout newLayout) {
   if (newLayout == layout)
     return;
   auto cmd = beginSingleTimeCommands(context);
@@ -182,10 +180,9 @@ void Image::transitionLayout(VkImageLayout newLayout) {
 }
 
 void Image::createView() {
-  VkImageViewCreateInfo viewInfo{.sType =
-                                     VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+  vk::ImageViewCreateInfo viewInfo{};
   viewInfo.image = img;
-  viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  viewInfo.viewType = vk::ImageViewType::e2D;
   viewInfo.format = format;
   viewInfo.subresourceRange.aspectMask = aspectMask;
   viewInfo.subresourceRange.baseMipLevel = 0;
@@ -193,53 +190,51 @@ void Image::createView() {
   viewInfo.subresourceRange.baseArrayLayer = 0;
   viewInfo.subresourceRange.layerCount = 1;
 
-  if (vkCreateImageView(context.vulkan.device, &viewInfo, nullptr, &view) !=
-      VK_SUCCESS) {
+  if (context.vulkan.device.createImageView(&viewInfo, nullptr, &view) !=
+      vk::Result::eSuccess) {
     throw std::runtime_error("failed to create image view!");
   }
 }
 
 void Image::createImage(EngineContext &context, glm::uvec2 size,
-                        VkImageUsageFlags usage) {
-  const VkImageLayout initLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-                              .imageType = VK_IMAGE_TYPE_2D,
-                              .format = format,
-                              .mipLevels = mipLevels,
-                              .arrayLayers = 1,
-                              .samples = numSamples,
-                              .tiling = VK_IMAGE_TILING_OPTIMAL,
-                              .usage = usage,
-                              .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-                              .initialLayout = initLayout};
+                        vk::ImageUsageFlags usage) {
+  const vk::ImageLayout initLayout = vk::ImageLayout::eUndefined;
+  vk::ImageCreateInfo imageInfo{};
+  imageInfo.imageType = vk::ImageType::e2D;
+  imageInfo.format = format;
+  imageInfo.mipLevels = mipLevels;
+  imageInfo.arrayLayers = 1;
+  imageInfo.samples = numSamples;
+  imageInfo.tiling = vk::ImageTiling::eOptimal;
+  imageInfo.usage = usage;
+  imageInfo.sharingMode = vk::SharingMode::eExclusive;
+  imageInfo.initialLayout = initLayout;
   layout = initLayout;
 
   imageInfo.extent.width = size.x;
   imageInfo.extent.height = size.y;
   imageInfo.extent.depth = 1;
 
-  if (vkCreateImage(context.vulkan.device, &imageInfo, nullptr, &img) !=
-      VK_SUCCESS) {
+  if (context.vulkan.device.createImage(&imageInfo, nullptr, &img) !=
+      vk::Result::eSuccess) {
     throw std::runtime_error("failed to create image!");
   }
-  VkMemoryRequirements memRequirements;
-  vkGetImageMemoryRequirements(context.vulkan.device, img, &memRequirements);
 
-  VkMemoryAllocateInfo allocInfo{};
-  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  vk::MemoryRequirements memRequirements =
+      context.vulkan.device.getImageMemoryRequirements(img);
+
+  vk::MemoryAllocateInfo allocInfo{};
   allocInfo.allocationSize = memRequirements.size;
   allocInfo.memoryTypeIndex =
       findMemoryType(context, memRequirements.memoryTypeBits,
-                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+                     vk::MemoryPropertyFlagBits::eDeviceLocal);
 
-  if (vkAllocateMemory(context.vulkan.device, &allocInfo, nullptr, &memory) !=
-      VK_SUCCESS) {
+  if (context.vulkan.device.allocateMemory(&allocInfo, nullptr, &memory) !=
+      vk::Result::eSuccess) {
     throw std::runtime_error("failed to allocate image memory!");
   }
 
-  if (vkBindImageMemory(context.vulkan.device, img, memory, 0) != VK_SUCCESS) {
-    throw std::runtime_error("failed to bind image memory!");
-  }
+  context.vulkan.device.bindImageMemory(img, memory, 0);
 }
 
 void Image::createImageFromData(void *pixels, const size_t dataSize,
@@ -249,19 +244,21 @@ void Image::createImageFromData(void *pixels, const size_t dataSize,
   }
 
   createImage(context, size,
-              VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+              vk::ImageUsageFlagBits::eTransferDst |
+                  vk::ImageUsageFlagBits::eSampled);
 
-  Buffer<std::byte> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+  Buffer<std::byte> stagingBuffer(context,
+                                  vk::BufferUsageFlagBits::eTransferSrc,
+                                  vk::MemoryPropertyFlagBits::eHostVisible |
+                                      vk::MemoryPropertyFlagBits::eHostCoherent,
                                   dataSize);
   stagingBuffer.map();
   stagingBuffer.write(pixels);
 
   auto cmd = beginSingleTimeCommands(context);
-  recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  recordTransitionLayout(cmd, vk::ImageLayout::eTransferDstOptimal);
   recordCopyFromBuffer(cmd, stagingBuffer, 0);
-  recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  recordTransitionLayout(cmd, vk::ImageLayout::eShaderReadOnlyOptimal);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 
   createView();
@@ -269,7 +266,7 @@ void Image::createImageFromData(void *pixels, const size_t dataSize,
 
 Image::Image(EngineContext &context, const ImageCreateInfo_PNGdata &createInfo)
     : context{context} {
-  format = VK_FORMAT_R8G8B8A8_SRGB;
+  format = vk::Format::eR8G8B8A8Srgb;
   numSamples = createInfo.samples;
   mipLevels = createInfo.mipLevels;
   aspectMask = createInfo.aspect;
@@ -300,9 +297,6 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     if (ktxTexture2_NeedsTranscoding(texture)) {
       ktx_transcode_fmt_e tf;
 
-      // Using VkGetPhysicalDeviceFeatures or GL_COMPRESSED_TEXTURE_FORMATS or
-      // extension queries, determine what compressed texture formats are
-      // supported and pick a format. For example
       VkPhysicalDeviceFeatures deviceFeatures;
       vkGetPhysicalDeviceFeatures(context.vulkan.physicalDevice,
                                   &deviceFeatures);
@@ -325,7 +319,7 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
       else {
         throw std::runtime_error(
             std::format("Vulkan implementation does not support any available "
-                        "transcode targed (transcoding file {})",
+                        "transcode target (transcoding file {})",
                         path.c_str()));
       }
 
@@ -352,22 +346,21 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     isKtxManaged = true;
     img = vkTexture.image;
     memory = vkTexture.deviceMemory;
-    format = vkTexture.imageFormat;
-    layout = vkTexture.imageLayout;
+    format = static_cast<vk::Format>(vkTexture.imageFormat);
+    layout = static_cast<vk::ImageLayout>(vkTexture.imageLayout);
     size = {vkTexture.width, vkTexture.height};
     mipLevels = vkTexture.levelCount;
 
-    VkImageViewCreateInfo viewInfo{
-        .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    viewInfo.viewType = vkTexture.viewType;
+    vk::ImageViewCreateInfo viewInfo{};
+    viewInfo.viewType = static_cast<vk::ImageViewType>(vkTexture.viewType);
     viewInfo.format = format;
-    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
     viewInfo.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
     viewInfo.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
     viewInfo.image = img;
 
-    if (vkCreateImageView(context.vulkan.device, &viewInfo, nullptr, &view) !=
-        VK_SUCCESS) {
+    if (context.vulkan.device.createImageView(&viewInfo, nullptr, &view) !=
+        vk::Result::eSuccess) {
       throw std::runtime_error("failed to create image view!");
     }
 
@@ -376,7 +369,7 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     return;
   }
 
-  format = VK_FORMAT_R8G8B8A8_UNORM;
+  format = vk::Format::eR8G8B8A8Unorm;
   int w, h, texChannels;
   stbi_uc *pixels =
       stbi_load(path.string().c_str(), &w, &h, &texChannels, STBI_rgb_alpha);
@@ -399,16 +392,17 @@ Image::Image(EngineContext &context, const ImageCreateInfo_color &createInfo)
 
   uint32_t color = createInfo.color;
   void *data = static_cast<void *>(&color);
-  VkDeviceSize size = sizeof(uint32_t);
-  Buffer<std::byte> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                  size);
+  vk::DeviceSize bufferSize = sizeof(uint32_t);
+  Buffer<std::byte> stagingBuffer(context,
+                                  vk::BufferUsageFlagBits::eTransferSrc,
+                                  vk::MemoryPropertyFlagBits::eHostVisible |
+                                      vk::MemoryPropertyFlagBits::eHostCoherent,
+                                  bufferSize);
   stagingBuffer.map();
   stagingBuffer.write(data);
 
   auto cmd = beginSingleTimeCommands(context);
-  recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  recordTransitionLayout(cmd, vk::ImageLayout::eTransferDstOptimal);
   recordCopyFromBuffer(cmd, stagingBuffer, 0);
   recordTransitionLayout(cmd, createInfo.layout);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
@@ -424,8 +418,8 @@ Image::Image(EngineContext &context, const ImageCreateInfo_empty &createInfo)
   createImage(context, size, createInfo.usage);
   createView();
 
-  layout = VK_IMAGE_LAYOUT_UNDEFINED;
-  if (createInfo.layout != VK_IMAGE_LAYOUT_UNDEFINED) {
+  layout = vk::ImageLayout::eUndefined;
+  if (createInfo.layout != vk::ImageLayout::eUndefined) {
     transitionLayout(createInfo.layout);
   }
   setDbgInfo(createInfo.name);
@@ -441,17 +435,18 @@ Image::Image(EngineContext &context, const ImageCreateInfo_data &createInfo)
   createImage(context, createInfo.size, createInfo.usage);
   createView();
 
-  VkDeviceSize size =
+  vk::DeviceSize bufferSize =
       createInfo.size.x * createInfo.size.y * Image::getFormatSize(format);
-  Buffer<std::byte> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                  size);
+  Buffer<std::byte> stagingBuffer(context,
+                                  vk::BufferUsageFlagBits::eTransferSrc,
+                                  vk::MemoryPropertyFlagBits::eHostVisible |
+                                      vk::MemoryPropertyFlagBits::eHostCoherent,
+                                  bufferSize);
   stagingBuffer.map();
   stagingBuffer.write(createInfo.data);
 
   auto cmd = beginSingleTimeCommands(context);
-  recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  recordTransitionLayout(cmd, vk::ImageLayout::eTransferDstOptimal);
   recordCopyFromBuffer(cmd, stagingBuffer, 0);
   recordTransitionLayout(cmd, createInfo.layout);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
@@ -459,52 +454,50 @@ Image::Image(EngineContext &context, const ImageCreateInfo_data &createInfo)
 }
 
 Image::~Image() {
-  if (view != VK_NULL_HANDLE)
-    vkDestroyImageView(context.vulkan.device, view, nullptr);
+  if (view)
+    context.vulkan.device.destroyImageView(view, nullptr);
   if (isKtxManaged) {
     ktxVulkanTexture_Destruct(&ktxVkTexture, context.vulkan.device, nullptr);
   } else {
-    if (img != VK_NULL_HANDLE)
-      vkDestroyImage(context.vulkan.device, img, nullptr);
-    if (memory != VK_NULL_HANDLE)
-      vkFreeMemory(context.vulkan.device, memory, nullptr);
+    if (img)
+      context.vulkan.device.destroyImage(img, nullptr);
+    if (memory)
+      context.vulkan.device.freeMemory(memory, nullptr);
   }
 }
 
-void Image::recordCopyFromBuffer(VkCommandBuffer cmd, VkBuffer buffer,
+void Image::recordCopyFromBuffer(vk::CommandBuffer cmd, vk::Buffer buffer,
                                  uint32_t bufferOffset) {
-  assert(layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  assert(layout == vk::ImageLayout::eTransferDstOptimal);
 
-  VkBufferImageCopy region = {.bufferOffset = bufferOffset,
-                              .bufferRowLength = 0,
-                              .bufferImageHeight = 0,
-                              .imageSubresource =
-                                  {
-                                      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                                      .mipLevel = 0,
-                                      .baseArrayLayer = 0,
-                                      .layerCount = 1,
-                                  },
-                              .imageOffset = {0, 0, 0},
-                              .imageExtent = {size.x, size.y, 1}};
+  vk::BufferImageCopy region{
+      bufferOffset,              // bufferOffset
+      0,                         // bufferRowLength
+      0,                         // bufferImageHeight
+      vk::ImageSubresourceLayers{// imageSubresource
+                                 vk::ImageAspectFlagBits::eColor, 0, 0, 1},
+      vk::Offset3D{0, 0, 0},          // imageOffset
+      vk::Extent3D{size.x, size.y, 1} // imageExtent
+  };
 
-  vkCmdCopyBufferToImage(cmd, buffer, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                         1, &region);
+  cmd.copyBufferToImage(buffer, img, vk::ImageLayout::eTransferDstOptimal, 1,
+                        &region);
 }
 
-void Image::copyFromBuffer(VkBuffer buffer, uint32_t bufferOffset) {
+void Image::copyFromBuffer(vk::Buffer buffer, uint32_t bufferOffset) {
   auto cmd = beginSingleTimeCommands(context);
-  VkImageLayout oldLayout = layout;
-  if (layout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-    recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+  vk::ImageLayout oldLayout = layout;
+  if (layout != vk::ImageLayout::eTransferDstOptimal)
+    recordTransitionLayout(cmd, vk::ImageLayout::eTransferDstOptimal);
   recordCopyFromBuffer(cmd, buffer, bufferOffset);
-  if (oldLayout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+  if (oldLayout != vk::ImageLayout::eTransferDstOptimal)
     recordTransitionLayout(cmd, oldLayout);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 }
 
 void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel) {
-  if (format != VK_FORMAT_R8G8B8A8_UNORM && format != VK_FORMAT_R8G8B8A8_SRGB) {
+  if (format != vk::Format::eR8G8B8A8Unorm &&
+      format != vk::Format::eR8G8B8A8Srgb) {
     throw std::runtime_error(
         "downloadPixels only supports R8G8B8A8_UNORM or SRGB formats");
   }
@@ -514,38 +507,33 @@ void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel) {
 
   uint32_t width = size.x >> mipLevel;
   uint32_t height = size.y >> mipLevel;
-  VkDeviceSize bufferSize = static_cast<VkDeviceSize>(width) * height * 4;
+  vk::DeviceSize bufferSize = static_cast<vk::DeviceSize>(width) * height * 4;
 
-  Buffer<std::byte> stagingBuffer(context, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+  Buffer<std::byte> stagingBuffer(context,
+                                  vk::BufferUsageFlagBits::eTransferDst,
+                                  vk::MemoryPropertyFlagBits::eHostVisible |
+                                      vk::MemoryPropertyFlagBits::eHostCoherent,
                                   bufferSize);
 
-  VkCommandBuffer cmd = beginSingleTimeCommands(context);
+  vk::CommandBuffer cmd = beginSingleTimeCommands(context);
 
-  VkImageSubresourceRange subresourceRange = {.aspectMask =
-                                                  VK_IMAGE_ASPECT_COLOR_BIT,
-                                              .baseMipLevel = mipLevel,
-                                              .levelCount = 1,
-                                              .baseArrayLayer = 0,
-                                              .layerCount = 1};
-  VkImageLayout oldLayout = layout;
-  recordTransitionLayout(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+  vk::ImageSubresourceRange subresourceRange = {vk::ImageAspectFlagBits::eColor,
+                                                mipLevel, 1, 0, 1};
+  vk::ImageLayout oldLayout = layout;
+  recordTransitionLayout(cmd, vk::ImageLayout::eTransferSrcOptimal,
                          subresourceRange);
 
-  VkBufferImageCopy region = {
-      .bufferOffset = 0,
-      .bufferRowLength = 0,
-      .bufferImageHeight = 0,
-      .imageSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                           .mipLevel = mipLevel,
-                           .baseArrayLayer = 0,
-                           .layerCount = 1},
-      .imageOffset = {0, 0, 0},
-      .imageExtent = {width, height, 1}};
+  vk::BufferImageCopy region = {
+      0,
+      0,
+      0,
+      vk::ImageSubresourceLayers{vk::ImageAspectFlagBits::eColor, mipLevel, 0,
+                                 1},
+      {0, 0, 0},
+      {width, height, 1}};
 
-  vkCmdCopyImageToBuffer(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                         stagingBuffer, 1, &region);
+  cmd.copyImageToBuffer(img, vk::ImageLayout::eTransferSrcOptimal,
+                        stagingBuffer, 1, &region);
 
   recordTransitionLayout(cmd, oldLayout, subresourceRange);
 
@@ -574,12 +562,16 @@ std::vector<unsigned char> Image::downloadAndSerializeToPNG() {
   STBIW_FREE(pngData);
   return result;
 }
+
 void Image::setDbgInfo(const char *name) {
   std::string str = std::format("{} image", name);
-  debug::setObjName(context, VK_OBJECT_TYPE_IMAGE,
-                    reinterpret_cast<uint64_t>(img), str.c_str());
+  debug::setObjName(context, vk::ObjectType::eImage,
+                    reinterpret_cast<uint64_t>(static_cast<VkImage>(img)),
+                    str.c_str());
   str = std::format("image view for image {}", name);
-  debug::setObjName(context, VK_OBJECT_TYPE_IMAGE_VIEW,
-                    reinterpret_cast<uint64_t>(view), str.c_str());
+  debug::setObjName(context, vk::ObjectType::eImageView,
+                    reinterpret_cast<uint64_t>(static_cast<VkImageView>(view)),
+                    str.c_str());
 }
+
 } // namespace vkh
