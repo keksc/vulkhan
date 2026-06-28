@@ -57,6 +57,8 @@ vk::ImageView createImageView(EngineContext &context, vk::Image image,
                               vk::Format format);
 
 std::vector<char> readFile(const std::filesystem::path &filepath);
+void writeFile(const std::filesystem::path &filepath, const void *data,
+               size_t size);
 
 uint32_t findMemoryType(EngineContext &context, uint32_t typeFilter,
                         vk::MemoryPropertyFlags properties);

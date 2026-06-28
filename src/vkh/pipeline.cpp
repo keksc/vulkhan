@@ -9,6 +9,41 @@
 
 namespace vkh {
 
+void Pipeline::loadCache(EngineContext &context) {
+  std::filesystem::path cachePath = CACHE_DIR / "pipeline_cache.bin";
+  std::vector<char> cacheData;
+
+  // Use the optimized readFile if the cache exists
+  if (std::filesystem::exists(cachePath)) {
+    cacheData = readFile(cachePath);
+  }
+
+  vk::PipelineCacheCreateInfo createInfo{};
+  if (!cacheData.empty()) {
+    createInfo.initialDataSize = cacheData.size();
+    createInfo.pInitialData = cacheData.data();
+  }
+
+  if (context.vulkan.device.createPipelineCache(
+          &createInfo, nullptr, &context.vulkan.pipelineCache) !=
+      vk::Result::eSuccess) {
+    throw std::runtime_error("failed to create pipeline cache!");
+  }
+}
+
+void Pipeline::saveAndCleanCache(EngineContext &context) {
+  std::filesystem::path cachePath = CACHE_DIR / "pipeline_cache.bin";
+
+  auto cacheData =
+      context.vulkan.device.getPipelineCacheData(context.vulkan.pipelineCache);
+
+  if (!cacheData.empty()) {
+    writeFile(cachePath, cacheData.data(), cacheData.size());
+  }
+
+  context.vulkan.device.destroyPipelineCache(context.vulkan.pipelineCache);
+}
+
 Pipeline::Pipeline(EngineContext &context, vk::PipelineBindPoint bindPoint)
     : context{context}, bindPoint{bindPoint} {}
 
@@ -148,7 +183,7 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
   pipelineInfo.flags = vk::PipelineCreateFlags{};
 
   auto result = context.vulkan.device.createGraphicsPipelines(
-      nullptr, 1, &pipelineInfo, nullptr, &pipeline);
+      context.vulkan.pipelineCache, 1, &pipelineInfo, nullptr, &pipeline);
   if (result != vk::Result::eSuccess)
     throw std::runtime_error("failed to create graphics pipeline");
 
@@ -206,7 +241,7 @@ ComputePipeline::ComputePipeline(EngineContext &context,
   pipelineInfo.flags = vk::PipelineCreateFlags{};
 
   auto result = context.vulkan.device.createComputePipelines(
-      nullptr, 1, &pipelineInfo, nullptr, &pipeline);
+      context.vulkan.pipelineCache, 1, &pipelineInfo, nullptr, &pipeline);
   if (result != vk::Result::eSuccess) {
     throw std::runtime_error("failed to create compute pipeline");
   }

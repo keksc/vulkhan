@@ -85,6 +85,9 @@ public:
 
   void bind(vk::CommandBuffer commandBuffer);
 
+  static void loadCache(EngineContext &context);
+  static void saveAndCleanCache(EngineContext &context);
+
 protected:
   EngineContext &context;
   vk::Pipeline pipeline;

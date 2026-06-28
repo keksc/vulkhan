@@ -14,6 +14,7 @@
 #include "buffer.hpp"
 #include "descriptors.hpp"
 #include "deviceHelpers.hpp"
+#include "pipeline.hpp"
 
 namespace vkh {
 
@@ -550,6 +551,8 @@ void init(EngineContext &context) {
                     "default sampler");
 
   setupGlobResources(context);
+
+  Pipeline::loadCache(context);
 }
 
 } // namespace vkh

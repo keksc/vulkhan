@@ -5,12 +5,15 @@
 
 #include "window.hpp"
 
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <unordered_map>
 #include <vector>
 
 namespace vkh {
+
+const std::filesystem::path CACHE_DIR = "cache";
 
 class DescriptorAllocatorGrowable;
 template <typename T> class Buffer;
@@ -60,6 +63,7 @@ struct EngineContext {
     std::vector<vk::DescriptorSet> globalDescriptorSets;
     vk::Sampler defaultSampler;
     vk::SampleCountFlagBits msaaSamples;
+    vk::PipelineCache pipelineCache;
   } vulkan;
 
   struct {
