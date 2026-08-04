@@ -6,38 +6,32 @@
 #include <glm/gtx/norm.hpp>
 #include <vulkan/vulkan.hpp>
 
-#include "../../descriptors.hpp"
 #include "../../pipeline.hpp"
-#include "../../swapChain.hpp"
 
-#include <cstdlib>
-#include <print>
 #include <random>
 
 namespace vkh {
 
 void SmokeSys::createPipeline() {
   std::vector<vk::DescriptorSetLayout> setLayouts{
-      context.vulkan.globalDescriptorSetLayout, fluidGrid.updateSetLayout};
+      context.vulkan.globalDescriptorSetLayout, fluidGrid.dyeImageSetLayout};
 
   vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
   pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
   pipelineLayoutInfo.pSetLayouts = setLayouts.data();
 
   PipelineCreateInfo pipelineInfo{};
-  pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.layoutInfo = pipelineLayoutInfo;
   GraphicsPipeline::enableAlphaBlending(pipelineInfo);
   pipelineInfo.vertpath = "shaders/smoke/smoke.vert.spv";
   pipelineInfo.fragpath = "shaders/smoke/smoke.frag.spv";
-  pipelineInfo.depthStencilInfo.depthTestEnable = true;
-  pipelineInfo.depthStencilInfo.depthWriteEnable = true;
-  pipelineInfo.subpass = 1;
+  pipelineInfo.depthStencilInfo.depthTestEnable = false;
+  pipelineInfo.depthStencilInfo.depthWriteEnable = false;
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "smoke");
 }
 
 SmokeSys::SmokeSys(EngineContext &context)
-    : System(context), fluidGrid(context, glm::uvec2{600, 600}, 1.f) {
+    : System(context), fluidGrid(context, glm::uvec2{16, 16} * 30, 1.f) {
   stagingBuffer = std::make_unique<Buffer<float>>(
       context, vk::BufferUsageFlagBits::eTransferSrc,
       vk::MemoryPropertyFlagBits::eHostVisible |

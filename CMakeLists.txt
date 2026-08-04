@@ -43,7 +43,29 @@ include_directories(3rdparty/include PUBLIC
                     ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/vkFFT/)
 
 file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
+
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+  set(FLAGS WIN32)
+else()
+  set(FLAGS)
+endif()
+
 add_executable(vulkhan ${FLAGS} ${SOURCES})
+
+target_precompile_headers(
+  vulkhan
+  PRIVATE
+  <vulkan/vulkan.hpp>
+  <glm/glm.hpp>
+  <glm/gtc/matrix_transform.hpp>
+  <glm/gtc/quaternion.hpp>
+  <glm/gtc/type_ptr.hpp>
+  <glm/gtx/quaternion.hpp>
+  <fastgltf/core.hpp>
+  <fastgltf/types.hpp>
+  <fastgltf/tools.hpp>
+  <fastgltf/glm_element_traits.hpp>)
+
 target_link_libraries(
   vulkhan
   Vulkan::Vulkan
@@ -58,12 +80,6 @@ target_link_libraries(
   wasmtime
   $<$<BOOL:${WIN32}>:opusfile::opusfile>
   $<$<NOT:$<BOOL:${WIN32}>>:${OPUSFILE_LIBRARIES}>)
-
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-  set(FLAGS WIN32)
-else()
-  set(FLAGS)
-endif()
 
 file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/shaders")
 
@@ -165,7 +181,7 @@ if(EXISTS "${MODS_BINARY_DIR}/CMakeCache.txt")
 endif()
 
 if(NOT WASM_MOD_OUTPUT_FILES)
-  MESSAGE("NO WASM MOD OUTPUT FILES")
+  message("NO WASM MOD OUTPUT FILES")
   set(WASM_MOD_OUTPUT_FILES "${MODS_INSTALL_DIR}/betterNothing.oneirosMod"
                             "${MODS_INSTALL_DIR}/absurdCheat.oneirosMod")
 endif()

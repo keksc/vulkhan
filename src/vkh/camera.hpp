@@ -2,7 +2,7 @@
 
 #include <glm/glm.hpp>
 
-#include "AxisAlignedBoundingBox.hpp"
+#include "AABB.hpp"
 #include "engineContext.hpp"
 
 namespace vkh {

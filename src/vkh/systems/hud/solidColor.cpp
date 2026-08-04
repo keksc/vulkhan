@@ -3,8 +3,8 @@
 #include "../../buffer.hpp"
 #include "../../debug.hpp"
 #include "../../descriptors.hpp"
+#include "../../image.hpp"
 #include "../../pipeline.hpp"
-#include "../../swapChain.hpp"
 
 namespace vkh {
 
@@ -109,7 +109,6 @@ void SolidColorSys::createPipelines() {
   trianglesPipelineInfo.layoutInfo.setLayoutCount =
       static_cast<uint32_t>(setLayouts.size());
   trianglesPipelineInfo.layoutInfo.pSetLayouts = setLayouts.data();
-  trianglesPipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   trianglesPipelineInfo.attributeDescriptions =
       TriangleVertex::getAttributeDescriptions();
   trianglesPipelineInfo.bindingDescriptions =
@@ -118,9 +117,8 @@ void SolidColorSys::createPipelines() {
   trianglesPipelineInfo.fragpath = "shaders/solidColorTriangles.frag.spv";
   trianglesPipelineInfo.depthStencilInfo.depthCompareOp =
       vk::CompareOp::eGreaterOrEqual;
-  trianglesPipelineInfo.subpass = 0;
   trianglesPipelineInfo.multisampleInfo.rasterizationSamples =
-      static_cast<vk::SampleCountFlagBits>(context.vulkan.msaaSamples);
+      vk::SampleCountFlagBits::e1;
   GraphicsPipeline::enableAlphaBlending(trianglesPipelineInfo);
   trianglePipeline = std::make_unique<GraphicsPipeline>(
       context, trianglesPipelineInfo, "solid color triangles");
@@ -129,7 +127,6 @@ void SolidColorSys::createPipelines() {
   linesPipelineInfo.layoutInfo.setLayoutCount =
       static_cast<uint32_t>(setLayouts.size());
   linesPipelineInfo.layoutInfo.pSetLayouts = setLayouts.data();
-  linesPipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   linesPipelineInfo.attributeDescriptions =
       LineVertex::getAttributeDescriptions();
   linesPipelineInfo.bindingDescriptions = LineVertex::getBindingDescriptions();
@@ -139,9 +136,8 @@ void SolidColorSys::createPipelines() {
       vk::PrimitiveTopology::eLineList;
   linesPipelineInfo.depthStencilInfo.depthCompareOp =
       vk::CompareOp::eGreaterOrEqual;
-  linesPipelineInfo.subpass = 0;
   linesPipelineInfo.multisampleInfo.rasterizationSamples =
-      static_cast<vk::SampleCountFlagBits>(context.vulkan.msaaSamples);
+      vk::SampleCountFlagBits::e1;
   linesPipeline = std::make_unique<GraphicsPipeline>(context, linesPipelineInfo,
                                                      "solid color lines");
 }

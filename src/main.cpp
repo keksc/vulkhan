@@ -1,8 +1,8 @@
 #include <GLFW/glfw3.h>
 #include <glm/gtx/string_cast.hpp>
-#include <magic_enum/magic_enum.hpp>
 
-// #include "entities/bosses/featherDuckGuard.hpp"
+#include "UI.hpp"
+#include "boids.hpp"
 #include "modding.hpp"
 #include "vkh/audio.hpp"
 #include "vkh/camera.hpp"
@@ -12,32 +12,23 @@
 #include "vkh/init.hpp"
 #include "vkh/input.hpp"
 #include "vkh/renderer.hpp"
+#include "vkh/sceneBuilder.hpp"
 #include "vkh/swapChain.hpp"
 #include "vkh/systems/entity/entities.hpp"
-#include "vkh/systems/hud/hud.hpp"
-#include "vkh/systems/hud/view.hpp"
 #include "vkh/systems/particles.hpp"
+#include "vkh/systems/postProcessing.hpp"
 #include "vkh/systems/skybox.hpp"
 #include "vkh/systems/smoke/smoke.hpp"
 #include "vkh/systems/water/water.hpp"
 #include "vkh/window.hpp"
-
-#include "UI/bindEdit.hpp"
-#include "UI/button.hpp"
-#include "UI/canvas.hpp"
-#include "UI/rectImg.hpp"
-#include "UI/scrollable.hpp"
-#include "UI/stylizedBtn.hpp"
-#include "UI/text.hpp"
-#include "UI/textInput.hpp"
 
 #include "../server/packet.hpp"
 #include "dungeonGenerator.hpp"
 #include "network.hpp"
 
 #include <chrono>
+#include <print>
 #include <random>
-#include <ranges>
 #include <string>
 
 std::mt19937 rng{std::random_device{}()};
@@ -120,12 +111,39 @@ void run() {
 
     vkh::SkyboxSys skyboxSys(context);
     vkh::EntitySys entitySys(context);
+
     vkh::SmokeSys smokeSys(context);
     // vkh::WaterSys waterSys(context, skyboxSys);
     vkh::ParticleSys particleSys(context);
+    vkh::PostProcessingSys postProcessingSys(context);
 
     auto &entities = entitySys.entities;
-    generateDungeon(context, entitySys);
+    // generateDungeon(context, entitySys);
+    // auto houseScene = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+    //     context, "models/haunted_victorian_house.glb",
+    //     entitySys.texturesSetLayout);
+    // houseScene->uploadModelGPU(entitySys.texturesSetLayout);
+    // for (size_t i = 0; i < houseScene->meshes.size(); i++)
+    //   entities.emplace_back(vkh::EntitySys::Transform{},
+    //                         vkh::EntitySys::RigidBody{}, houseScene, i);
+
+    auto birdScene = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+        context, "models/paperplane.glb");
+    birdScene->uploadModelGPU(entitySys.texturesSetLayout);
+
+    const int birdCount = 40;
+
+    initBoids(birdCount);
+
+    std::vector<std::vector<size_t>> boidEntityIndices(boids.size());
+    for (size_t b = 0; b < boids.size(); ++b) {
+      for (size_t m = 0; m < birdScene->meshes.size(); ++m) {
+        boidEntityIndices[b].push_back(entities.size());
+        entities.emplace_back(vkh::EntitySys::Transform{},
+                              vkh::EntitySys::RigidBody{}, birdScene, m);
+      }
+    }
+
     // auto piano = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
     //     context, "models/piano-decent.glb", entitySys.texturesSetLayout);
     // for (size_t i = 0; i < piano->meshes.size(); i++)
@@ -160,245 +178,39 @@ void run() {
     //
     // entitySys.updateBuffers();
 
-    vkh::HudSys hudSys(context);
-    hudSys.solidColorSys.addTextureFromFile(
-        "textures/hud.png"); // Will be default texture since at index 0
-
-    vkh::hud::View worldView(context, hudSys);
-    vkh::hud::View pauseView(context, hudSys);
-    vkh::hud::View settingsView(context, hudSys);
-    vkh::hud::View canvasView(context, hudSys);
-    vkh::hud::View smokeView(context, hudSys);
-
-    // std::vector<vkh::hud::Polygon::Vertex> vertices;
-    //
-    // const size_t n = 5;
-    // const float R = .3f;
-    // const float r = .2f;
-    // glm::vec2 c{.5f};
-    // for (int i = 0; i < 2 * n; i++) {
-    //   float angle = i * M_PI / n; // 2π / (2n) = π / n
-    //   float radius = (i % 2 == 0) ? R : r;
-    //
-    //   vkh::hud::Polygon::Vertex v;
-    //   v.pos.x = c.x + radius * cos(angle);
-    //   v.pos.y = c.y + radius * sin(angle);
-    //
-    //   vertices.emplace_back(v);
-    // }
-    // worldView.container.addChild<vkh::hud::Polygon>(vertices, 0);
-
-    // FeatherDuckGuard featherDuckGuard(context, entitySys, worldView);
-
-    auto canvas = canvasView.container.addChild<UI::Canvas>(glm::vec2{},
-                                                            glm::vec2{1.f}, 0);
-
-    // vkh::audio::Sound uiSound("sounds/ui.wav");
-    // vkh::audio::Sound
-    // paperSound("sounds/568962__efrane__ripping-paper-10.wav");
-    auto canvasBtn = pauseView.container.addChild<UI::StylizedBtn>(
-        glm::vec2{.8f, 0.f}, glm::vec2{.2f, .2f}, 0,
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            // static std::uniform_real_distribution<float> dis(.7f, 1.3f);
-            // paperSound.setPitch(dis(rng));
-            // paperSound.play();
-            hudSys.setView(&canvasView);
-          }
-        },
-        "Go to canvas");
-    auto smokeBtn = pauseView.container.addChild<UI::Button>(
-        glm::vec2{.8f, .8f}, glm::vec2{.2f, .2f}, 0,
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            hudSys.setView(&smokeView);
-          }
-        },
-        "Go to smoke");
-    smokeView.container.addEventHandler<vkh::input::EventType::Key>(
-        [&](int key, int scancode, int action, int mods) {
-          if (action != GLFW_PRESS)
-            return false;
-          if (key == GLFW_KEY_ESCAPE) {
-            hudSys.setView(&pauseView);
-            return true;
-          }
-          return false;
-        });
-    auto settingsBtn = pauseView.container.addChild<UI::Button>(
-        glm::vec2{}, glm::vec2{.2f, .2f}, 0,
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            // static std::uniform_real_distribution<float> dis(.7f, 1.3f);
-            // paperSound.setPitch(dis(rng));
-            // paperSound.play();
-            hudSys.setView(&settingsView);
-          }
-        },
-        "Edit settings");
-
-    glm::vec2 keyBtnSize{.1f};
-
-    auto settingsScroll = settingsView.container.addChild<UI::Scrollable>(
-        glm::vec2{}, glm::vec2{1.f}, glm::vec2{0.f, .25f}, glm::vec2{0.f},
-        glm::vec2{-1.f + static_cast<float>(vkh::input::keybinds.size()) *
-                             keyBtnSize});
-    settingsScroll->addChild<UI::Text>(glm::vec2{}, "Keybinds");
-
-    std::shared_ptr<UI::BindEdit> selectedButton;
-
-    unsigned short i = 0;
-    for (auto &[action, bind] : vkh::input::keybinds | std::views::reverse) {
-      auto kbEdit = settingsScroll->addChild<UI::BindEdit>(
-          glm::vec2{0.5f, 0.f + .1f * i}, keyBtnSize, 0,
-          [&](int button, int action, int) {},
-          std::string(magic_enum::enum_name(action)) + ":" +
-              vkh::input::getKeyName(bind));
-      kbEdit->setCallback([&, kbEdit](int button, int action, int) {
-        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-          selectedButton = kbEdit;
-        }
-      });
-      kbEdit->action = action;
-      // auto mouseEdit = settingsScroll->addChild<UI::BindEdit>(
-      //     glm::vec2{0.5f, 0.f + .1f * i}, keyBtnSize, 0,
-      //     [&](int button, int action, int) {},
-      //     std::string(magic_enum::enum_name(action)) + ":" +
-      //         vkh::input::getKeyName(bind));
-      i++;
-    }
-
-    settingsScroll->addEventHandler<vkh::input::EventType::Key>(
-        [&](int key, int scancode, int action, int mods) {
-          if (action != GLFW_PRESS)
-            return false;
-          if (selectedButton) {
-            if (key == GLFW_KEY_ESCAPE) {
-              selectedButton->label->content =
-                  static_cast<std::string>(
-                      magic_enum::enum_name(selectedButton->action)) +
-                  ":" + vkh::input::getKeyName(GLFW_KEY_UNKNOWN);
-              vkh::input::keybinds[selectedButton->action] = GLFW_KEY_UNKNOWN;
-              selectedButton = nullptr;
-              return true;
-            }
-            selectedButton->label->content =
-                static_cast<std::string>(
-                    magic_enum::enum_name(selectedButton->action)) +
-                ":" + vkh::input::getKeyName(key);
-            vkh::input::keybinds[selectedButton->action] = key;
-            selectedButton = nullptr;
-            return true;
-          }
-          if (key == GLFW_KEY_ESCAPE) {
-            hudSys.setView(&pauseView);
-            return true;
-          }
-          return false;
-        });
-
-    std::unique_ptr<Network> network;
-    auto addr = pauseView.container.addChild<UI::TextInput>(
-        glm::vec2{0.f, 0.5f}, "server address");
-    pauseView.container.addChild<UI::Button>(
-        glm::vec2{0.f, 0.6f}, glm::vec2{.2f}, 0,
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
-            try {
-              network = std::make_unique<Network>(addr->content.c_str());
-            } catch (const std::exception &e) {
-              std::println("{}", e.what());
-            }
-        },
-        "Connect");
-    pauseView.container.addChild<UI::Button>(
-        glm::vec2{.2f, 0.6f}, glm::vec2{.2f}, 0,
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
-            network = nullptr;
-        },
-        "Disonnect");
-
-    using namespace std::string_literals;
-
-    glm::dvec2 worldCursorPos{};
-    glm::vec2 worldYawAndPitch{};
-    pauseView.container.addEventHandler<vkh::input::EventType::Key>(
-        [&](int key, int scancode, int action, int mods) {
-          if (!(action == GLFW_PRESS && key == GLFW_KEY_ESCAPE))
-            return false;
-          vkh::input::lastPos = worldCursorPos;
-          glfwSetCursorPos(context.window, worldCursorPos.x, worldCursorPos.y);
-          context.camera.yaw = worldYawAndPitch.x;
-          context.camera.pitch = worldYawAndPitch.y;
-          glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-          hudSys.setView(&worldView);
-          return true;
-        });
+    GameUI ui(context);
 
     bool updateParticleSysAttractor = false;
     std::vector<glm::mat4> newTransform = genTransform();
     std::vector<glm::mat4> prevTransform = newTransform;
     float timeOfNewTransform = 0.f;
 
-    worldView.container.addEventHandler<vkh::input::EventType::Key>(
-        [&](int key, int scancode, int action, int mods) {
-          if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-            glfwGetCursorPos(context.window, &worldCursorPos.x,
-                             &worldCursorPos.y);
-            vkh::input::lastPos = worldCursorPos;
-            worldYawAndPitch = {context.camera.yaw, context.camera.pitch};
-            glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-            hudSys.setView(&pauseView);
-            return true;
-          }
-          if (key == GLFW_KEY_R &&
-              (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-            updateParticleSysAttractor = true;
-            timeOfNewTransform = context.time;
-            return true;
-          }
-          if (key == GLFW_KEY_G && action == GLFW_PRESS) {
-            for (auto &mat : newTransform) {
-              std::println("{}", glm::to_string(mat));
-            }
-          }
-          return false;
-        });
-    worldView.container.addEventHandler<vkh::input::EventType::WindowFocus>(
-        [&](int focused) {
-          audioFadeBegin = std::chrono::high_resolution_clock::now();
-          return false;
-        });
+    // These two handlers reference state that's local to run() (the debug
+    // particle-attractor regen and the audio fade timer), so they're wired
+    // up here rather than inside GameUI.
+    ui.addWorldViewKeyHandler([&](int key, int scancode, int action, int mods) {
+      if (key == GLFW_KEY_R &&
+          (action == GLFW_PRESS || action == GLFW_REPEAT)) {
+        updateParticleSysAttractor = true;
+        timeOfNewTransform = context.time;
+        return true;
+      }
+      if (key == GLFW_KEY_G && action == GLFW_PRESS) {
+        for (auto &mat : newTransform) {
+          std::println("{}", glm::to_string(mat));
+        }
+      }
+      return false;
+    });
 
-    canvasView.container.addEventHandler<vkh::input::EventType::Key>(
-        [&](int key, int scancode, int action, int mods) {
-          if (!(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS))
-            return false;
-          hudSys.setView(&pauseView);
-          return true;
-        });
-    hudSys.setView(&worldView);
-
-    {
-      size_t id =
-          hudSys.solidColorSys.addTextureFromFile("textures/crosshair.png");
-      const float sizeOver2 = 0.02f;
-      auto crosshair = worldView.container.addChild<UI::RectImg>(
-          glm::vec2{.5f - sizeOver2}, glm::vec2{sizeOver2 * 2}, id);
-    }
-
-    auto fpsRect = worldView.container.addChild<UI::RectImg>(
-        glm::vec2{}, glm::vec2{.3f, .3f}, 0);
-    auto fpsText = fpsRect->addChild<UI::Text>(glm::vec2{});
-
-    auto orientationTxt =
-        worldView.container.addChild<UI::Text>(glm::vec2{1.f, -1.f});
-
-    vkh::EntitySys::Entity *lastPicked = nullptr;
+    ui.addWorldViewFocusHandler([&](int focused) {
+      audioFadeBegin = std::chrono::high_resolution_clock::now();
+      return false;
+    });
 
     auto currentTime = std::chrono::high_resolution_clock::now();
     auto initTime = currentTime;
+    vkh::EntitySys::Entity *lastPicked = nullptr;
     while (!glfwWindowShouldClose(context.window)) {
       glfwPollEvents();
 
@@ -410,7 +222,7 @@ void run() {
 
       context.time = std::chrono::duration<float>(newTime - initTime).count();
 
-      UI::animateBubbly(context, hudSys.getView()->container);
+      ui.update(context, frameTime);
 
       // featherDuckGuard.update();
 
@@ -424,72 +236,12 @@ void run() {
       }
       vkh::audio::setVolume(volume);
 
-      // if (network) {
-      //   bool needUpdate = false;
-      //
-      //   std::vector<uint8_t> pktData;
-      //   while (network->receive(pktData)) {
-      //     if (pktData.size() >= sizeof(Packet)) {
-      //       needUpdate = true;
-      //       Packet *p = reinterpret_cast<Packet *>(pktData.data());
-      //
-      //       if (p->type == PacketType::Join) {
-      //         playersIndices[p->id] = entities.size();
-      //         for (size_t i = 0; i < playerModel->meshes.size(); i++)
-      //           entities.emplace_back(vkh::EntitySys::Transform{.position{5.f}},
-      //                                 vkh::EntitySys::RigidBody{},
-      //                                 playerModel, i, p->id);
-      //       } else if (p->type == PacketType::Leave) {
-      //         for (int i = 0; i < entities.size();) {
-      //           if (entities[i].id == p->id) {
-      //             entities[i] = entities.back();
-      //             entities.pop_back();
-      //           } else {
-      //             ++i;
-      //           }
-      //         }
-      //       } else if (p->type == PacketType::Update &&
-      //                  pktData.size() >= sizeof(UpdatePacket)) {
-      //         UpdatePacket *up =
-      //             reinterpret_cast<UpdatePacket *>(pktData.data());
-      //         if (playersIndices.contains(up->id)) {
-      //           auto begin = entities.begin() + playersIndices[up->id];
-      //           for (size_t i = 0; i < playerModel->meshes.size(); i++) {
-      //             (begin + i)->transform.position = up->position;
-      //             (begin + i)->transform.orientation = up->orientation;
-      //           }
-      //         }
-      //       }
-      //     }
-      //   }
-      //
-      // Send local player position to the server
-      // UpdatePacket myUpdate;
-      // myUpdate.type = PacketType::Update;
-      // myUpdate.id = 0; // Overwritten by server
-      // myUpdate.position = context.camera.position;
-      // myUpdate.orientation = context.camera.orientation;
-      //
-      // network->send(&myUpdate, sizeof(myUpdate));
-      // if (needUpdate)
-      //   entitySys.updateBuffers();
-      // }
-
       static bool dontDoOnce = true;
       if (!dontDoOnce) {
         if (!context.window.isFocused())
           continue;
       }
       dontDoOnce = false;
-
-      fpsText->content =
-          std::format("FPS: {}", static_cast<int>(1.f / frameTime));
-
-      fpsRect->setAbsoluteSize(fpsText->getAbsoluteSize());
-      orientationTxt->setPosition(1.f -
-                                  glm::vec2{orientationTxt->getSize().x, 0.f});
-      orientationTxt->content = std::format(
-          "Yaw: {}\nPitch:{}", context.camera.yaw, context.camera.pitch);
 
       currentTime = newTime;
 
@@ -514,12 +266,10 @@ void run() {
         }
       }
 
-      entitySys.updateBuffers();
-
       vkh::audio::update(context);
-      context.camera.projectionMatrix =
-          glm::perspective(1.919'862'177f /*human FOV*/,
-                           context.window.aspectRatio, 1000.f, .01f);
+      context.camera.projectionMatrix = glm::perspective(
+          1.919'862'177f /*human FOV*/, context.window.aspectRatio,
+          context.camera.far, context.camera.near);
       context.camera.projectionMatrix[1][1] *= -1.f; // Flip Y
       vkh::camera::calcViewYXZ(context);
 
@@ -542,7 +292,7 @@ void run() {
         context.vulkan.globalUBOs[frameIndex].write(&ubo);
         context.vulkan.globalUBOs[frameIndex].flush();
 
-        if (hudSys.getView() == &worldView) {
+        if (ui.isWorldViewActive()) {
           // waterSys.update();
 
           if (updateParticleSysAttractor) {
@@ -562,36 +312,70 @@ void run() {
           }
           particleSys.setAttractor(blendedTransform);
 
-          particleSys.update();
+          updateBoids(frameTime);
+          for (size_t b = 0; b < boids.size(); ++b) {
+            const Boid &boid = boids[b];
 
+            glm::quat orientation{1.f, 0.f, 0.f, 0.f};
+            if (glm::length(boid.vel) > 1e-4f) {
+              glm::vec3 forward = glm::normalize(boid.vel);
+              glm::quat newOrientation =
+                  glm::rotation(glm::vec3(0.f, 0.f, -1.f), forward);
+
+              for (size_t entityIdx : boidEntityIndices[b]) {
+                auto &orientation = entities[entityIdx].transform.orientation;
+                const float turnRate = 3.f;
+                orientation = glm::slerp(orientation, newOrientation,
+                                         glm::min(frameTime * turnRate, 1.f));
+              }
+            }
+            for (size_t entityIdx : boidEntityIndices[b]) {
+              entities[entityIdx].transform.position = boid.pos;
+            }
+          }
+
+          entitySys.updateBuffers();
+          particleSys.update();
           entitySys.updateJoints();
           entitySys.cull(commandBuffer);
         }
-        if (hudSys.getView() == &smokeView) {
+        if (ui.isSmokeViewActive()) {
           smokeSys.update();
         }
 
-        vkh::renderer::beginSwapChainRenderPass(context, commandBuffer);
+        // --- Pass 0: MSAA render, resolving into scene color + resolved
+        // depth (replaces beginSwapChainRenderPass + subpass 0) ---
+        vkh::renderer::beginMsaaPass(context, commandBuffer);
 
-        // MSAA subpass
-        if (hudSys.getView() == &worldView) {
+        if (ui.isWorldViewActive()) {
           skyboxSys.render();
           entitySys.render();
           // waterSys.render();
         }
-        hudSys.render();
 
-        vkCmdNextSubpass(commandBuffer, VK_SUBPASS_CONTENTS_INLINE);
+        // --- Transition to pass 1: 1x direct render onto resolved buffers
+        // (replaces vkCmdNextSubpass) ---
+        vkh::renderer::transitionToOneXPass(context, commandBuffer);
 
-        // 1x subpass
-        if (hudSys.getView() == &worldView) {
+        if (ui.isWorldViewActive()) {
           particleSys.render();
         }
-        if (hudSys.getView() == &smokeView) {
+        if (ui.isSmokeViewActive()) {
           smokeSys.render();
         }
 
-        vkh::renderer::endSwapChainRenderPass(commandBuffer);
+        // --- End pass 1 (replaces endSwapChainRenderPass) ---
+        vkh::renderer::endOneXPass(commandBuffer);
+
+        postProcessingSys.run(commandBuffer,
+                              vkh::renderer::getCurrentImageIndex());
+
+        // --- HUD pass: draw directly onto the swapchain image, after
+        // tonemapping/postprocessing ---
+        vkh::renderer::beginHudPass(context, commandBuffer);
+        ui.render();
+        vkh::renderer::endHudPass(context, commandBuffer);
+
         vkh::renderer::endFrame(context);
       }
     }

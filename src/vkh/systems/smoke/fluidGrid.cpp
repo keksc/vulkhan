@@ -4,13 +4,14 @@
 
 #include <glm/gtx/norm.hpp>
 
+#include "../../buffer.hpp"
 #include "../../descriptors.hpp"
 
 #include <algorithm>
 
 namespace vkh {
 
-FluidGrid::FluidGrid(EngineContext &context, glm::uvec2 cellCount,
+FluidGrid::FluidGrid(EngineContext &context, glm::ivec2 cellCount,
                      float cellSize)
     : System(context), cellCount{cellCount}, cellSize{cellSize},
       velocitiesX((cellCount.x + 1) * cellCount.y),
@@ -18,20 +19,42 @@ FluidGrid::FluidGrid(EngineContext &context, glm::uvec2 cellCount,
       pressureMap(cellCount.x * cellCount.y),
       smokeMap(cellCount.x * cellCount.y),
       solidCellMap(cellCount.x * cellCount.y),
-      prevVelocitiesX((cellCount.x + 1) * cellCount.y),
-      prevVelocitiesY(cellCount.x * (cellCount.y + 1)),
-      tempPressure(cellCount.x * cellCount.y),
+      targetVelocitiesX((cellCount.x + 1) * cellCount.y),
+      targetVelocitiesY(cellCount.x * (cellCount.y + 1)),
+      divergence(cellCount.x * cellCount.y),
       targetSmoke(cellCount.x * cellCount.y) {
 
   ImageCreateInfo_empty createInfo{};
-  createInfo.size = cellCount;
-  createInfo.format = vk::Format::eR32Sfloat;
   createInfo.usage = vk::ImageUsageFlagBits::eTransferDst |
+                     vk::ImageUsageFlagBits::eTransferSrc |
                      vk::ImageUsageFlagBits::eSampled |
                      vk::ImageUsageFlagBits::eStorage;
+
+  createInfo.size = cellCount;
+  createInfo.format = vk::Format::eR32Sfloat;
   createInfo.layout = vk::ImageLayout::eGeneral;
-  createInfo.name = "water displacement map";
+  createInfo.name = "smoke dye image";
   dyeImage = std::make_unique<Image>(context, createInfo);
+
+  createInfo.size = {cellCount.x, cellCount.y};
+  createInfo.format = vk::Format::eR32Sfloat;
+  createInfo.name = "smoke divergence image";
+  divergenceImage = std::make_unique<Image>(context, createInfo);
+
+  createInfo.size = {cellCount.x + 1, cellCount.y + 1};
+  createInfo.format = vk::Format::eR32G32Sfloat;
+  createInfo.name = "smoke velocity image";
+  velocityImage = std::make_unique<Image>(context, createInfo);
+
+  createInfo.size = cellCount;
+  createInfo.format = vk::Format::eR32Sfloat;
+  createInfo.name = "smoke pressure image";
+  pressureImage = std::make_unique<Image>(context, createInfo);
+
+  createInfo.format =
+      vk::Format::eR8Uint; // actually bools. TODO: pack 8 into 1 to save memory
+  createInfo.name = "smoke solid cell image";
+  solidCellImage = std::make_unique<Image>(context, createInfo);
 
   std::vector<vk::DescriptorSetLayoutBinding> bindings = {
       vk::DescriptorSetLayoutBinding{
@@ -40,15 +63,70 @@ FluidGrid::FluidGrid(EngineContext &context, glm::uvec2 cellCount,
               vk::ShaderStageFlagBits::eCompute,
           nullptr},
   };
-  updateSetLayout = buildDescriptorSetLayout(context, bindings);
+  dyeImageSetLayout = buildDescriptorSetLayout(context, bindings);
   dyeImageSet =
-      context.vulkan.globalDescriptorAllocator->allocate(updateSetLayout);
+      context.vulkan.globalDescriptorAllocator->allocate(dyeImageSetLayout);
 
   DescriptorWriter writer(context);
   writer.writeImage(0,
                     dyeImage->getDescriptorInfo(context.vulkan.defaultSampler),
                     vk::DescriptorType::eCombinedImageSampler);
   writer.updateSet(dyeImageSet);
+
+  bindings = {
+      {0, vk::DescriptorType::eStorageImage, 1,
+       vk::ShaderStageFlagBits::eCompute, nullptr},
+      {1, vk::DescriptorType::eStorageImage, 1,
+       vk::ShaderStageFlagBits::eCompute, nullptr},
+      {2, vk::DescriptorType::eStorageImage, 1,
+       vk::ShaderStageFlagBits::eCompute, nullptr},
+      {3, vk::DescriptorType::eStorageImage, 1,
+       vk::ShaderStageFlagBits::eCompute, nullptr},
+  };
+  computeSetLayout = buildDescriptorSetLayout(context, bindings);
+  computeSet =
+      context.vulkan.globalDescriptorAllocator->allocate(computeSetLayout);
+
+  DescriptorWriter computeWriter(context);
+  computeWriter.writeImage(
+      0, divergenceImage->getDescriptorInfo(context.vulkan.defaultSampler),
+      vk::DescriptorType::eStorageImage);
+  computeWriter.writeImage(
+      1, velocityImage->getDescriptorInfo(context.vulkan.defaultSampler),
+      vk::DescriptorType::eStorageImage);
+  computeWriter.writeImage(
+      2, pressureImage->getDescriptorInfo(context.vulkan.defaultSampler),
+      vk::DescriptorType::eStorageImage);
+  computeWriter.writeImage(
+      3, solidCellImage->getDescriptorInfo(context.vulkan.defaultSampler),
+      vk::DescriptorType::eStorageImage);
+  computeWriter.updateSet(computeSet);
+
+  vk::PushConstantRange pcRange{};
+  pcRange.stageFlags = vk::ShaderStageFlagBits::eCompute;
+  pcRange.offset = 0;
+  pcRange.size = sizeof(ComputePushConstants);
+
+  vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+  pipelineLayoutInfo.setLayoutCount = 1;
+  pipelineLayoutInfo.pSetLayouts = &computeSetLayout;
+  pipelineLayoutInfo.pushConstantRangeCount = 1;
+  pipelineLayoutInfo.pPushConstantRanges = &pcRange;
+
+  if (context.vulkan.device.createPipelineLayout(&pipelineLayoutInfo, nullptr,
+                                                 &computePipelineLayout) !=
+      vk::Result::eSuccess)
+    throw std::runtime_error("failed to create pipeline layout!");
+
+  divergencePipeline = std::make_unique<ComputePipeline>(
+      context, "shaders/smoke/divergence.comp.spv", computePipelineLayout,
+      "smoke divergence compute pipeline");
+  pressureSolvePipeline = std::make_unique<ComputePipeline>(
+      context, "shaders/smoke/pressureSolve.comp.spv", computePipelineLayout,
+      "smoke pressure solver compute pipeline");
+  updateVelocitiesPipeline = std::make_unique<ComputePipeline>(
+      context, "shaders/smoke/updateVelocities.comp.spv", computePipelineLayout,
+      "smoke update velocities compute pipeline");
 
   for (size_t x = 0; x < cellCount.x; x++) {
     solidCellMap[x] = true;
@@ -69,7 +147,10 @@ FluidGrid::FluidGrid(EngineContext &context, glm::uvec2 cellCount,
 
 FluidGrid::~FluidGrid() {
   if (context.vulkan.device) {
-    context.vulkan.device.destroyDescriptorSetLayout(updateSetLayout, nullptr);
+    context.vulkan.device.destroyPipelineLayout(computePipelineLayout, nullptr);
+    context.vulkan.device.destroyDescriptorSetLayout(computeSetLayout, nullptr);
+    context.vulkan.device.destroyDescriptorSetLayout(dyeImageSetLayout,
+                                                     nullptr);
   }
 }
 
@@ -107,44 +188,6 @@ float FluidGrid::getPressure(glm::uvec2 cell) {
   return pressureMap[cell.x + cell.y * cellCount.x];
 }
 
-void FluidGrid::solvePressure() {
-  const int w = cellCount.x;
-  const int h = cellCount.y;
-  const float scale = 0.25f;
-  const float dt_rho_size = (density * cellSize / dt);
-
-#pragma omp parallel for collapse(2)
-  for (int y = 1; y < h - 1; y++) {
-    for (int x = 1; x < w - 1; x++) {
-      if (solidCellMap[x + y * w]) {
-        tempPressure[x + y * w] = 0.0f;
-      } else {
-        float div = velX(x + 1, y) - velX(x, y) + velY(x, y + 1) - velY(x, y);
-        tempPressure[x + y * w] = div * dt_rho_size;
-      }
-    }
-  }
-
-  for (int iter = 0; iter < 40; iter++) {
-    for (int rb = 0; rb < 2; rb++) {
-#pragma omp parallel for
-      for (int y = 1; y < h - 1; y++) {
-        int xStart = 1 + ((y + rb) % 2);
-        for (int x = xStart; x < w - 1; x += 2) {
-          int idx = x + y * w;
-          if (solidCellMap[idx])
-            continue;
-
-          pressureMap[idx] = (pressureMap[idx - 1] + pressureMap[idx + 1] +
-                              pressureMap[idx - w] + pressureMap[idx + w] -
-                              tempPressure[idx]) *
-                             scale;
-        }
-      }
-    }
-  }
-}
-
 void FluidGrid::advectVelocities() {
 #pragma omp parallel for collapse(2)
   for (int y = 0; y < cellCount.y; y++) {
@@ -169,11 +212,148 @@ void FluidGrid::advectVelocities() {
     }
   }
 
-  std::swap(velocitiesX, prevVelocitiesX);
-  std::swap(velocitiesY, prevVelocitiesY);
+  std::swap(velocitiesX, targetVelocitiesX);
+  std::swap(velocitiesY, targetVelocitiesY);
 }
 
-void FluidGrid::updateVelocities() {
+void FluidGrid::advectSmoke() {
+#pragma omp parallel for collapse(2)
+  for (int y = 0; y < cellCount.y; y++) {
+    for (int x = 0; x < cellCount.x; x++) {
+      if (isSolid({x, y})) {
+        targetSmoke[x + y * cellCount.x] = 0.0f;
+        continue;
+      }
+
+      glm::vec2 pos{static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f};
+      glm::vec2 vel = getVelocityAtWorldPos(pos);
+      glm::vec2 prevPos = pos - vel * (dt / cellSize);
+
+      targetSmoke[x + y * cellCount.x] = getSmokeAtWorldPos(prevPos);
+    }
+  }
+  smokeMap.swap(targetSmoke);
+}
+
+void FluidGrid::update() {
+  glm::uvec2 uploadSize = cellCount + glm::ivec2(1, 1); // 481 x 481
+  std::vector<glm::vec2> packedVelocities(uploadSize.x * uploadSize.y,
+                                          glm::vec2(0.f));
+
+  for (uint32_t y = 0; y < uploadSize.y; y++) {
+    for (uint32_t x = 0; x < uploadSize.x; x++) {
+      float u = 0.f;
+      float v = 0.f;
+
+      // velocitiesX size is (cellCount.x + 1) * cellCount.y
+      if (x <= cellCount.x && y < cellCount.y) {
+        u = velX(x, y);
+      }
+      // velocitiesY size is cellCount.x * (cellCount.y + 1)
+      if (x < cellCount.x && y <= cellCount.y) {
+        v = velY(x, y);
+      }
+
+      packedVelocities[x + y * uploadSize.x] = glm::vec2(u, v);
+    }
+  }
+
+  // Create temporary local staging buffer matching the 481x481 requirements
+  Buffer<glm::vec2> velStagingBuffer(
+      context, vk::BufferUsageFlagBits::eTransferSrc,
+      vk::MemoryPropertyFlagBits::eHostVisible |
+          vk::MemoryPropertyFlagBits::eHostCoherent,
+      packedVelocities.size() // Sized to 231,361 elements (1,850,888 bytes)
+  );
+
+  velStagingBuffer.map();
+  std::memcpy(velStagingBuffer.getMappedAddr(), packedVelocities.data(),
+              packedVelocities.size() * sizeof(glm::vec2));
+  velStagingBuffer.unmap();
+
+  velocityImage->copyFromBuffer(velStagingBuffer);
+
+  // --- B. Upload Solid Cells ---
+  Buffer<uint8_t> solidStagingBuffer(
+      context, vk::BufferUsageFlagBits::eTransferSrc,
+      vk::MemoryPropertyFlagBits::eHostVisible |
+          vk::MemoryPropertyFlagBits::eHostCoherent,
+      solidCellMap.size());
+
+  solidStagingBuffer.map();
+  std::memcpy(solidStagingBuffer.getMappedAddr(), solidCellMap.data(),
+              solidCellMap.size() * sizeof(uint8_t));
+  solidStagingBuffer.unmap();
+
+  solidCellImage->copyFromBuffer(solidStagingBuffer);
+
+  // =================================================================
+  // 2. SIMULATION STAGE: divergence + 40 iterations of red-black
+  //    Gauss-Seidel pressure solve, all on the GPU.
+  // =================================================================
+
+  // Confirmed from buffer.hpp: these are free functions from
+  // deviceHelpers.hpp (pulled in transitively via "../../buffer.hpp"),
+  // the same ones Buffer<T>::copyFromBuffer uses internally.
+  vk::CommandBuffer cmd = beginSingleTimeCommands(context);
+
+  cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute, computePipelineLayout,
+                         0, computeSet, {});
+
+  const uint32_t groupsX = (cellCount.x + 15) / 16;
+  const uint32_t groupsY = (cellCount.y + 15) / 16;
+
+  vk::MemoryBarrier storageImageBarrier{vk::AccessFlagBits::eShaderWrite,
+                                        vk::AccessFlagBits::eShaderRead |
+                                            vk::AccessFlagBits::eShaderWrite};
+  auto barrier = [&] {
+    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                        vk::PipelineStageFlagBits::eComputeShader, {},
+                        storageImageBarrier, {}, {});
+  };
+
+  cmd.bindPipeline(vk::PipelineBindPoint::eCompute, *divergencePipeline);
+
+  ComputePushConstants divPc{};
+  divPc.cellSize = cellSize;
+  divPc.dt = dt;
+  cmd.pushConstants(computePipelineLayout, vk::ShaderStageFlagBits::eCompute, 0,
+                    sizeof(ComputePushConstants), &divPc);
+  cmd.dispatch(groupsX, groupsY, 1);
+
+  barrier();
+
+  cmd.bindPipeline(vk::PipelineBindPoint::eCompute, *pressureSolvePipeline);
+
+  // Note: we deliberately do NOT clear pressureImage to 0 here.
+  // pressureImage persists across frames on the GPU, so the solver starts
+  // from last frame's converged result - matching the CPU version, which
+  // also never resets pressureMap before its Gauss-Seidel loop. Clearing it
+  // per-frame would still be correct, just slower to converge.
+  for (int iter = 0; iter < 40; iter++) {
+    for (int rb = 0; rb < 2; rb++) {
+      ComputePushConstants rbPc{};
+      rbPc.rb = rb;
+      cmd.pushConstants(computePipelineLayout,
+                        vk::ShaderStageFlagBits::eCompute, 0,
+                        sizeof(ComputePushConstants), &rbPc);
+      cmd.dispatch(groupsX, groupsY, 1);
+
+      // Required after every single dispatch: the next color's read of a
+      // neighbour pixel depends on this dispatch's write to that pixel.
+      barrier();
+    }
+  }
+
+  cmd.bindPipeline(vk::PipelineBindPoint::eCompute, *updateVelocitiesPipeline);
+
+  cmd.dispatch(groupsX, groupsY, 1);
+
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+
+  pressureImage->downloadPixels(
+      reinterpret_cast<unsigned char *>(pressureMap.data()), 0);
+
   const float K = dt / (density * cellSize);
 
   for (int y = 0; y < cellCount.y; y++) {
@@ -199,30 +379,7 @@ void FluidGrid::updateVelocities() {
       }
     }
   }
-}
 
-void FluidGrid::advectSmoke() {
-#pragma omp parallel for collapse(2)
-  for (int y = 0; y < cellCount.y; y++) {
-    for (int x = 0; x < cellCount.x; x++) {
-      if (isSolid({x, y})) {
-        targetSmoke[x + y * cellCount.x] = 0.0f;
-        continue;
-      }
-
-      glm::vec2 pos{static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f};
-      glm::vec2 vel = getVelocityAtWorldPos(pos);
-      glm::vec2 prevPos = pos - vel * (dt / cellSize);
-
-      targetSmoke[x + y * cellCount.x] = getSmokeAtWorldPos(prevPos);
-    }
-  }
-  smokeMap.swap(targetSmoke);
-}
-
-void FluidGrid::update() {
-  solvePressure();
-  updateVelocities();
   advectVelocities();
   advectSmoke();
 }

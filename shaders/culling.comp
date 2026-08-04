@@ -1,5 +1,15 @@
 #version 450
 
+// Pass 1 of 2 (see cullingFinalize.comp for pass 2).
+//
+// For every instance: frustum-test its world-space AABB. If visible,
+// atomically claim the next free slot within its draw-command group and
+// copy the instance into the compacted buffer at that slot. The atomic's
+// return value doubles as both the compacted slot index and the running
+// visible count for the group (read back in pass 2).
+//
+// `groupVisibleCounts` must be zeroed by the CPU before this dispatch runs.
+
 layout(local_size_x = 64) in;
 
 struct GPUInstanceData {
@@ -13,44 +23,41 @@ struct GPUInstanceData {
   float roughnessFactor;
   float metallicFactor;
   int jointOffset;
-  int isVisible;
+  int groupIndex; // which entry in groupFirstInstance/groupVisibleCounts this instance belongs to
 };
 
 layout(set = 0, binding = 0) uniform CullingUbo {
   vec4 frustumPlanes[6];
   uint totalInstances;
+  uint totalCommands;
 } ubo;
 
-layout(set = 0, binding = 1) buffer InstanceBuffer {
+layout(std430, set = 0, binding = 1) readonly buffer InstanceBuffer {
   GPUInstanceData instances[];
 };
 
-struct IndexedIndirectCommand {
-  uint indexCount;
-  uint instanceCount;
-  uint firstIndex;
-  int  vertexOffset;
-  uint firstInstance;
+layout(std430, set = 0, binding = 2) writeonly buffer CompactedInstanceBuffer {
+  GPUInstanceData compacted[];
 };
 
-layout(set = 0, binding = 2) buffer IndirectBuffer {
-  IndexedIndirectCommand commands[];
+layout(std430, set = 0, binding = 3) readonly buffer GroupFirstInstanceBuffer {
+  uint groupFirstInstance[];
 };
 
-bool isOnOrForwardPlane(vec4 plane, vec3 minBounds, vec3 maxBounds) {
-  vec3 center = (maxBounds + minBounds) * 0.5;
-  vec3 extents = (maxBounds - minBounds) * 0.5;
-  
-  float radius = dot(abs(plane.xyz), extents);
-  float distance = dot(plane.xyz, center) + plane.w;
-  
-  return distance >= -radius;
-}
+layout(std430, set = 0, binding = 4) buffer GroupVisibleCountBuffer {
+  uint groupVisibleCounts[];
+};
 
 bool isInFrustum(vec3 minBounds, vec3 maxBounds) {
+  vec3 center = (maxBounds + minBounds) * 0.5;
+  vec3 extents = (maxBounds - minBounds) * 0.5;
+
   for (int i = 0; i < 6; i++) {
-    if (!isOnOrForwardPlane(ubo.frustumPlanes[i], minBounds, maxBounds)) {
-        return false;
+    vec4 plane = ubo.frustumPlanes[i];
+    float radius = dot(abs(plane.xyz), extents);
+    float distance = dot(plane.xyz, center) + plane.w;
+    if (distance < -radius) {
+      return false;
     }
   }
   return true;
@@ -60,25 +67,9 @@ void main() {
   uint idx = gl_GlobalInvocationID.x;
   if (idx >= ubo.totalInstances) return;
 
-  // Transform AABB to world space roughly for better culling
-  // For now, let's assume aabbMin/Max in GPUInstanceData are already in world space 
-  // or we transform them here. Transforming 8 corners is expensive, 
-  // but we can just use the provided AABB.
-  
-  // In our CPU implementation we were using getWorldAABB which already transforms.
-  // Let's assume the CPU provides WORLD SPACE AABB in the instance data for now
-  // to match current behavior but offload the check.
-  
-  bool visible = isInFrustum(instances[idx].aabbMin, instances[idx].aabbMax);
-  instances[idx].isVisible = visible ? 1 : 0;
-  
-  // Atomic update of indirect commands would be better if we had 1:1 mapping,
-  // but our current architecture has multiple primitives per instance group.
-  // This shader handles culling of INSTANCES. 
-  // The indirect command reconstruction still needs to happen or we need a 
-  // more advanced indirect system.
-  
-  // Wait, the user wants COMPUTE culling. Usually this means:
-  // 1. Cull instances -> Output to a visible instances buffer.
-  // 2. Update indirect commands to point to the visible instances buffer.
+  GPUInstanceData inst = instances[idx];
+  if (!isInFrustum(inst.aabbMin, inst.aabbMax)) return;
+
+  uint slot = atomicAdd(groupVisibleCounts[inst.groupIndex], 1u);
+  compacted[groupFirstInstance[inst.groupIndex] + slot] = inst;
 }

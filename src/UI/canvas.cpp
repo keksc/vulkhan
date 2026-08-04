@@ -14,6 +14,7 @@
 
 #include "polyLine.hpp"
 
+#include <print>
 #include <ranges>
 
 template <> struct std::formatter<glm::vec3> : std::formatter<std::string> {

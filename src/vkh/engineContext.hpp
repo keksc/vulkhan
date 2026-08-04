@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <set>
 #include <unordered_map>
 #include <vector>
 
@@ -64,6 +65,15 @@ struct EngineContext {
     vk::Sampler defaultSampler;
     vk::SampleCountFlagBits msaaSamples;
     vk::PipelineCache pipelineCache;
+    std::set<std::string> enabledOptionalExtensions;
+    bool isRayTracingAvailable() {
+      return enabledOptionalExtensions.contains(
+                 VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) &&
+             enabledOptionalExtensions.contains(
+                 VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
+             enabledOptionalExtensions.contains(
+                 VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    }
   } vulkan;
 
   struct {
@@ -80,6 +90,8 @@ struct EngineContext {
     glm::mat4 projectionMatrix{1.f};
     glm::mat4 viewMatrix{1.f};
     glm::mat4 inverseViewMatrix{1.f};
+    float near = .01f;
+    float far = 1000.f;
   } camera;
 
   struct InputCallbackSystem {

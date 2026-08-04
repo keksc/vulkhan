@@ -28,9 +28,11 @@ struct ObjectData {
   float roughness;
   float metallic;
   int jointOffset;
-  int isVisible;
+  int groupIndex; // unused here; culling pass uses it to place this instance
 };
 
+// Populated by the culling compute pass: contains only instances that
+// survived frustum culling, so every entry here is meant to be drawn.
 layout(std430, set = 2, binding = 0) readonly buffer ObjectBuffer {
   ObjectData objects[];
 } objectBuffer;
@@ -41,11 +43,7 @@ layout(std430, set = 2, binding = 1) readonly buffer JointBuffer {
 
 void main() {
   ObjectData obj = objectBuffer.objects[gl_InstanceIndex];
-  
-  if (obj.isVisible == 0) {
-    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    return;
-  }
+
   mat4 modelMatrix = obj.model;
   mat3 normalMatrix = mat3(obj.normal);
 

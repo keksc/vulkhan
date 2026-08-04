@@ -143,6 +143,11 @@ public:
 
   vk::DeviceSize getSize() const { return bufSize; }
 
+  vk::DeviceAddress getDeviceAddress() const {
+    vk::BufferDeviceAddressInfo info{buf};
+    return context.vulkan.device.getBufferAddress(info);
+  }
+
 private:
   void allocateMemory(vk::MemoryPropertyFlags properties) {
     assert(buf);

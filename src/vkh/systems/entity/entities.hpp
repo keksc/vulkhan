@@ -3,7 +3,7 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.hpp>
 
-#include "../../AxisAlignedBoundingBox.hpp"
+#include "../../AABB.hpp"
 #include "../../pipeline.hpp"
 #include "../../scene.hpp"
 #include "../system.hpp"
@@ -96,12 +96,14 @@ public:
     float roughnessFactor;
     float metallicFactor;
     int32_t jointOffset;
-    int32_t isVisible; // 1 if visible, 0 if not
+    int32_t groupIndex; // index into the per-(scene,mesh) group arrays used
+                        // by the culling compute pass
   };
 
   struct CullingUbo {
     glm::vec4 frustumPlanes[6];
     uint32_t totalInstances;
+    uint32_t totalCommands;
   };
 
   struct SceneBatch {
@@ -131,6 +133,7 @@ private:
   void createSetLayouts();
   void createPipeline();
   void createCullingPipeline();
+  void createFinalizePipeline();
 
   std::unique_ptr<GraphicsPipeline> pipeline;
 
@@ -140,17 +143,35 @@ private:
   std::vector<std::unique_ptr<Buffer<glm::mat4>>> jointBuffers;
   std::vector<vk::DescriptorSet> instanceDescriptorSets;
 
-  // Compute culling members
+  // Compute culling members. Culling runs in two passes sharing one
+  // descriptor set layout:
+  //  pass 1 (cullingPipeline)  : frustum-cull instances, compact survivors
+  //  pass 2 (finalizePipeline) : write each group's visible count into its
+  //                              draw command(s)
   vk::DescriptorSetLayout cullingSetLayout = nullptr;
   std::vector<vk::DescriptorSet> cullingDescriptorSets;
   std::unique_ptr<ComputePipeline> cullingPipeline;
+  std::unique_ptr<ComputePipeline> finalizePipeline;
   std::vector<std::unique_ptr<Buffer<CullingUbo>>> cullingUboBuffers;
+
+  // GPU-only, written by the culling pass and read by the vertex shader.
+  std::vector<std::unique_ptr<Buffer<GPUInstanceData>>>
+      compactedInstanceBuffers;
+  // Static per-group data, rebuilt alongside cpuDrawCommands.
+  std::vector<std::unique_ptr<Buffer<uint32_t>>> groupFirstInstanceBuffers;
+  std::vector<std::unique_ptr<Buffer<uint32_t>>> commandGroupIndexBuffers;
+  // Zeroed by the CPU every frame; accumulated by the culling pass.
+  std::vector<std::unique_ptr<Buffer<uint32_t>>> groupVisibleCountBuffers;
 
   std::vector<SceneBatch> sceneBatches;
 
   std::vector<GPUInstanceData> cpuInstanceData;
   std::vector<vk::DrawIndexedIndirectCommand> cpuDrawCommands;
   std::vector<glm::mat4> cpuJointData;
+  std::vector<uint32_t>
+      cpuGroupFirstInstance; // one entry per (scene,mesh) group
+  std::vector<uint32_t> cpuCommandGroupIndex;      // one entry per draw command
+  std::vector<uint32_t> cpuGroupVisibleCountZeros; // reused zero-fill buffer
   std::vector<bool> framesDirty;
   bool structuralDirty = true;
 

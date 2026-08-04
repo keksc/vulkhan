@@ -2,8 +2,7 @@
 
 #include "../debug.hpp"
 #include "../pipeline.hpp"
-#include "../scene.hpp"
-#include "../swapChain.hpp"
+#include "../sceneBuilder.hpp"
 #include <vulkan/vulkan.hpp>
 
 namespace vkh {
@@ -35,8 +34,8 @@ SkyboxSys::SkyboxSys(EngineContext &context)
     : System(context), cubeMap(context, "textures/night.ktx2") {
   createSetLayout();
 
-  cubeScene = std::make_unique<Scene<Vertex>>(context, "models/cube.glb",
-                                              setLayout, true);
+  cubeScene = std::make_unique<Scene<Vertex>>(context, "models/cube.glb", true);
+  cubeScene->uploadModelGPU(setLayout);
 
   vk::PushConstantRange pushConstantRange{
       vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0,
@@ -53,7 +52,6 @@ SkyboxSys::SkyboxSys(EngineContext &context)
 
   PipelineCreateInfo pipelineInfo{};
   pipelineInfo.layoutInfo = pipelineLayoutInfo;
-  pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.attributeDescriptions = Vertex::getAttributeDescriptions();
   pipelineInfo.bindingDescriptions = Vertex::getBindingDescriptions();
   pipelineInfo.depthStencilInfo.depthTestEnable = true;
@@ -62,7 +60,6 @@ SkyboxSys::SkyboxSys(EngineContext &context)
   pipelineInfo.vertpath = "shaders/skybox.vert.spv";
   pipelineInfo.fragpath = "shaders/skybox.frag.spv";
 
-  pipelineInfo.subpass = 0;
   pipelineInfo.multisampleInfo.rasterizationSamples =
       context.vulkan.msaaSamples;
 

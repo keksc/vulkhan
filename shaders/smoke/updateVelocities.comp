@@ -1,0 +1,37 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(push_constant) uniform PushConstants {
+  int rb;
+  float cellSize;
+  float dt;
+} pc;
+
+#include "common.glsl"
+
+void main() {
+  int x = int(gl_GlobalInvocationID.x);
+  int y = int(gl_GlobalInvocationID.y);
+
+  const float K = pc.dt / (density * pc.cellSize);
+
+  if(x >= 1) {
+    if(!(isSolid(x, y) || isSolid(x-1, y))) {
+      float pRight = getPressure(x, y);
+      float pLeft = getPressure(x-1, y);
+      setVelX(x, y, getVel(x, y).r - K * (pRight - pLeft));
+    } else {
+      setVelX(x, y, 0.0);
+    }
+  }
+  if(y >= 1) {
+    if(!(isSolid(x, y) || isSolid(x, y-1))) {
+      float pTop = getPressure(x, y);
+      float pBottom = getPressure(x, y-1);
+      setVelY(x, y, getVel(x, y).y - K * (pTop - pBottom));
+    } else {
+      setVelY(x, y, 0.0);
+    }
+  }
+}

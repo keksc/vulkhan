@@ -14,16 +14,16 @@ namespace vkh {
 
 class FluidGrid : public System {
 public:
-  FluidGrid(EngineContext &context, glm::uvec2 cellCount, float cellSize);
+  FluidGrid(EngineContext &context, glm::ivec2 cellCount, float cellSize);
   ~FluidGrid();
 
   std::vector<float> velocitiesX;
   std::vector<float> velocitiesY;
-  std::vector<float> prevVelocitiesX;
-  std::vector<float> prevVelocitiesY;
+  std::vector<float> targetVelocitiesX;
+  std::vector<float> targetVelocitiesY;
 
   std::vector<float> pressureMap;
-  std::vector<float> tempPressure;
+  std::vector<float> divergence;
 
   std::vector<float> smokeMap;
   std::vector<float> targetSmoke;
@@ -31,7 +31,7 @@ public:
   std::vector<uint8_t> solidCellMap;
 
   float cellSize;
-  glm::uvec2 cellCount;
+  glm::ivec2 cellCount;
 
   const float density = 1.f;
   const float dt = 1.f / 60.f;
@@ -43,10 +43,10 @@ public:
   inline float &smoke(int x, int y) { return smokeMap[x + y * cellCount.x]; }
 
   inline float &prevVelX(int x, int y) {
-    return prevVelocitiesX[x + y * (cellCount.x + 1)];
+    return targetVelocitiesX[x + y * (cellCount.x + 1)];
   }
   inline float &prevVelY(int x, int y) {
-    return prevVelocitiesY[x + y * cellCount.x];
+    return targetVelocitiesY[x + y * cellCount.x];
   }
   inline float &tSmoke(int x, int y) {
     return targetSmoke[x + y * cellCount.x];
@@ -57,8 +57,6 @@ public:
     return solidCellMap[cell.x + cell.y * cellCount.x];
   }
 
-  void solvePressure();
-  void updateVelocities();
   void advectVelocities();
   void advectSmoke();
 
@@ -70,10 +68,30 @@ public:
   glm::vec2 getVelocityAtWorldPos(glm::vec2 worldPos);
   float getSmokeAtWorldPos(glm::vec2 worldPos);
 
-  // std::unique_ptr<ComputePipeline> updatePipeline;
-  vk::DescriptorSetLayout updateSetLayout;
-  std::unique_ptr<Image> dyeImage;
+  vk::DescriptorSetLayout dyeImageSetLayout;
   vk::DescriptorSet dyeImageSet;
+
+  struct ComputePushConstants {
+    int rb;
+    float cellSize;
+    float dt;
+  };
+
+  vk::DescriptorSet computeSet;
+  vk::DescriptorSetLayout computeSetLayout;
+  vk::PipelineLayout computePipelineLayout;
+
+  std::unique_ptr<ComputePipeline> divergencePipeline;
+  std::unique_ptr<ComputePipeline> pressureSolvePipeline;
+  std::unique_ptr<ComputePipeline> updateVelocitiesPipeline;
+
+  std::unique_ptr<Image> dyeImage;
+  std::unique_ptr<Image> velocityImage;
+  std::unique_ptr<Image> targetVelocityImage;
+  std::unique_ptr<Image> pressureImage;
+  std::unique_ptr<Image> solidCellImage;
+  std::unique_ptr<Image> divergenceImage;
+  std::unique_ptr<Image> targetDyeImage;
 
 private:
   float getPressure(glm::uvec2 cell);

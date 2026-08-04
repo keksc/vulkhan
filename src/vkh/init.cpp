@@ -10,18 +10,26 @@
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
+#include <vulkan/vulkan_core.h>
 
 #include "buffer.hpp"
 #include "descriptors.hpp"
 #include "deviceHelpers.hpp"
 #include "pipeline.hpp"
+#include "vulkan/vulkan.hpp"
 
 namespace vkh {
 
 const std::vector<const char *> validationLayers = {
     "VK_LAYER_KHRONOS_validation"};
-const std::vector<const char *> deviceExtensions = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_ROBUSTNESS_2_EXTENSION_NAME};
+const std::vector<const char *> requiredDeviceExtensions = {
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_ROBUSTNESS_2_EXTENSION_NAME,
+    VK_KHR_SWAPCHAIN_MUTABLE_FORMAT_EXTENSION_NAME};
+const std::vector<const char *> optionalDeviceExtensions = {
+    VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+    VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+    VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME};
+std::vector<const char *> finalExtensions;
 
 bool checkValidationLayerSupport() {
   uint32_t layerCount;
@@ -194,8 +202,8 @@ bool checkDeviceExtensionSupport(vk::PhysicalDevice device) {
     return false;
   }
 
-  std::set<std::string> requiredExtensions(deviceExtensions.begin(),
-                                           deviceExtensions.end());
+  std::set<std::string> requiredExtensions(requiredDeviceExtensions.begin(),
+                                           requiredDeviceExtensions.end());
 
   for (const auto &extension : availableExtensions) {
     requiredExtensions.erase(extension.extensionName);
@@ -225,9 +233,9 @@ unsigned int getDeviceScore(EngineContext &context, vk::PhysicalDevice device) {
         supportedFeatures.fillModeNonSolid))
     return 0; // unsuitable
 
-  const auto &props = context.vulkan.physicalDeviceProperties;
+  const auto &props = device.getProperties();
   unsigned int score = 1;
-  score += (props.deviceType == vk::PhysicalDeviceType::eDiscreteGpu);
+  score += (props.deviceType == vk::PhysicalDeviceType::eDiscreteGpu) * 1000;
   return score;
 }
 
@@ -313,13 +321,47 @@ void createLogicalDevice(EngineContext &context) {
     queueCreateInfos.push_back(qInfo);
   }
 
-  VkPhysicalDeviceRobustness2FeaturesKHR robustness2Features{
-      .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_KHR,
-      .nullDescriptor = VK_TRUE,
-  };
+  uint32_t deviceExtensionCount;
+  (void)context.vulkan.physicalDevice.enumerateDeviceExtensionProperties(
+      nullptr, &deviceExtensionCount, nullptr);
+  std::vector<vk::ExtensionProperties> availableExtensions(
+      deviceExtensionCount);
+  (void)context.vulkan.physicalDevice.enumerateDeviceExtensionProperties(
+      nullptr, &deviceExtensionCount, availableExtensions.data());
+
+  std::vector<const char *> enabledExtensions = requiredDeviceExtensions;
+  for (const auto &ext : optionalDeviceExtensions) {
+    for (const auto &avail : availableExtensions) {
+      if (strcmp(ext, avail.extensionName) == 0) {
+        enabledExtensions.push_back(ext);
+        context.vulkan.enabledOptionalExtensions.insert(ext);
+        break;
+      }
+    }
+  }
+
+  vk::PhysicalDeviceAccelerationStructureFeaturesKHR accelStructFeatures{};
+  vk::PhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures{};
+  rtPipelineFeatures.pNext = &accelStructFeatures;
+
+  vk::PhysicalDeviceRobustness2FeaturesKHR robustness2Features{};
+  robustness2Features.nullDescriptor = VK_TRUE;
+  if (context.vulkan.isRayTracingAvailable())
+    robustness2Features.pNext = &rtPipelineFeatures;
+
+  // Vulkan 1.3 core features required for dynamic rendering:
+  // - dynamicRendering: replaces VkRenderPass/VkFramebuffer with
+  //   vkCmdBeginRendering/vkCmdEndRendering.
+  // - synchronization2: needed for vkCmdPipelineBarrier2, which the
+  //   renderer now uses for the barrier between the MSAA pass and the
+  //   1x pass (previously an implicit subpass dependency).
+  vk::PhysicalDeviceVulkan13Features vulkan13Features{};
+  vulkan13Features.pNext = &robustness2Features;
+  vulkan13Features.dynamicRendering = VK_TRUE;
+  vulkan13Features.synchronization2 = VK_TRUE;
 
   vk::PhysicalDeviceVulkan12Features vulkan12Features{};
-  vulkan12Features.pNext = &robustness2Features;
+  vulkan12Features.pNext = &vulkan13Features;
   vulkan12Features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
   vulkan12Features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
   vulkan12Features.descriptorBindingPartiallyBound = VK_TRUE;
@@ -342,8 +384,8 @@ void createLogicalDevice(EngineContext &context) {
 
   createInfo.pNext = &deviceFeatures2;
   createInfo.enabledExtensionCount =
-      static_cast<uint32_t>(deviceExtensions.size());
-  createInfo.ppEnabledExtensionNames = deviceExtensions.data();
+      static_cast<uint32_t>(requiredDeviceExtensions.size());
+  createInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
 
   if (context.vulkan.physicalDevice.createDevice(&createInfo, nullptr,
                                                  &context.vulkan.device) !=

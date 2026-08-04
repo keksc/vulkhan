@@ -1,4 +1,5 @@
 #include "image.hpp"
+#include <magic_enum/magic_enum.hpp>
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -45,6 +46,11 @@ void Image::recordTransitionLayout(vk::CommandBuffer cmd,
     srcStageMask = vk::PipelineStageFlagBits::eTopOfPipe;
     break;
 
+  case vk::ImageLayout::eTransferSrcOptimal:
+    imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
+    srcStageMask = vk::PipelineStageFlagBits::eTransfer;
+    break;
+
   case vk::ImageLayout::ePreinitialized:
     imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eHostWrite;
     srcStageMask = vk::PipelineStageFlagBits::eHost;
@@ -88,6 +94,11 @@ void Image::recordTransitionLayout(vk::CommandBuffer cmd,
   case vk::ImageLayout::eGeneral:
     imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
     dstStageMask = vk::PipelineStageFlagBits::eComputeShader;
+    break;
+
+  case vk::ImageLayout::eTransferSrcOptimal:
+    imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+    dstStageMask = vk::PipelineStageFlagBits::eTransfer;
     break;
 
   case vk::ImageLayout::eShaderReadOnlyOptimal:
@@ -294,6 +305,8 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
       throw std::runtime_error(
           std::format("Failed to create texture from file {}", path.c_str()));
 
+    vk::Format fmt = (vk::Format)ktxTexture2_GetVkFormat(texture);
+
     if (ktxTexture2_NeedsTranscoding(texture)) {
       ktx_transcode_fmt_e tf;
 
@@ -329,6 +342,132 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
         throw std::runtime_error(
             std::format("Failed to transcode file {}", path.c_str()));
     }
+
+    if (!ktxTexture2_NeedsTranscoding(texture) &&
+        (fmt == vk::Format::eR8G8B8Srgb || fmt == vk::Format::eR8G8B8Unorm)) {
+      // Many GPUs don't support 3-channel 8-bit formats as sampled optimal
+      // images. Manually expand RGB -> RGBA and upload ourselves instead of
+      // handing this straight to ktxTexture2_VkUploadEx (which would upload
+      // in the original 3-channel format).
+      bool isSrgb = (fmt == vk::Format::eR8G8B8Srgb);
+      format = isSrgb ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm;
+
+      ktxTexture *baseTex = ktxTexture(texture);
+      uint32_t numFaces = texture->numFaces; // 6 for cubemaps, 1 otherwise
+      uint32_t numLevels = texture->numLevels;
+      bool cube = (numFaces == 6);
+
+      size.x = texture->baseWidth;
+      size.y = texture->baseHeight;
+      mipLevels = numLevels;
+
+      std::vector<vk::BufferImageCopy> regions;
+      std::vector<unsigned char> converted;
+      vk::DeviceSize totalSize = 0;
+
+      for (uint32_t level = 0; level < numLevels; level++) {
+        uint32_t w = std::max(1u, size.x >> level);
+        uint32_t h = std::max(1u, size.y >> level);
+        for (uint32_t face = 0; face < numFaces; face++) {
+          ktx_size_t offset;
+          ktxTexture_GetImageOffset(baseTex, level, 0, face, &offset);
+          const unsigned char *src = ktxTexture_GetData(baseTex) + offset;
+
+          size_t pixelCount = static_cast<size_t>(w) * h;
+          size_t writeOffset = converted.size();
+          converted.resize(writeOffset + pixelCount * 4);
+          unsigned char *dst = converted.data() + writeOffset;
+          for (size_t p = 0; p < pixelCount; p++) {
+            dst[p * 4 + 0] = src[p * 3 + 0];
+            dst[p * 4 + 1] = src[p * 3 + 1];
+            dst[p * 4 + 2] = src[p * 3 + 2];
+            dst[p * 4 + 3] = 0xFF;
+          }
+
+          vk::BufferImageCopy region{};
+          region.bufferOffset = totalSize;
+          region.imageSubresource = vk::ImageSubresourceLayers{
+              vk::ImageAspectFlagBits::eColor, level, face, 1};
+          region.imageExtent = vk::Extent3D{w, h, 1};
+          regions.push_back(region);
+
+          totalSize += pixelCount * 4;
+        }
+      }
+
+      ktxTexture2_Destroy(texture);
+
+      vk::ImageCreateInfo imageInfo{};
+      imageInfo.imageType = vk::ImageType::e2D;
+      imageInfo.format = format;
+      imageInfo.extent = vk::Extent3D{size.x, size.y, 1};
+      imageInfo.mipLevels = mipLevels;
+      imageInfo.arrayLayers = numFaces;
+      imageInfo.samples = vk::SampleCountFlagBits::e1;
+      imageInfo.tiling = vk::ImageTiling::eOptimal;
+      imageInfo.usage = vk::ImageUsageFlagBits::eTransferDst |
+                        vk::ImageUsageFlagBits::eSampled;
+      imageInfo.sharingMode = vk::SharingMode::eExclusive;
+      imageInfo.initialLayout = vk::ImageLayout::eUndefined;
+      if (cube)
+        imageInfo.flags = vk::ImageCreateFlagBits::eCubeCompatible;
+
+      if (context.vulkan.device.createImage(&imageInfo, nullptr, &img) !=
+          vk::Result::eSuccess) {
+        throw std::runtime_error("failed to create image!");
+      }
+
+      vk::MemoryRequirements memRequirements =
+          context.vulkan.device.getImageMemoryRequirements(img);
+      vk::MemoryAllocateInfo allocInfo{};
+      allocInfo.allocationSize = memRequirements.size;
+      allocInfo.memoryTypeIndex =
+          findMemoryType(context, memRequirements.memoryTypeBits,
+                         vk::MemoryPropertyFlagBits::eDeviceLocal);
+      if (context.vulkan.device.allocateMemory(&allocInfo, nullptr, &memory) !=
+          vk::Result::eSuccess) {
+        throw std::runtime_error("failed to allocate image memory!");
+      }
+      context.vulkan.device.bindImageMemory(img, memory, 0);
+      layout = vk::ImageLayout::eUndefined;
+
+      Buffer<std::byte> stagingBuffer(
+          context, vk::BufferUsageFlagBits::eTransferSrc,
+          vk::MemoryPropertyFlagBits::eHostVisible |
+              vk::MemoryPropertyFlagBits::eHostCoherent,
+          totalSize);
+      stagingBuffer.map();
+      stagingBuffer.write(converted.data());
+
+      vk::ImageSubresourceRange fullRange{vk::ImageAspectFlagBits::eColor, 0,
+                                          mipLevels, 0, numFaces};
+
+      auto cmd = beginSingleTimeCommands(context);
+      recordTransitionLayout(cmd, vk::ImageLayout::eTransferDstOptimal,
+                             fullRange);
+      cmd.copyBufferToImage(
+          stagingBuffer, img, vk::ImageLayout::eTransferDstOptimal,
+          static_cast<uint32_t>(regions.size()), regions.data());
+      recordTransitionLayout(cmd, vk::ImageLayout::eShaderReadOnlyOptimal,
+                             fullRange);
+      endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+
+      vk::ImageViewCreateInfo viewInfo{};
+      viewInfo.image = img;
+      viewInfo.viewType =
+          cube ? vk::ImageViewType::eCube : vk::ImageViewType::e2D;
+      viewInfo.format = format;
+      viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0,
+                                   mipLevels, 0, numFaces};
+      if (context.vulkan.device.createImageView(&viewInfo, nullptr, &view) !=
+          vk::Result::eSuccess) {
+        throw std::runtime_error("failed to create image view!");
+      }
+
+      setDbgInfo(path.c_str());
+      return;
+    }
+
     ktxVulkanDeviceInfo vdi;
     ktxVulkanDeviceInfo_Construct(
         &vdi, context.vulkan.physicalDevice, context.vulkan.device,
@@ -340,7 +479,9 @@ Image::Image(EngineContext &context, const std::filesystem::path &path)
     if (result != KTX_SUCCESS) {
       ktxVulkanDeviceInfo_Destruct(&vdi);
       ktxTexture2_Destroy(texture);
-      throw std::runtime_error("failed to upload KTX image to Vulkan!");
+      throw std::runtime_error(
+          std::format("failed to upload {} image to Vulkan! Error: {}",
+                      path.c_str(), magic_enum::enum_name(result)));
     }
     ktxVkTexture = vkTexture;
     isKtxManaged = true;
@@ -496,18 +637,17 @@ void Image::copyFromBuffer(vk::Buffer buffer, uint32_t bufferOffset) {
 }
 
 void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel) {
-  if (format != vk::Format::eR8G8B8A8Unorm &&
-      format != vk::Format::eR8G8B8A8Srgb) {
-    throw std::runtime_error(
-        "downloadPixels only supports R8G8B8A8_UNORM or SRGB formats");
-  }
   if (mipLevel >= mipLevels) {
     throw std::runtime_error("Mip level out of range");
   }
 
   uint32_t width = size.x >> mipLevel;
   uint32_t height = size.y >> mipLevel;
-  vk::DeviceSize bufferSize = static_cast<vk::DeviceSize>(width) * height * 4;
+
+  // Dynamically query format size instead of hardcoding 4 bytes
+  vk::DeviceSize pixelSize = getFormatSize(format);
+  vk::DeviceSize bufferSize =
+      static_cast<vk::DeviceSize>(width) * height * pixelSize;
 
   Buffer<std::byte> stagingBuffer(context,
                                   vk::BufferUsageFlagBits::eTransferDst,
@@ -545,6 +685,12 @@ void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel) {
 }
 
 std::vector<unsigned char> Image::downloadAndSerializeToPNG() {
+  if (format != vk::Format::eR8G8B8A8Unorm &&
+      format != vk::Format::eR8G8B8A8Srgb) {
+    throw std::runtime_error("downloadAndSerializeToPNG only supports "
+                             "R8G8B8A8_UNORM or SRGB formats");
+  }
+
   std::vector<unsigned char> pixels(size.x * size.y * 4);
   downloadPixels(pixels.data(), 0);
 

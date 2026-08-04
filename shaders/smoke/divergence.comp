@@ -11,18 +11,16 @@ layout(push_constant) uniform PushConstants {
 #include "common.glsl"
 
 void main() {
+  float dtRhoSize = (density * pc.cellSize / pc.dt);
+
   int x = int(gl_GlobalInvocationID.x);
   int y = int(gl_GlobalInvocationID.y);
 
-  if (isSolid(x, y))
+  if (isSolid(x, y)) {
+    setDiv(x, y, 0.0);
     return;
+  }
 
-  if ((x + y) % 2 != pc.rb)
-    return;
-
-  setPressure(x, y,
-      (getPressure(x + 1, y) + getPressure(x - 1, y) +
-       getPressure(x, y + 1) + getPressure(x, y - 1) -
-       getDiv(x, y)) *
-      scale);
+  float div = getVel(x + 1, y).x - getVel(x, y).x + getVel(x, y + 1).y - getVel(x, y).y;
+  setDiv(x, y, div * dtRhoSize);
 }

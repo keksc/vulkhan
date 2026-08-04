@@ -6,6 +6,8 @@
 
 #include "debug.hpp"
 #include "deviceHelpers.hpp"
+#include "engineContext.hpp"
+#include "swapChain.hpp"
 
 namespace vkh {
 
@@ -50,7 +52,8 @@ Pipeline::Pipeline(EngineContext &context, vk::PipelineBindPoint bindPoint)
 Pipeline::~Pipeline() {
   if (context.vulkan.device) {
     context.vulkan.device.destroyPipeline(pipeline, nullptr);
-    context.vulkan.device.destroyPipelineLayout(layout, nullptr);
+    if (ownsLayout)
+      context.vulkan.device.destroyPipelineLayout(layout, nullptr);
   }
 }
 
@@ -176,8 +179,20 @@ GraphicsPipeline::GraphicsPipeline(EngineContext &context,
       reinterpret_cast<uint64_t>(static_cast<VkPipelineLayout>(layout)),
       str.c_str());
 
-  pipelineInfo.renderPass = createInfo.renderPass;
-  pipelineInfo.subpass = createInfo.subpass;
+  // Dynamic rendering: no VkRenderPass/subpass. The pipeline instead
+  // declares the attachment formats it will be used with, via pNext.
+  // Every pipeline currently targets the swapchain's own formats, so we
+  // read them straight from the swapchain rather than threading them
+  // through PipelineCreateInfo.
+  vk::Format colorFormat = context.vulkan.swapChain->getSwapChainImageFormat();
+  vk::Format depthFormat = context.vulkan.swapChain->getSwapChainDepthFormat();
+
+  vk::PipelineRenderingCreateInfo renderingInfo{};
+  renderingInfo.colorAttachmentCount = 1;
+  renderingInfo.pColorAttachmentFormats = &colorFormat;
+  renderingInfo.depthAttachmentFormat = depthFormat;
+
+  pipelineInfo.pNext = &renderingInfo;
   pipelineInfo.basePipelineIndex = -1;
   pipelineInfo.basePipelineHandle = nullptr;
   pipelineInfo.flags = vk::PipelineCreateFlags{};
@@ -208,13 +223,60 @@ ComputePipeline::ComputePipeline(EngineContext &context,
                                  const char *name,
                                  vk::SpecializationInfo *specializationInfo)
     : Pipeline{context, vk::PipelineBindPoint::eCompute} {
-  vk::ComputePipelineCreateInfo pipelineInfo{};
+  this->ownsLayout = true;
 
   if (context.vulkan.device.createPipelineLayout(
-          &layoutInfo, nullptr, &pipelineInfo.layout) != vk::Result::eSuccess)
+          &layoutInfo, nullptr, &layout) != vk::Result::eSuccess)
     throw std::runtime_error("failed to create pipeline layout!");
 
-  layout = pipelineInfo.layout;
+  std::string str = std::format("pipeline layout for pipeline {}", name);
+  debug::setObjName(
+      context, vk::ObjectType::ePipelineLayout,
+      reinterpret_cast<uint64_t>(static_cast<VkPipelineLayout>(layout)),
+      str.c_str());
+
+  createPipeline(context, shaderpath, name, specializationInfo);
+}
+ComputePipeline::ComputePipeline(EngineContext &context,
+                                 const std::filesystem::path &shaderpath,
+                                 vk::PipelineLayout layout, const char *name,
+                                 vk::SpecializationInfo *specializationInfo)
+    : Pipeline{context, vk::PipelineBindPoint::eCompute} {
+  this->ownsLayout = false;
+  this->layout = layout;
+
+  std::string str = std::format("pipeline layout for pipeline {}", name);
+  debug::setObjName(
+      context, vk::ObjectType::ePipelineLayout,
+      reinterpret_cast<uint64_t>(static_cast<VkPipelineLayout>(layout)),
+      str.c_str());
+
+  createPipeline(context, shaderpath, name, specializationInfo);
+}
+
+void Pipeline::bind(vk::CommandBuffer commandBuffer) {
+  commandBuffer.bindPipeline(bindPoint, pipeline);
+}
+
+void GraphicsPipeline::enableAlphaBlending(PipelineCreateInfo &configInfo) {
+  configInfo.colorBlendAttachment.blendEnable = true;
+  configInfo.colorBlendAttachment.colorWriteMask =
+      vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
+      vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
+  configInfo.colorBlendAttachment.srcColorBlendFactor =
+      vk::BlendFactor::eSrcAlpha;
+  configInfo.colorBlendAttachment.dstColorBlendFactor =
+      vk::BlendFactor::eOneMinusSrcAlpha;
+  configInfo.colorBlendAttachment.colorBlendOp = vk::BlendOp::eAdd;
+  configInfo.colorBlendAttachment.srcAlphaBlendFactor = vk::BlendFactor::eOne;
+  configInfo.colorBlendAttachment.dstAlphaBlendFactor = vk::BlendFactor::eZero;
+  configInfo.colorBlendAttachment.alphaBlendOp = vk::BlendOp::eAdd;
+}
+void ComputePipeline::createPipeline(
+    EngineContext &context, const std::filesystem::path &shaderpath,
+    const char *name, vk::SpecializationInfo *specializationInfo) {
+  vk::ComputePipelineCreateInfo pipelineInfo{};
+
   std::string str = std::format("pipeline layout for pipeline {}", name);
   debug::setObjName(
       context, vk::ObjectType::ePipelineLayout,
@@ -252,25 +314,6 @@ ComputePipeline::ComputePipeline(EngineContext &context,
       context, vk::ObjectType::ePipeline,
       reinterpret_cast<uint64_t>(static_cast<VkPipeline>(pipeline)),
       str.c_str());
-}
-
-void Pipeline::bind(vk::CommandBuffer commandBuffer) {
-  commandBuffer.bindPipeline(bindPoint, pipeline);
-}
-
-void GraphicsPipeline::enableAlphaBlending(PipelineCreateInfo &configInfo) {
-  configInfo.colorBlendAttachment.blendEnable = true;
-  configInfo.colorBlendAttachment.colorWriteMask =
-      vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG |
-      vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
-  configInfo.colorBlendAttachment.srcColorBlendFactor =
-      vk::BlendFactor::eSrcAlpha;
-  configInfo.colorBlendAttachment.dstColorBlendFactor =
-      vk::BlendFactor::eOneMinusSrcAlpha;
-  configInfo.colorBlendAttachment.colorBlendOp = vk::BlendOp::eAdd;
-  configInfo.colorBlendAttachment.srcAlphaBlendFactor = vk::BlendFactor::eOne;
-  configInfo.colorBlendAttachment.dstAlphaBlendFactor = vk::BlendFactor::eZero;
-  configInfo.colorBlendAttachment.alphaBlendOp = vk::BlendOp::eAdd;
 }
 
 } // namespace vkh

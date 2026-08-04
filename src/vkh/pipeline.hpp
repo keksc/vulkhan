@@ -65,9 +65,7 @@ struct PipelineCreateInfo {
       vk::DynamicState::eScissor,
   };
 
-  vk::RenderPass renderPass = nullptr;
   vk::PipelineLayoutCreateInfo layoutInfo{};
-  uint32_t subpass = 0;
 };
 
 class Pipeline {
@@ -93,6 +91,8 @@ protected:
   vk::Pipeline pipeline;
   vk::PipelineBindPoint bindPoint;
   vk::PipelineLayout layout;
+
+  bool ownsLayout = true;
 };
 
 class GraphicsPipeline : public Pipeline {
@@ -110,6 +110,17 @@ public:
                   vk::PipelineLayoutCreateInfo layoutInfo = {},
                   const char *name = "Unnamed pipeline",
                   vk::SpecializationInfo *specializationInfo = nullptr);
+  ComputePipeline(EngineContext &context,
+                  const std::filesystem::path &shaderpath,
+                  vk::PipelineLayout layout,
+                  const char *name = "Unnamed pipeline",
+                  vk::SpecializationInfo *specializationInfo = nullptr);
+
+private:
+  void createPipeline(EngineContext &context,
+                      const std::filesystem::path &shaderpath,
+                      const char *name = "Unnamed pipeline",
+                      vk::SpecializationInfo *specializationInfo = nullptr);
 };
 
 } // namespace vkh

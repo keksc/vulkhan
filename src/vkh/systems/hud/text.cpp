@@ -16,7 +16,6 @@
 #include "../../debug.hpp"
 #include "../../descriptors.hpp"
 #include "../../pipeline.hpp"
-#include "../../swapChain.hpp"
 
 namespace vkh {
 
@@ -100,16 +99,14 @@ void TextSys::createPipeline() {
 
   PipelineCreateInfo pipelineInfo{};
   pipelineInfo.layoutInfo = pipelineLayoutInfo;
-  pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.attributeDescriptions = Vertex::getAttributeDescriptions();
   pipelineInfo.bindingDescriptions = Vertex::getBindingDescriptions();
   GraphicsPipeline::enableAlphaBlending(pipelineInfo);
   pipelineInfo.vertpath = "shaders/text.vert.spv";
   pipelineInfo.fragpath = "shaders/text.frag.spv";
   pipelineInfo.depthStencilInfo.depthCompareOp = vk::CompareOp::eGreaterOrEqual;
-  pipelineInfo.subpass = 0;
   pipelineInfo.multisampleInfo.rasterizationSamples =
-      static_cast<vk::SampleCountFlagBits>(context.vulkan.msaaSamples);
+      vk::SampleCountFlagBits::e1;
   pipeline = std::make_unique<GraphicsPipeline>(context, pipelineInfo, "text");
 }
 

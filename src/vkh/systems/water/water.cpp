@@ -6,7 +6,7 @@
 #include "../../deviceHelpers.hpp"
 #include "../../engineContext.hpp"
 #include "../../pipeline.hpp"
-#include "../../scene.hpp"
+#include "../../sceneBuilder.hpp"
 #include "../../swapChain.hpp"
 
 namespace vkh {
@@ -42,7 +42,6 @@ void WaterSys::createPipeline() {
   pipelineInfo.layoutInfo.setLayoutCount =
       static_cast<uint32_t>(setLayouts.size());
   pipelineInfo.layoutInfo.pSetLayouts = setLayouts.data();
-  pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.inputAssemblyInfo.topology = vk::PrimitiveTopology::ePatchList;
   pipelineInfo.attributeDescriptions = Vertex::attribDescriptions;
   pipelineInfo.bindingDescriptions = Vertex::bindingDescriptions;
@@ -52,7 +51,6 @@ void WaterSys::createPipeline() {
   pipelineInfo.tescpath = "shaders/water/water.tesc.spv";
   pipelineInfo.tesepath = "shaders/water/water.tese.spv";
 
-  pipelineInfo.subpass = 0;
   pipelineInfo.multisampleInfo.rasterizationSamples =
       static_cast<vk::SampleCountFlagBits>(context.vulkan.msaaSamples);
 

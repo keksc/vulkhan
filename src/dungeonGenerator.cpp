@@ -281,7 +281,8 @@ struct WFC {
 
 void generateDungeon(vkh::EngineContext &context, vkh::EntitySys &entitySys) {
   auto assets = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
-      context, "models/dungeonAssets.glb", entitySys.texturesSetLayout);
+      context, "models/dungeonAssets.glb");
+  assets->uploadModelGPU(entitySys.texturesSetLayout);
 
   WFC wfc(15);
   wfc.runWithRetries(50);

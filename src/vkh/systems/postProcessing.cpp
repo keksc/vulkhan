@@ -14,11 +14,11 @@ namespace vkh {
 
 void PostProcessingSys::createDescriptors() {
   setLayout = buildDescriptorSetLayout(
-      context, {// Binding 0: Storage Image (Output)
+      context, {// Binding 0: Storage Image (Output) — swapchain image
                 vk::DescriptorSetLayoutBinding{
                     0, vk::DescriptorType::eStorageImage, 1,
                     vk::ShaderStageFlagBits::eCompute, nullptr},
-                // Binding 1: Color Sampler (Input)
+                // Binding 1: Scene Color Sampler (Input) — resolved 1x color
                 vk::DescriptorSetLayoutBinding{
                     1, vk::DescriptorType::eCombinedImageSampler, 1,
                     vk::ShaderStageFlagBits::eCompute, nullptr},
@@ -32,32 +32,18 @@ void PostProcessingSys::createDescriptors() {
       reinterpret_cast<uint64_t>(static_cast<VkDescriptorSetLayout>(setLayout)),
       "post processing set layout");
 
-  auto imageCount = context.vulkan.swapChain->imageCount();
-  descriptorSets.reserve(imageCount);
-  for (size_t i = 0; i < imageCount; i++) {
-    auto &set = descriptorSets.emplace_back();
-    set = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
-
-    vk::DescriptorImageInfo swapImageInfo{};
-    swapImageInfo.imageView = context.vulkan.swapChain->getImageView(i);
-    swapImageInfo.imageLayout = vk::ImageLayout::eGeneral;
-
-    vk::DescriptorImageInfo depthImageInfo{};
-    depthImageInfo.imageView = context.vulkan.swapChain->getDepthImageView(i);
-    depthImageInfo.imageLayout = vk::ImageLayout::eDepthStencilReadOnlyOptimal;
-    depthImageInfo.sampler = context.vulkan.defaultSampler;
-
-    DescriptorWriter writer(context);
-    writer.writeImage(0, swapImageInfo, vk::DescriptorType::eStorageImage);
-    writer.writeImage(1, depthImageInfo,
-                      vk::DescriptorType::eCombinedImageSampler);
-    writer.updateSet(descriptorSets[i]);
-  }
+  allocateAndWriteDescriptorSets();
 }
 
 void PostProcessingSys::recreateDescriptors() {
   descriptorSets.clear();
+  allocateAndWriteDescriptorSets();
+}
 
+// Shared by createDescriptors() and recreateDescriptors() so the binding
+// layout only has to be kept in sync with createDescriptors()'s
+// buildDescriptorSetLayout() call in one place.
+void PostProcessingSys::allocateAndWriteDescriptorSets() {
   auto imageCount = context.vulkan.swapChain->imageCount();
   descriptorSets.reserve(imageCount);
   for (size_t i = 0; i < imageCount; i++) {
@@ -65,23 +51,26 @@ void PostProcessingSys::recreateDescriptors() {
     set = context.vulkan.globalDescriptorAllocator->allocate(setLayout);
 
     vk::DescriptorImageInfo swapImageInfo{};
-    swapImageInfo.imageView = context.vulkan.swapChain->getImageView(i);
+    swapImageInfo.imageView = context.vulkan.swapChain->getStorageImageView(i);
     swapImageInfo.imageLayout = vk::ImageLayout::eGeneral;
 
-    vk::DescriptorImageInfo colorInfo{};
-    colorInfo.imageView = context.vulkan.swapChain->getDepthImageView(i);
-    colorInfo.imageLayout = vk::ImageLayout::eDepthStencilReadOnlyOptimal;
-    colorInfo.sampler = context.vulkan.defaultSampler;
+    vk::DescriptorImageInfo sceneColorInfo{};
+    sceneColorInfo.sampler = context.vulkan.defaultSampler;
+    sceneColorInfo.imageView = context.vulkan.swapChain->getSceneColorView(i);
+    sceneColorInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
-    vk::DescriptorImageInfo depthInfo{
-        context.vulkan.defaultSampler,
-        context.vulkan.swapChain->getDepthImageView(i),
-        vk::ImageLayout::eShaderReadOnlyOptimal};
+    vk::DescriptorImageInfo depthImageInfo{};
+    depthImageInfo.sampler = context.vulkan.defaultSampler;
+    depthImageInfo.imageView =
+        context.vulkan.swapChain->getResolvedDepthImageView(i);
+    depthImageInfo.imageLayout = vk::ImageLayout::eDepthStencilReadOnlyOptimal;
 
     DescriptorWriter writer(context);
     writer.writeImage(0, swapImageInfo, vk::DescriptorType::eStorageImage);
-    writer.writeImage(1, colorInfo, vk::DescriptorType::eStorageImage);
-    writer.writeImage(2, depthInfo, vk::DescriptorType::eStorageImage);
+    writer.writeImage(1, sceneColorInfo,
+                      vk::DescriptorType::eCombinedImageSampler);
+    writer.writeImage(2, depthImageInfo,
+                      vk::DescriptorType::eCombinedImageSampler);
     writer.updateSet(descriptorSets[i]);
   }
 }
@@ -105,15 +94,91 @@ PostProcessingSys::PostProcessingSys(EngineContext &context) : System(context) {
   savedSwapChain = context.vulkan.swapChain.get();
 }
 
+PostProcessingSys::~PostProcessingSys() {
+  context.vulkan.device.destroyDescriptorSetLayout(setLayout);
+}
+
+void PostProcessingSys::runPassthrough(vk::CommandBuffer cmd,
+                                       uint32_t imageIndex) {
+  // No compute pass this frame: just copy the resolved scene color directly
+  // into the swapchain image and get it into a presentable layout. Scene
+  // color and the swapchain image share format and extent (see
+  // SwapChain::createSceneColorResources), so a straight copy works — no
+  // blit/filtering needed.
+
+  vk::ImageMemoryBarrier barriers[2]{};
+
+  // Scene color: COLOR_ATTACHMENT_OPTIMAL -> TRANSFER_SRC_OPTIMAL
+  barriers[0].oldLayout = vk::ImageLayout::eColorAttachmentOptimal;
+  barriers[0].newLayout = vk::ImageLayout::eTransferSrcOptimal;
+  barriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barriers[0].image = context.vulkan.swapChain->getSceneColorImage(imageIndex);
+  barriers[0].subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+  barriers[0].subresourceRange.baseMipLevel = 0;
+  barriers[0].subresourceRange.levelCount = 1;
+  barriers[0].subresourceRange.baseArrayLayer = 0;
+  barriers[0].subresourceRange.layerCount = 1;
+  barriers[0].srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+  barriers[0].dstAccessMask = vk::AccessFlagBits::eTransferRead;
+
+  // Swapchain image: UNDEFINED -> TRANSFER_DST_OPTIMAL
+  barriers[1].oldLayout = vk::ImageLayout::eUndefined;
+  barriers[1].newLayout = vk::ImageLayout::eTransferDstOptimal;
+  barriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barriers[1].image = context.vulkan.swapChain->getImage(imageIndex);
+  barriers[1].subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+  barriers[1].subresourceRange.baseMipLevel = 0;
+  barriers[1].subresourceRange.levelCount = 1;
+  barriers[1].subresourceRange.baseArrayLayer = 0;
+  barriers[1].subresourceRange.layerCount = 1;
+  barriers[1].srcAccessMask = vk::AccessFlags{};
+  barriers[1].dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+
+  cmd.pipelineBarrier(vk::PipelineStageFlagBits::eColorAttachmentOutput,
+                      vk::PipelineStageFlagBits::eTransfer,
+                      vk::DependencyFlags{}, 0, nullptr, 0, nullptr, 2,
+                      barriers);
+
+  auto extent = context.vulkan.swapChain->getSwapChainExtent();
+
+  vk::ImageCopy region{};
+  region.srcSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+  region.dstSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+  region.extent = vk::Extent3D{extent.width, extent.height, 1};
+
+  cmd.copyImage(context.vulkan.swapChain->getSceneColorImage(imageIndex),
+                vk::ImageLayout::eTransferSrcOptimal,
+                context.vulkan.swapChain->getImage(imageIndex),
+                vk::ImageLayout::eTransferDstOptimal, 1, &region);
+
+  // Swapchain image: TRANSFER_DST_OPTIMAL -> PRESENT_SRC_KHR
+  barriers[1].oldLayout = vk::ImageLayout::eTransferDstOptimal;
+  barriers[1].newLayout = vk::ImageLayout::ePresentSrcKHR;
+  barriers[1].srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+  barriers[1].dstAccessMask = vk::AccessFlagBits::eMemoryRead;
+
+  cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                      vk::PipelineStageFlagBits::eBottomOfPipe,
+                      vk::DependencyFlags{}, 0, nullptr, 0, nullptr, 1,
+                      &barriers[1]);
+}
+
 void PostProcessingSys::run(vk::CommandBuffer cmd, uint32_t imageIndex) {
   if (context.vulkan.swapChain.get() != savedSwapChain) {
     savedSwapChain = context.vulkan.swapChain.get();
     recreateDescriptors();
   }
 
-  vk::ImageMemoryBarrier barriers[2]{};
+  if (!enabled) {
+    runPassthrough(cmd, imageIndex);
+    return;
+  }
 
-  // Swap chain image: UNDEFINED -> GENERAL
+  vk::ImageMemoryBarrier barriers[3]{};
+
+  // Swap chain image: UNDEFINED -> GENERAL (output)
   barriers[0].oldLayout = vk::ImageLayout::eUndefined;
   barriers[0].newLayout = vk::ImageLayout::eGeneral;
   barriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -134,7 +199,8 @@ void PostProcessingSys::run(vk::CommandBuffer cmd, uint32_t imageIndex) {
   barriers[1].newLayout = vk::ImageLayout::eDepthStencilReadOnlyOptimal;
   barriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   barriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barriers[1].image = context.vulkan.swapChain->getDepthImage(imageIndex);
+  barriers[1].image =
+      context.vulkan.swapChain->getResolvedDepthImage(imageIndex);
   barriers[1].subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
   barriers[1].subresourceRange.baseMipLevel = 0;
   barriers[1].subresourceRange.levelCount = 1;
@@ -143,16 +209,29 @@ void PostProcessingSys::run(vk::CommandBuffer cmd, uint32_t imageIndex) {
   barriers[1].srcAccessMask = vk::AccessFlagBits::eDepthStencilAttachmentWrite;
   barriers[1].dstAccessMask = vk::AccessFlagBits::eShaderRead;
 
+  // Scene color: COLOR_ATTACHMENT_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL (input)
+  barriers[2].oldLayout = vk::ImageLayout::eColorAttachmentOptimal;
+  barriers[2].newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+  barriers[2].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barriers[2].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barriers[2].image = context.vulkan.swapChain->getSceneColorImage(imageIndex);
+  barriers[2].subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+  barriers[2].subresourceRange.baseMipLevel = 0;
+  barriers[2].subresourceRange.levelCount = 1;
+  barriers[2].subresourceRange.baseArrayLayer = 0;
+  barriers[2].subresourceRange.layerCount = 1;
+  barriers[2].srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
+  barriers[2].dstAccessMask = vk::AccessFlagBits::eShaderRead;
+
   cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe |
-                          vk::PipelineStageFlagBits::eEarlyFragmentTests,
+                          vk::PipelineStageFlagBits::eEarlyFragmentTests |
+                          vk::PipelineStageFlagBits::eColorAttachmentOutput,
                       vk::PipelineStageFlagBits::eComputeShader,
-                      vk::DependencyFlags{}, 0, nullptr, 0, nullptr, 2,
+                      vk::DependencyFlags{}, 0, nullptr, 0, nullptr, 3,
                       barriers);
 
-  // Bind pipeline
   pipeline->bind(cmd);
 
-  // Bind descriptor sets
   std::vector<vk::DescriptorSet> sets = {
       context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex],
       descriptorSets[imageIndex]};

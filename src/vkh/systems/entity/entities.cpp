@@ -3,7 +3,6 @@
 #include "../../camera.hpp"
 #include "../../debug.hpp"
 #include "../../pipeline.hpp"
-#include "../../swapChain.hpp"
 #include <vulkan/vulkan.hpp>
 
 namespace vkh {
@@ -55,13 +54,11 @@ void EntitySys::createPipeline() {
 
   PipelineCreateInfo pipelineInfo{};
   pipelineInfo.layoutInfo = pipelineLayoutInfo;
-  pipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   pipelineInfo.attributeDescriptions = Vertex::getAttributeDescriptions();
   pipelineInfo.bindingDescriptions = Vertex::getBindingDescriptions();
   pipelineInfo.vertpath = "shaders/entities.vert.spv";
   pipelineInfo.fragpath = "shaders/entities.frag.spv";
 
-  pipelineInfo.subpass = 0;
   pipelineInfo.multisampleInfo.rasterizationSamples =
       static_cast<vk::SampleCountFlagBits>(context.vulkan.msaaSamples);
 
@@ -70,12 +67,25 @@ void EntitySys::createPipeline() {
 }
 
 void EntitySys::createCullingPipeline() {
+  // Bindings shared by both culling passes:
+  //  0 CullingUbo                 1 InstanceBuffer (raw, CPU-authored)
+  //  2 CompactedInstanceBuffer    3 GroupFirstInstanceBuffer
+  //  4 GroupVisibleCountBuffer    5 CommandGroupIndexBuffer
+  //  6 IndirectBuffer (draw commands)
   std::vector<vk::DescriptorSetLayoutBinding> bindings = {
       vk::DescriptorSetLayoutBinding{0, vk::DescriptorType::eUniformBuffer, 1,
                                      vk::ShaderStageFlagBits::eCompute},
       vk::DescriptorSetLayoutBinding{1, vk::DescriptorType::eStorageBuffer, 1,
                                      vk::ShaderStageFlagBits::eCompute},
       vk::DescriptorSetLayoutBinding{2, vk::DescriptorType::eStorageBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute},
+      vk::DescriptorSetLayoutBinding{3, vk::DescriptorType::eStorageBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute},
+      vk::DescriptorSetLayoutBinding{4, vk::DescriptorType::eStorageBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute},
+      vk::DescriptorSetLayoutBinding{5, vk::DescriptorType::eStorageBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute},
+      vk::DescriptorSetLayoutBinding{6, vk::DescriptorType::eStorageBuffer, 1,
                                      vk::ShaderStageFlagBits::eCompute}};
 
   cullingSetLayout = buildDescriptorSetLayout(context, bindings);
@@ -99,15 +109,32 @@ void EntitySys::createCullingPipeline() {
   }
 }
 
+void EntitySys::createFinalizePipeline() {
+  // Reuses cullingSetLayout - same bindings, just a different shader that
+  // only touches bindings 0, 4, 5, 6.
+  vk::PipelineLayoutCreateInfo layoutInfo{};
+  layoutInfo.setLayoutCount = 1;
+  layoutInfo.pSetLayouts = &cullingSetLayout;
+
+  finalizePipeline = std::make_unique<ComputePipeline>(
+      context, "shaders/cullingFinalize.comp.spv", layoutInfo,
+      "culling finalize compute");
+}
+
 EntitySys::EntitySys(EngineContext &context) : System(context) {
   createSetLayouts();
   createPipeline();
   createCullingPipeline();
+  createFinalizePipeline();
 
   uint32_t framesInFlight = context.vulkan.maxFramesInFlight;
   instanceBuffers.resize(framesInFlight);
   indirectDrawBuffers.resize(framesInFlight);
   jointBuffers.resize(framesInFlight);
+  compactedInstanceBuffers.resize(framesInFlight);
+  groupFirstInstanceBuffers.resize(framesInFlight);
+  commandGroupIndexBuffers.resize(framesInFlight);
+  groupVisibleCountBuffers.resize(framesInFlight);
   instanceDescriptorSets.resize(framesInFlight, nullptr);
   framesDirty.resize(framesInFlight, false);
 }
@@ -161,6 +188,9 @@ void EntitySys::updateBuffers() {
     cpuDrawCommands.clear();
     sceneBatches.clear();
     cpuJointData.clear();
+    cpuGroupFirstInstance.clear();
+    cpuCommandGroupIndex.clear();
+    cpuGroupVisibleCountZeros.clear();
     for (size_t i = 0; i < framesDirty.size(); ++i)
       framesDirty[i] = true;
     return;
@@ -169,11 +199,17 @@ void EntitySys::updateBuffers() {
   if (structuralDirty) {
     cpuDrawCommands.clear();
     sceneBatches.clear();
+    cpuGroupFirstInstance.clear();
+    cpuCommandGroupIndex.clear();
   }
   cpuInstanceData.clear();
   cpuJointData.clear();
 
   uint32_t currentJointOffset = 0;
+  uint32_t groupCounter = 0; // one entry per (scene,mesh) run below, every
+                             // frame in the same order, so this index is
+                             // stable even on frames that skip rebuilding
+                             // cpuGroupFirstInstance/cpuDrawCommands
 
   for (size_t i = 0; i < entities.size();) {
     auto currentScene = entities[i].scene;
@@ -193,8 +229,11 @@ void EntitySys::updateBuffers() {
       auto &mesh = entity.getMesh();
       uint32_t meshInstanceStart =
           static_cast<uint32_t>(cpuInstanceData.size());
+      uint32_t groupIdx = groupCounter++;
 
       if (structuralDirty) {
+        cpuGroupFirstInstance.push_back(meshInstanceStart);
+
         for (const auto &primitive : mesh.primitives) {
           vk::DrawIndexedIndirectCommand cmd{};
           cmd.indexCount = primitive.indexCount;
@@ -204,14 +243,28 @@ void EntitySys::updateBuffers() {
           cmd.firstInstance = meshInstanceStart;
 
           cpuDrawCommands.push_back(cmd);
+          cpuCommandGroupIndex.push_back(groupIdx);
           drawCount++;
         }
       }
 
-      auto &firstMat =
-          currentScene->materials[mesh.primitives[0].materialIndex];
-      int32_t texIdx = firstMat.baseColorTextureIndex.value_or(-1);
-      int32_t mrTexIdx = firstMat.metallicRoughnessTextureIndex.value_or(-1);
+      // Some glTF assets (e.g. ones with no materials defined at all) can
+      // leave `materials` empty even though a primitive's materialIndex
+      // defaults to 0 — guard both that and an empty primitive list rather
+      // than indexing out of bounds with operator[].
+      static const Scene<Vertex>::Material kDefaultMaterial{
+          .baseColorFactor = glm::vec4(1.f),
+          .roughnessFactor = 1.f,
+          .metallicFactor = glm::vec4(0.f),
+      };
+      const Scene<Vertex>::Material *firstMat = &kDefaultMaterial;
+      if (!mesh.primitives.empty()) {
+        size_t matIdx = mesh.primitives[0].materialIndex;
+        if (matIdx < currentScene->materials.size())
+          firstMat = &currentScene->materials[matIdx];
+      }
+      int32_t texIdx = firstMat->baseColorTextureIndex.value_or(-1);
+      int32_t mrTexIdx = firstMat->metallicRoughnessTextureIndex.value_or(-1);
 
       for (size_t inst = j; inst < k; ++inst) {
         AABB worldAABB = entities[inst].getWorldAABB();
@@ -219,17 +272,17 @@ void EntitySys::updateBuffers() {
         GPUInstanceData data;
         data.modelMatrix = entities[inst].transform.mat4() * mesh.transform;
         data.normalMatrix = glm::mat4(entities[inst].transform.normalMatrix());
-        data.color = entities[inst].color * firstMat.baseColorFactor;
+        data.color = entities[inst].color * firstMat->baseColorFactor;
         data.aabbMin = worldAABB.min;
         data.aabbMax = worldAABB.max;
         data.textureIndex = texIdx;
         data.metallicRoughnessTextureIndex = mrTexIdx;
-        data.roughnessFactor = firstMat.roughnessFactor;
-        data.metallicFactor = firstMat.metallicFactor.x;
+        data.roughnessFactor = firstMat->roughnessFactor;
+        data.metallicFactor = firstMat->metallicFactor.x;
         data.jointOffset = mesh.skinIndex.has_value()
                                ? static_cast<int32_t>(currentJointOffset)
                                : -1;
-        data.isVisible = 1;
+        data.groupIndex = static_cast<int32_t>(groupIdx);
 
         cpuInstanceData.push_back(data);
       }
@@ -266,6 +319,11 @@ void EntitySys::updateBuffers() {
   for (int i = 0; i < 6; i++)
     ubo.frustumPlanes[i] = planes[i];
   ubo.totalInstances = static_cast<uint32_t>(cpuInstanceData.size());
+  ubo.totalCommands = static_cast<uint32_t>(cpuDrawCommands.size());
+
+  if (cpuGroupVisibleCountZeros.size() != cpuGroupFirstInstance.size()) {
+    cpuGroupVisibleCountZeros.assign(cpuGroupFirstInstance.size(), 0u);
+  }
 
   cullingUboBuffers[frameIndex]->map();
   cullingUboBuffers[frameIndex]->write(&ubo, sizeof(CullingUbo));
@@ -286,8 +344,11 @@ void EntitySys::flushBuffers(int frameIndex) {
       cpuJointData.size() * sizeof(glm::mat4), sizeof(glm::mat4));
   vk::DeviceSize cmdBufferSize =
       cpuDrawCommands.size() * sizeof(vk::DrawIndexedIndirectCommand);
+  uint32_t groupCount = static_cast<uint32_t>(cpuGroupFirstInstance.size());
+  uint32_t commandCount = static_cast<uint32_t>(cpuCommandGroupIndex.size());
 
-  bool updateDescriptor = false;
+  bool updateGraphicsDescriptor = false;
+  bool updateCullingDescriptor = false;
 
   if (!instanceBuffers[frameIndex] ||
       instanceBuffers[frameIndex]->getSize() < instanceBufferSize) {
@@ -296,17 +357,53 @@ void EntitySys::flushBuffers(int frameIndex) {
         vk::MemoryPropertyFlagBits::eHostVisible |
             vk::MemoryPropertyFlagBits::eHostCoherent,
         std::max<uint32_t>(cpuInstanceData.size(), 1));
-    updateDescriptor = true;
+    updateCullingDescriptor = true;
   }
 
-  if (!jointBuffers[frameIndex] ||
-      jointBuffers[frameIndex]->getSize() < jointBufferSize) {
-    jointBuffers[frameIndex] = std::make_unique<Buffer<glm::mat4>>(
+  // Device-local: only ever written by the culling compute pass, read by
+  // the vertex shader. Sized to match the raw instance buffer.
+  if (!compactedInstanceBuffers[frameIndex] ||
+      compactedInstanceBuffers[frameIndex]->getSize() < instanceBufferSize) {
+    compactedInstanceBuffers[frameIndex] =
+        std::make_unique<Buffer<GPUInstanceData>>(
+            context, vk::BufferUsageFlagBits::eStorageBuffer,
+            vk::MemoryPropertyFlagBits::eDeviceLocal,
+            std::max<uint32_t>(cpuInstanceData.size(), 1));
+    updateGraphicsDescriptor = true;
+    updateCullingDescriptor = true;
+  }
+
+  if (!groupFirstInstanceBuffers[frameIndex] ||
+      groupFirstInstanceBuffers[frameIndex]->getSize() <
+          groupCount * sizeof(uint32_t)) {
+    groupFirstInstanceBuffers[frameIndex] = std::make_unique<Buffer<uint32_t>>(
         context, vk::BufferUsageFlagBits::eStorageBuffer,
         vk::MemoryPropertyFlagBits::eHostVisible |
             vk::MemoryPropertyFlagBits::eHostCoherent,
-        std::max<uint32_t>(cpuJointData.size(), 1));
-    updateDescriptor = true;
+        std::max<uint32_t>(groupCount, 1));
+    updateCullingDescriptor = true;
+  }
+
+  if (!groupVisibleCountBuffers[frameIndex] ||
+      groupVisibleCountBuffers[frameIndex]->getSize() <
+          groupCount * sizeof(uint32_t)) {
+    groupVisibleCountBuffers[frameIndex] = std::make_unique<Buffer<uint32_t>>(
+        context, vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
+        std::max<uint32_t>(groupCount, 1));
+    updateCullingDescriptor = true;
+  }
+
+  if (!commandGroupIndexBuffers[frameIndex] ||
+      commandGroupIndexBuffers[frameIndex]->getSize() <
+          commandCount * sizeof(uint32_t)) {
+    commandGroupIndexBuffers[frameIndex] = std::make_unique<Buffer<uint32_t>>(
+        context, vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
+        std::max<uint32_t>(commandCount, 1));
+    updateCullingDescriptor = true;
   }
 
   if (!indirectDrawBuffers[frameIndex] ||
@@ -320,22 +417,66 @@ void EntitySys::flushBuffers(int frameIndex) {
             vk::MemoryPropertyFlagBits::eHostVisible |
                 vk::MemoryPropertyFlagBits::eHostCoherent,
             std::max<uint32_t>(cpuDrawCommands.size(), 1));
+    updateCullingDescriptor = true;
   }
 
-  if (updateDescriptor || !instanceDescriptorSets[frameIndex]) {
+  if (!jointBuffers[frameIndex] ||
+      jointBuffers[frameIndex]->getSize() < jointBufferSize) {
+    jointBuffers[frameIndex] = std::make_unique<Buffer<glm::mat4>>(
+        context, vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
+        std::max<uint32_t>(cpuJointData.size(), 1));
+    updateGraphicsDescriptor = true;
+  }
+
+  // Graphics-side set: vertex shader now reads the *compacted* instance
+  // buffer (culling-pass output), not the raw CPU-authored one.
+  if (updateGraphicsDescriptor || !instanceDescriptorSets[frameIndex]) {
     if (!instanceDescriptorSets[frameIndex]) {
       instanceDescriptorSets[frameIndex] =
           context.vulkan.globalDescriptorAllocator->allocate(instanceSetLayout);
     }
     DescriptorWriter writer(context);
     vk::DescriptorBufferInfo bInfo =
-        instanceBuffers[frameIndex]->descriptorInfo();
+        compactedInstanceBuffers[frameIndex]->descriptorInfo();
     writer.writeBuffer(0, bInfo, vk::DescriptorType::eStorageBuffer);
 
     vk::DescriptorBufferInfo jInfo = jointBuffers[frameIndex]->descriptorInfo();
     writer.writeBuffer(1, jInfo, vk::DescriptorType::eStorageBuffer);
 
     writer.updateSet(instanceDescriptorSets[frameIndex]);
+  }
+
+  if (updateCullingDescriptor || !cullingDescriptorSets[frameIndex]) {
+    if (!cullingDescriptorSets[frameIndex]) {
+      cullingDescriptorSets[frameIndex] =
+          context.vulkan.globalDescriptorAllocator->allocate(cullingSetLayout);
+    }
+    DescriptorWriter cWriter(context);
+    vk::DescriptorBufferInfo uInfo =
+        cullingUboBuffers[frameIndex]->descriptorInfo();
+    vk::DescriptorBufferInfo rawInfo =
+        instanceBuffers[frameIndex]->descriptorInfo();
+    vk::DescriptorBufferInfo compactedInfo =
+        compactedInstanceBuffers[frameIndex]->descriptorInfo();
+    vk::DescriptorBufferInfo groupFirstInfo =
+        groupFirstInstanceBuffers[frameIndex]->descriptorInfo();
+    vk::DescriptorBufferInfo groupCountInfo =
+        groupVisibleCountBuffers[frameIndex]->descriptorInfo();
+    vk::DescriptorBufferInfo cmdGroupInfo =
+        commandGroupIndexBuffers[frameIndex]->descriptorInfo();
+    vk::DescriptorBufferInfo indirectInfo =
+        indirectDrawBuffers[frameIndex]->descriptorInfo();
+
+    cWriter.writeBuffer(0, uInfo, vk::DescriptorType::eUniformBuffer);
+    cWriter.writeBuffer(1, rawInfo, vk::DescriptorType::eStorageBuffer);
+    cWriter.writeBuffer(2, compactedInfo, vk::DescriptorType::eStorageBuffer);
+    cWriter.writeBuffer(3, groupFirstInfo, vk::DescriptorType::eStorageBuffer);
+    cWriter.writeBuffer(4, groupCountInfo, vk::DescriptorType::eStorageBuffer);
+    cWriter.writeBuffer(5, cmdGroupInfo, vk::DescriptorType::eStorageBuffer);
+    cWriter.writeBuffer(6, indirectInfo, vk::DescriptorType::eStorageBuffer);
+    cWriter.updateSet(cullingDescriptorSets[frameIndex]);
   }
 
   if (instanceBufferSize > 0) {
@@ -350,6 +491,27 @@ void EntitySys::flushBuffers(int frameIndex) {
     indirectDrawBuffers[frameIndex]->write(cpuDrawCommands.data(),
                                            cmdBufferSize);
     indirectDrawBuffers[frameIndex]->unmap();
+  }
+
+  if (groupCount > 0) {
+    groupFirstInstanceBuffers[frameIndex]->map();
+    groupFirstInstanceBuffers[frameIndex]->write(cpuGroupFirstInstance.data(),
+                                                 groupCount * sizeof(uint32_t));
+    groupFirstInstanceBuffers[frameIndex]->unmap();
+
+    // Reset every group's visible count to 0 so this frame's culling pass
+    // can atomically accumulate into it from scratch.
+    groupVisibleCountBuffers[frameIndex]->map();
+    groupVisibleCountBuffers[frameIndex]->write(
+        cpuGroupVisibleCountZeros.data(), groupCount * sizeof(uint32_t));
+    groupVisibleCountBuffers[frameIndex]->unmap();
+  }
+
+  if (commandCount > 0) {
+    commandGroupIndexBuffers[frameIndex]->map();
+    commandGroupIndexBuffers[frameIndex]->write(
+        cpuCommandGroupIndex.data(), commandCount * sizeof(uint32_t));
+    commandGroupIndexBuffers[frameIndex]->unmap();
   }
 
   if (jointBufferSize > 0 && !cpuJointData.empty()) {
@@ -367,47 +529,53 @@ void EntitySys::cull(vk::CommandBuffer cmd) {
     return;
 
   int frameIndex = context.frameInfo.frameIndex;
+  flushBuffers(frameIndex);
 
   debug::beginLabel(context, cmd, "Culling Dispatch", {.3f, .8f, .3f, 1.f});
 
-  if (!cullingDescriptorSets[frameIndex]) {
-    cullingDescriptorSets[frameIndex] =
-        context.vulkan.globalDescriptorAllocator->allocate(cullingSetLayout);
-  }
-
-  DescriptorWriter cWriter(context);
-  vk::DescriptorBufferInfo uInfo =
-      cullingUboBuffers[frameIndex]->descriptorInfo();
-  vk::DescriptorBufferInfo iInfo =
-      instanceBuffers[frameIndex]->descriptorInfo();
-  vk::DescriptorBufferInfo dInfo =
-      indirectDrawBuffers[frameIndex]->descriptorInfo();
-
-  cWriter.writeBuffer(0, uInfo, vk::DescriptorType::eUniformBuffer);
-  cWriter.writeBuffer(1, iInfo, vk::DescriptorType::eStorageBuffer);
-  cWriter.writeBuffer(2, dInfo, vk::DescriptorType::eStorageBuffer);
-  cWriter.updateSet(cullingDescriptorSets[frameIndex]);
-
+  // Pass 2 below overwrites every command's instanceCount outright (not an
+  // accumulation), so the CPU-uploaded value doesn't matter - but we still
+  // need last frame's indirect-command reads and this frame's host upload
+  // to complete before pass 2's shader write can safely land.
   vk::BufferMemoryBarrier indirectBarrier{};
-  indirectBarrier.srcAccessMask = vk::AccessFlagBits::eIndirectCommandRead;
-  indirectBarrier.dstAccessMask =
-      vk::AccessFlagBits::eShaderWrite | vk::AccessFlagBits::eShaderRead;
+  indirectBarrier.srcAccessMask =
+      vk::AccessFlagBits::eIndirectCommandRead | vk::AccessFlagBits::eHostWrite;
+  indirectBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
   indirectBarrier.buffer = *indirectDrawBuffers[frameIndex];
   indirectBarrier.size = indirectDrawBuffers[frameIndex]->getSize();
 
-  cmd.pipelineBarrier(vk::PipelineStageFlagBits::eDrawIndirect,
+  cmd.pipelineBarrier(vk::PipelineStageFlagBits::eDrawIndirect |
+                          vk::PipelineStageFlagBits::eHost,
                       vk::PipelineStageFlagBits::eComputeShader,
                       vk::DependencyFlags(), nullptr, indirectBarrier, nullptr);
 
-  cullingPipeline->bind(cmd);
   cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
                          cullingPipeline->getLayout(), 0, 1,
                          &cullingDescriptorSets[frameIndex], 0, nullptr);
 
-  uint32_t groupCount =
+  // Pass 1: frustum-cull instances, compact survivors, accumulate each
+  // group's visible count via atomics.
+  cullingPipeline->bind(cmd);
+  uint32_t instanceGroupCount =
       (static_cast<uint32_t>(cpuInstanceData.size()) + 63) / 64;
-  if (groupCount > 0) {
-    cmd.dispatch(groupCount, 1, 1);
+  if (instanceGroupCount > 0) {
+    cmd.dispatch(instanceGroupCount, 1, 1);
+  }
+
+  // Pass 2 reads what pass 1 wrote (compacted buffer + visible counts).
+  vk::MemoryBarrier computeBarrier{vk::AccessFlagBits::eShaderWrite,
+                                   vk::AccessFlagBits::eShaderRead};
+  cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+                      vk::PipelineStageFlagBits::eComputeShader,
+                      vk::DependencyFlags(), computeBarrier, nullptr, nullptr);
+
+  // Pass 2: broadcast each group's final visible count into its indirect
+  // draw command(s).
+  finalizePipeline->bind(cmd);
+  uint32_t commandGroupCount =
+      (static_cast<uint32_t>(cpuCommandGroupIndex.size()) + 63) / 64;
+  if (commandGroupCount > 0) {
+    cmd.dispatch(commandGroupCount, 1, 1);
   }
 
   indirectBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;

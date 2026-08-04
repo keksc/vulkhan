@@ -1,0 +1,46 @@
+#version 450
+
+// Pass 2 of 2. Runs after culling.comp + a compute-to-compute barrier.
+//
+// A mesh with multiple materials produces multiple indirect draw commands
+// that all share the same instance range (one per primitive). This pass
+// just copies each command's group's final visible-instance count into
+// that command's instanceCount so vkCmdDrawIndexedIndirect only processes
+// instances that survived culling. firstInstance never changes at runtime
+// (it's the group's static base offset into the compacted buffer), so only
+// instanceCount needs writing here.
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) uniform CullingUbo {
+  vec4 frustumPlanes[6];
+  uint totalInstances;
+  uint totalCommands;
+} ubo;
+
+layout(std430, set = 0, binding = 4) readonly buffer GroupVisibleCountBuffer {
+  uint groupVisibleCounts[];
+};
+
+layout(std430, set = 0, binding = 5) readonly buffer CommandGroupIndexBuffer {
+  uint commandGroupIndex[];
+};
+
+struct IndexedIndirectCommand {
+  uint indexCount;
+  uint instanceCount;
+  uint firstIndex;
+  int  vertexOffset;
+  uint firstInstance;
+};
+
+layout(std430, set = 0, binding = 6) buffer IndirectBuffer {
+  IndexedIndirectCommand commands[];
+};
+
+void main() {
+  uint cmdIdx = gl_GlobalInvocationID.x;
+  if (cmdIdx >= ubo.totalCommands) return;
+
+  commands[cmdIdx].instanceCount = groupVisibleCounts[commandGroupIndex[cmdIdx]];
+}

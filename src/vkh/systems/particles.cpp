@@ -4,7 +4,6 @@
 #include "../debug.hpp"
 #include "../descriptors.hpp"
 #include "../pipeline.hpp"
-#include "../swapChain.hpp"
 #include <vulkan/vulkan.hpp>
 
 namespace vkh {
@@ -27,7 +26,7 @@ setupDescriptorSet();
 }*/
 
 void ParticleSys::setAttractor(std::vector<glm::mat4> newTransformations) {
-  if (newTransformations.size() > transformationCount + 3 ||
+  if (newTransformations.size() > transformationCount ||
       !transformationsBuffer) {
     transformationsBuffer = std::make_unique<Buffer<glm::mat4>>(
         context, vk::BufferUsageFlagBits::eStorageBuffer,
@@ -35,12 +34,12 @@ void ParticleSys::setAttractor(std::vector<glm::mat4> newTransformations) {
             vk::MemoryPropertyFlagBits::eHostCoherent,
         newTransformations.size() + 3);
     transformationsBuffer->map();
+
+    setupDescriptorSet();
   }
 
   transformationCount = newTransformations.size();
   transformationsBuffer->write(newTransformations.data());
-
-  setupDescriptorSet();
 }
 
 void ParticleSys::createVB() {
@@ -83,7 +82,6 @@ void ParticleSys::createPipeline() {
   pipelineLayoutInfo.pSetLayouts = setLayouts.data();
 
   PipelineCreateInfo graphicsPipelineInfo{};
-  graphicsPipelineInfo.renderPass = context.vulkan.swapChain->renderPass;
   graphicsPipelineInfo.layoutInfo = pipelineLayoutInfo;
   graphicsPipelineInfo.inputAssemblyInfo.topology =
       vk::PrimitiveTopology::ePointList;
@@ -94,7 +92,6 @@ void ParticleSys::createPipeline() {
   GraphicsPipeline::enableAlphaBlending(graphicsPipelineInfo);
   graphicsPipelineInfo.vertpath = "shaders/particles.vert.spv";
   graphicsPipelineInfo.fragpath = "shaders/particles.frag.spv";
-  graphicsPipelineInfo.subpass = 1;
   graphicsPipeline = std::make_unique<GraphicsPipeline>(
       context, graphicsPipelineInfo, "particles graphics pipeline");
 
