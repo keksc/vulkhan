@@ -3,7 +3,7 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.hpp>
 
-#include "../skybox.hpp"
+#include "../sky.hpp"
 #include "../system.hpp"
 #include "WSTessendorf.hpp"
 
@@ -20,7 +20,7 @@ class EngineContext;
 
 class WaterSys : public System {
 public:
-  WaterSys(EngineContext &context, SkyboxSys &skyboxSys);
+  WaterSys(EngineContext &context, SkySys &skySys);
   ~WaterSys();
   void prepare();
   void createRenderData();
@@ -29,7 +29,7 @@ public:
   void downloadDisplacementAtWorldPos();
 
 private:
-  SkyboxSys &skyboxSys;
+  SkySys &skySys;
 
   struct Vertex {
     glm::vec3 pos;

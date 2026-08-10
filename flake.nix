@@ -115,7 +115,11 @@
             pkgs.wasmtime
 
             llvmPkgs.lld
+            llvmPkgs.clang-unwrapped
           ];
+
+          WASM_CLANG = "${llvmPkgs.clang-unwrapped}/bin/clang";
+          WASM_CLANGXX = "${llvmPkgs.clang-unwrapped}/bin/clang++";
 
           desktopItems = [
             (pkgs.makeDesktopItem {

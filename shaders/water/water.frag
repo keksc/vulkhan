@@ -14,7 +14,7 @@ layout(set = 1, binding = 0) uniform VertexUBO {
 } vertexUBO;
 
 layout(set = 1, binding = 1) uniform sampler2D displacementFoamMap;
-layout(set = 2, binding = 0) uniform samplerCube skybox;
+// layout(set = 2, binding = 0) uniform samplerCube skybox;
 
 void main() {
   float foamMask = texture(displacementFoamMap, inUV).a;
@@ -27,7 +27,7 @@ void main() {
   vec3 N = normalize(inNormal);
   vec3 R = reflect(-V, N);
   
-  vec3 reflection = texture(skybox, R).rgb;
+  vec3 reflection = vec3(1.0);//texture(skybox, R).rgb;
   vec3 waterColor = vec3(0.01, 0.05, 0.1);
   vec3 foamColor = vec3(0.95);
 

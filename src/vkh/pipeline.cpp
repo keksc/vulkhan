@@ -7,12 +7,13 @@
 #include "debug.hpp"
 #include "deviceHelpers.hpp"
 #include "engineContext.hpp"
+#include "paths.hpp"
 #include "swapChain.hpp"
 
 namespace vkh {
 
 void Pipeline::loadCache(EngineContext &context) {
-  std::filesystem::path cachePath = CACHE_DIR / "pipeline_cache.bin";
+  std::filesystem::path cachePath = paths::cacheDir() / "pipeline_cache.bin";
   std::vector<char> cacheData;
 
   // Use the optimized readFile if the cache exists
@@ -34,7 +35,7 @@ void Pipeline::loadCache(EngineContext &context) {
 }
 
 void Pipeline::saveAndCleanCache(EngineContext &context) {
-  std::filesystem::path cachePath = CACHE_DIR / "pipeline_cache.bin";
+  std::filesystem::path cachePath = paths::cacheDir() / "pipeline_cache.bin";
 
   auto cacheData =
       context.vulkan.device.getPipelineCacheData(context.vulkan.pipelineCache);

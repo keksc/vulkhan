@@ -8,16 +8,16 @@
 #include "vkh/camera.hpp"
 #include "vkh/cleanup.hpp"
 #include "vkh/engineContext.hpp"
-#include "vkh/exepath.hpp"
 #include "vkh/init.hpp"
 #include "vkh/input.hpp"
+#include "vkh/paths.hpp"
 #include "vkh/renderer.hpp"
 #include "vkh/sceneBuilder.hpp"
 #include "vkh/swapChain.hpp"
 #include "vkh/systems/entity/entities.hpp"
 #include "vkh/systems/particles.hpp"
 #include "vkh/systems/postProcessing.hpp"
-#include "vkh/systems/skybox.hpp"
+#include "vkh/systems/sky.hpp"
 #include "vkh/systems/smoke/smoke.hpp"
 #include "vkh/systems/water/water.hpp"
 #include "vkh/window.hpp"
@@ -89,12 +89,14 @@ std::vector<glm::mat4> genTransform() {
 }
 
 void run() {
+  paths::initCacheDir("vulkhan");
+  paths::setWorkingDirectoryToExecutable();
+
   vkh::EngineContext context{};
   vkh::initWindow(context);
   vkh::init(context);
   vkh::audio::init();
   vkh::input::init(context);
-  execpath::setWorkingDirectoryToExecutable();
 
   vkh::renderer::init(context);
 
@@ -109,11 +111,11 @@ void run() {
     // vkh::audio::Sound bgm("sounds/Enter Remollon.opus");
     // bgm.play();
 
-    vkh::SkyboxSys skyboxSys(context);
+    vkh::SkySys skySys(context);
     vkh::EntitySys entitySys(context);
 
     vkh::SmokeSys smokeSys(context);
-    // vkh::WaterSys waterSys(context, skyboxSys);
+    // vkh::WaterSys waterSys(context, skySys);
     vkh::ParticleSys particleSys(context);
     vkh::PostProcessingSys postProcessingSys(context);
 
@@ -348,7 +350,7 @@ void run() {
         vkh::renderer::beginMsaaPass(context, commandBuffer);
 
         if (ui.isWorldViewActive()) {
-          skyboxSys.render();
+          skySys.render();
           entitySys.render();
           // waterSys.render();
         }

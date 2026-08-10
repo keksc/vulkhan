@@ -11,8 +11,8 @@
 
 namespace vkh {
 
-WaterSys::WaterSys(EngineContext &context, SkyboxSys &skyboxSys)
-    : System{context}, modelTess{context}, skyboxSys{skyboxSys} {
+WaterSys::WaterSys(EngineContext &context, SkySys &skySys)
+    : System{context}, modelTess{context}, skySys{skySys} {
   createDescriptorSetLayout();
   createPipeline();
   createMesh();
@@ -37,7 +37,7 @@ void WaterSys::createMesh() {
 void WaterSys::createPipeline() {
   PipelineCreateInfo pipelineInfo{};
   std::array<vk::DescriptorSetLayout, 3> setLayouts = {
-      context.vulkan.globalDescriptorSetLayout, setLayout, skyboxSys.setLayout};
+      context.vulkan.globalDescriptorSetLayout, setLayout};
 
   pipelineInfo.layoutInfo.setLayoutCount =
       static_cast<uint32_t>(setLayouts.size());
@@ -210,9 +210,9 @@ void WaterSys::render() {
   debug::beginLabel(context, cmd, "WaterSys render", {0.f, 0.f, 1.f, 1.f});
   pipeline->bind(cmd);
 
-  std::array<vk::DescriptorSet, 3> bindSets = {
+  std::vector<vk::DescriptorSet> bindSets = {
       context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex],
-      sets[context.frameInfo.frameIndex], skyboxSys.set};
+      sets[context.frameInfo.frameIndex]};
 
   cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipeline, 0,
                          static_cast<uint32_t>(bindSets.size()),

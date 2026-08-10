@@ -148,6 +148,12 @@ file(COPY "${PROJECT_SOURCE_DIR}/flamegraph.sh"
      DESTINATION "${PROJECT_BINARY_DIR}")
 make_directory(${PROJECT_BINARY_DIR}/mods)
 
+file(GLOB_RECURSE WASM_MOD_SOURCES CONFIGURE_DEPENDS
+     "${PROJECT_SOURCE_DIR}/modding/*.cpp")
+set(MODS_BINARY_DIR "${PROJECT_BINARY_DIR}/modding_build")
+set(MODS_INSTALL_DIR "${PROJECT_BINARY_DIR}/mods")
+file(MAKE_DIRECTORY "${MODS_INSTALL_DIR}")
+
 install(TARGETS vulkhan DESTINATION bin)
 install(IMPORTED_RUNTIME_ARTIFACTS glfw DESTINATION bin)
 if(WIN32)
@@ -155,43 +161,87 @@ if(WIN32)
 endif()
 install(DIRECTORY ${PROJECT_BINARY_DIR}/shaders ${PROJECT_BINARY_DIR}/fonts
                   ${PROJECT_BINARY_DIR}/sounds ${PROJECT_BINARY_DIR}/models
-                  ${PROJECT_BINARY_DIR}/textures DESTINATION bin)
+                  ${PROJECT_BINARY_DIR}/textures ${MODS_INSTALL_DIR} DESTINATION bin)
 
-file(GLOB_RECURSE WASM_MOD_SOURCES "${PROJECT_SOURCE_DIR}/modding/*.cpp")
-set(MODS_BINARY_DIR "${PROJECT_BINARY_DIR}/modding_build")
-set(MODS_INSTALL_DIR "${PROJECT_BINARY_DIR}/mods")
-file(MAKE_DIRECTORY "${MODS_INSTALL_DIR}")
+
+if(NOT DEFINED ENV{WASM_CLANG} OR NOT DEFINED ENV{WASM_CLANGXX})
+  message(FATAL_ERROR
+    "WASM_CLANG / WASM_CLANGXX must be set in the environment to configure "
+    "the modding subproject (see flake.nix). Aborting instead of silently "
+    "producing a broken modding_build.")
+endif()
 
 execute_process(
   COMMAND
-    ${CMAKE_COMMAND} -E env CC=$ENV{CC} CXX=$ENV{CXX} PATH=$ENV{PATH}
+    ${CMAKE_COMMAND} -E env
+      CC=$ENV{CC} CXX=$ENV{CXX} PATH=$ENV{PATH}
+      WASM_CLANG=$ENV{WASM_CLANG} WASM_CLANGXX=$ENV{WASM_CLANGXX}
     ${CMAKE_COMMAND} -B "${MODS_BINARY_DIR}" -S "${PROJECT_SOURCE_DIR}/modding"
     -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
     -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-    -DMODS_OUTPUT_DIR=${MODS_INSTALL_DIR})
+    -DMODS_OUTPUT_DIR=${MODS_INSTALL_DIR}
+  RESULT_VARIABLE MODS_CONFIGURE_RESULT
+  OUTPUT_VARIABLE MODS_CONFIGURE_OUTPUT
+  ERROR_VARIABLE MODS_CONFIGURE_ERROR)
+
+if(NOT MODS_CONFIGURE_RESULT EQUAL 0)
+  message(FATAL_ERROR
+    "Failed to configure modding subproject (exit ${MODS_CONFIGURE_RESULT}):\n"
+    "--- stdout ---\n${MODS_CONFIGURE_OUTPUT}\n"
+    "--- stderr ---\n${MODS_CONFIGURE_ERROR}")
+endif()
 
 # 1. parse the compiled variable list out of CMakeCache.txt
+set(MOD_BINARIES_ENTRY_FOUND FALSE)
 if(EXISTS "${MODS_BINARY_DIR}/CMakeCache.txt")
   file(STRINGS "${MODS_BINARY_DIR}/CMakeCache.txt" CACHE_ENTRY
        REGEX "^MOD_BINARIES:INTERNAL=")
   if(CACHE_ENTRY)
+    set(MOD_BINARIES_ENTRY_FOUND TRUE)
     string(REGEX REPLACE "^MOD_BINARIES:INTERNAL=" "" WASM_MOD_OUTPUT_FILES
                          "${CACHE_ENTRY}")
   endif()
+
+  file(STRINGS "${MODS_BINARY_DIR}/CMakeCache.txt" NAMES_CACHE_ENTRY
+       REGEX "^MOD_NAMES:INTERNAL=")
+  if(NAMES_CACHE_ENTRY)
+    string(REGEX REPLACE "^MOD_NAMES:INTERNAL=" "" WASM_MOD_NAMES
+                         "${NAMES_CACHE_ENTRY}")
+  endif()
 endif()
 
-if(NOT WASM_MOD_OUTPUT_FILES)
-  message("NO WASM MOD OUTPUT FILES")
-  set(WASM_MOD_OUTPUT_FILES "${MODS_INSTALL_DIR}/betterNothing.oneirosMod"
-                            "${MODS_INSTALL_DIR}/absurdCheat.oneirosMod")
+if(NOT MOD_BINARIES_ENTRY_FOUND)
+  message(FATAL_ERROR
+    "Could not find MOD_BINARIES in modding_build/CMakeCache.txt at all. "
+    "The modding subproject configure likely failed above; check the "
+    "message output rather than falling back to guessed filenames.")
 endif()
 
-add_custom_command(
-  OUTPUT ${WASM_MOD_OUTPUT_FILES}
-  COMMAND ${CMAKE_COMMAND} -E env CC=$ENV{CC} CXX=$ENV{CXX} PATH=$ENV{PATH}
-          ${CMAKE_COMMAND} --build "${MODS_BINARY_DIR}"
-  DEPENDS ${WASM_MOD_SOURCES}
-  COMMENT "Checking and rebuilding WebAssembly modifications...")
+if(WASM_MOD_OUTPUT_FILES)
+  list(LENGTH WASM_MOD_OUTPUT_FILES MOD_COUNT)
+  math(EXPR MOD_LAST_INDEX "${MOD_COUNT} - 1")
 
-add_custom_target(wasm_mods DEPENDS ${WASM_MOD_OUTPUT_FILES})
-add_dependencies(vulkhan wasm_mods)
+  set(ALL_MOD_OUTPUTS "")
+  foreach(I RANGE ${MOD_LAST_INDEX})
+    list(GET WASM_MOD_OUTPUT_FILES ${I} MOD_OUTPUT)
+    list(GET WASM_MOD_NAMES ${I} MOD_TARGET_NAME)
+
+    # One custom command per mod, building just that mod's CMake target.
+    # This means a compile failure in one mod surfaces its real compiler
+    # error immediately in the top-level build, instead of being hidden
+    # behind a combined "build everything" step whose partial failure Make
+    # reports as an opaque "no rule to make target" on a later run.
+    add_custom_command(
+      OUTPUT ${MOD_OUTPUT}
+      COMMAND ${CMAKE_COMMAND} -E env CC=$ENV{CC} CXX=$ENV{CXX} PATH=$ENV{PATH}
+              ${CMAKE_COMMAND} --build "${MODS_BINARY_DIR}" --target ${MOD_TARGET_NAME}
+      DEPENDS ${WASM_MOD_SOURCES}
+      COMMENT "Building WASM mod: ${MOD_TARGET_NAME}")
+    list(APPEND ALL_MOD_OUTPUTS ${MOD_OUTPUT})
+  endforeach()
+
+  add_custom_target(wasm_mods DEPENDS ${ALL_MOD_OUTPUTS})
+  add_dependencies(vulkhan wasm_mods)
+else()
+  message(STATUS "No WASM mods found under ${PROJECT_SOURCE_DIR}/modding — building without mods.")
+endif()
