@@ -8,12 +8,14 @@ class Network {
 public:
   Network(const char *server);
   ~Network();
-  
-  void send(const void* data, size_t length);
-  bool receive(std::vector<uint8_t>& outData, unsigned int timeout = 0);
+
+  void send(const void *data, size_t length, bool reliable = false);
+  bool receive(std::vector<uint8_t> &outData, unsigned int timeout = 0);
+  bool isConnected() const { return connected; }
 
 private:
   ENetHost *client;
-  ENetPeer *peer;
+  ENetPeer *peer = nullptr;
   ENetEvent event;
+  bool connected = false;
 };

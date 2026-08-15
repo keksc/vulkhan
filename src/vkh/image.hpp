@@ -44,22 +44,28 @@ struct ImageCreateInfo_color : public ImageCreateInfo {
   glm::uvec2 size{};
 };
 
+struct ImageCreateInfo_cubemapStorage : public ImageCreateInfo {
+  uint32_t faceSize{};
+};
+
 class Image {
 public:
   Image(EngineContext &context, const ImageCreateInfo_PNGdata &createInfo);
   Image(EngineContext &context, const ImageCreateInfo_data &createInfo);
   Image(EngineContext &context, const ImageCreateInfo_color &createInfo);
   Image(EngineContext &context, const ImageCreateInfo_empty &createInfo);
+  Image(EngineContext &context, const ImageCreateInfo_cubemapStorage &createInfo);
   Image(EngineContext &context, const std::filesystem::path &path);
 
   Image(Image &&other) noexcept
       : context{other.context}, img{other.img}, view{other.view},
-        memory{other.memory}, format{other.format}, layout{other.layout},
-        size{other.size}, mipLevels{other.mipLevels},
+        arrayView{other.arrayView}, memory{other.memory}, format{other.format},
+        layout{other.layout}, size{other.size}, mipLevels{other.mipLevels},
         numSamples{other.numSamples}, aspectMask{other.aspectMask},
         ktxVkTexture{other.ktxVkTexture}, isKtxManaged{other.isKtxManaged} {
     other.img = nullptr;
     other.view = nullptr;
+    other.arrayView = nullptr;
     other.memory = nullptr;
     other.layout = vk::ImageLayout::eUndefined;
     other.isKtxManaged = false;
@@ -96,6 +102,10 @@ public:
   void downloadPixels(unsigned char *dst, uint32_t mipLevel);
 
   vk::ImageView getView() const { return view; }
+  // Only set for images created via ImageCreateInfo_cubemapStorage - the
+  // 2D-array (6-layer) view compute shaders use with imageStore, since the
+  // sampling `view` above is a Cube view instead.
+  vk::ImageView getArrayView() const { return arrayView; }
 
 private:
   void createView();
@@ -125,6 +135,7 @@ private:
 
   vk::Image img = nullptr;
   vk::ImageView view = nullptr;
+  vk::ImageView arrayView = nullptr; // only for cubemap storage images
   vk::DeviceMemory memory = nullptr;
   vk::Format format;
   vk::ImageLayout layout;

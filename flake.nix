@@ -61,6 +61,7 @@
             pkgs.shaderc
             pkgs.opusfile
             pkgs.libogg
+            pkgs.util-linux
             pkgs.wasmtime
             
             # WASM modding
@@ -112,6 +113,7 @@
             pkgs.shaderc
             pkgs.opusfile
             pkgs.libogg
+            pkgs.util-linux
             pkgs.wasmtime
 
             llvmPkgs.lld

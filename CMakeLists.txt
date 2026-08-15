@@ -27,6 +27,7 @@ find_package(fastgltf REQUIRED)
 find_package(glslang REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ENET REQUIRED libenet)
+pkg_check_modules(UUID REQUIRED uuid)
 if(WIN32)
   # vcpkg usually provides a cmake config for opusfile
   find_package(opusfile CONFIG REQUIRED)
@@ -79,7 +80,8 @@ target_link_libraries(
   enet
   wasmtime
   $<$<BOOL:${WIN32}>:opusfile::opusfile>
-  $<$<NOT:$<BOOL:${WIN32}>>:${OPUSFILE_LIBRARIES}>)
+  $<$<NOT:$<BOOL:${WIN32}>>:${OPUSFILE_LIBRARIES}>
+  ${UUID_LIBRARIES})
 
 file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/shaders")
 
@@ -134,11 +136,7 @@ endforeach()
 
 add_custom_target(shaders DEPENDS ${SPIRV_BINARY_FILES})
 
-file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/server/*.cpp)
-add_executable(vulkhanServer ${SOURCES})
-target_link_libraries(vulkhanServer enet)
-
-add_dependencies(vulkhan shaders vulkhanServer)
+add_dependencies(vulkhan shaders)
 
 file(COPY "${PROJECT_SOURCE_DIR}/models" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/fonts" DESTINATION "${PROJECT_BINARY_DIR}")

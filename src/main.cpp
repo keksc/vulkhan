@@ -15,6 +15,7 @@
 #include "vkh/sceneBuilder.hpp"
 #include "vkh/swapChain.hpp"
 #include "vkh/systems/entity/entities.hpp"
+#include "mountain.hpp"
 #include "vkh/systems/particles.hpp"
 #include "vkh/systems/postProcessing.hpp"
 #include "vkh/systems/sky.hpp"
@@ -22,14 +23,15 @@
 #include "vkh/systems/water/water.hpp"
 #include "vkh/window.hpp"
 
-#include "../server/packet.hpp"
 #include "dungeonGenerator.hpp"
-#include "network.hpp"
+#include "networkSession.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <print>
 #include <random>
 #include <string>
+#include <unordered_map>
 
 std::mt19937 rng{std::random_device{}()};
 
@@ -103,6 +105,11 @@ void run() {
   {
     ModManager modMgr;
 
+    // Connect to the vulkhan-server. Throws on failure to connect (see
+    // Network's constructor) -- for now let that propagate up to run()'s
+    // caller; you'll likely want a retry/offline-mode path instead.
+    NetworkSession netSession("127.0.0.1");
+
     std::chrono::time_point<std::chrono::high_resolution_clock> audioFadeBegin;
     const float audioFadeSpeed = 2.5f;
 
@@ -132,6 +139,22 @@ void run() {
     auto birdScene = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
         context, "models/paperplane.glb");
     birdScene->uploadModelGPU(entitySys.texturesSetLayout);
+
+    // Procedural mountain landscape, using an erosion-noise heightmap
+    // (see vkh/systems/mountain/mountain.hpp for details).
+    vkh::mountain::MountainCreateInfo mountainInfo{};
+    mountainInfo.resolution = {256u, 256u};
+    mountainInfo.worldSize = {200.f, 200.f};
+    mountainInfo.baseHeight = 0.f;
+    mountainInfo.peakHeight = 60.f;
+    mountainInfo.octaves = 5;
+    mountainInfo.erosionStrength = 1.f;
+    auto mountainScene = vkh::mountain::generate(
+        context, entitySys.texturesSetLayout, mountainInfo);
+    for (size_t i = 0; i < mountainScene->meshes.size(); i++)
+      entities.emplace_back(
+          vkh::EntitySys::Transform{.position{10.f, 10.f, 10.f}},
+          vkh::EntitySys::RigidBody{}, mountainScene, i);
 
     const int birdCount = 40;
 
@@ -179,6 +202,21 @@ void run() {
     //     });
     //
     // entitySys.updateBuffers();
+
+    // Remote-player avatars. Loaded once; per-player entities are spawned
+    // and despawned each frame by diffing netSession.players() against
+    // playerEntityIndices (see the networking block in the main loop
+    // below). Always append these *after* every other fixed-index consumer
+    // (boidEntityIndices, in particular) -- despawns use swap-and-pop,
+    // which only ever relocates other player entities, never anything
+    // earlier in the vector.
+    auto shoeScene = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+        context, "models/MaterialsVariantsShoe.glb");
+    shoeScene->uploadModelGPU(entitySys.texturesSetLayout);
+
+    // server session id -> indices (one per shoeScene mesh) into `entities`
+    // for that player's avatar.
+    std::unordered_map<uint32_t, std::vector<size_t>> playerEntityIndices;
 
     GameUI ui(context);
 
@@ -239,10 +277,10 @@ void run() {
       vkh::audio::setVolume(volume);
 
       static bool dontDoOnce = true;
-      if (!dontDoOnce) {
-        if (!context.window.isFocused())
-          continue;
-      }
+      // if (!dontDoOnce) {
+      //   if (!context.window.isFocused())
+      //     continue;
+      // }
       dontDoOnce = false;
 
       currentTime = newTime;
@@ -264,6 +302,79 @@ void run() {
           if (lastPicked) {
             lastPicked->color =
                 glm::vec4(2.0f, 0.5f, 0.5f, 1.0f); // Highlight Red-ish
+          }
+        }
+      }
+
+      // Networking: pull in whatever arrived since last frame, then push
+      // our own transform out. Cheap no-op until the Hello handshake has
+      // completed (see NetworkSession::sendUpdate).
+      netSession.poll();
+      netSession.sendUpdate(context.camera.position, glm::quat_cast(context.camera.viewMatrix));
+
+      // Sync remote player avatars against netSession.players(): spawn a
+      // shoe-model entity group for anyone newly present, update transforms
+      // for everyone still connected, and despawn anyone netSession has
+      // already erased (i.e. who sent a Leave).
+      {
+        const auto &remotePlayers = netSession.players();
+
+        for (auto it = playerEntityIndices.begin();
+             it != playerEntityIndices.end();) {
+          if (remotePlayers.contains(it->first)) {
+            ++it;
+            continue;
+          }
+
+          // Swap-and-pop each of this player's entities. This only ever
+          // relocates *other* player entities (looked up by id below,
+          // never by a held index), so boidEntityIndices' fixed indices --
+          // all sitting earlier in the vector -- are never disturbed.
+          std::vector<size_t> indices = it->second;
+          std::sort(indices.begin(), indices.end(), std::greater<>());
+          for (size_t idx : indices) {
+            size_t lastIdx = entities.size() - 1;
+            if (idx != lastIdx) {
+              entities[idx] = std::move(entities[lastIdx]);
+              uint32_t movedId = entities[idx].id;
+              if (movedId != vkh::EntitySys::Entity::LOCAL_ENTITY_ID) {
+                auto movedIt = playerEntityIndices.find(movedId);
+                if (movedIt != playerEntityIndices.end()) {
+                  for (auto &storedIdx : movedIt->second) {
+                    if (storedIdx == lastIdx) {
+                      storedIdx = idx;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+            entities.pop_back();
+          }
+
+          it = playerEntityIndices.erase(it);
+          entitySys.markStructuralDirty();
+        }
+
+        for (const auto &[serverId, remote] : remotePlayers) {
+          auto found = playerEntityIndices.find(serverId);
+          if (found == playerEntityIndices.end()) {
+            std::vector<size_t> newIndices;
+            newIndices.reserve(shoeScene->meshes.size());
+            for (size_t m = 0; m < shoeScene->meshes.size(); ++m) {
+              newIndices.push_back(entities.size());
+              entities.emplace_back(vkh::EntitySys::Transform{},
+                                    vkh::EntitySys::RigidBody{}, shoeScene, m);
+              entities.back().id = serverId;
+            }
+            found = playerEntityIndices.emplace(serverId, std::move(newIndices))
+                        .first;
+            entitySys.markStructuralDirty();
+          }
+
+          for (size_t idx : found->second) {
+            entities[idx].transform.position = remote.position;
+            entities[idx].transform.orientation = remote.orientation;
           }
         }
       }

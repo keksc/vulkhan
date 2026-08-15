@@ -1,0 +1,31 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, r8) uniform writeonly image2D outTex;
+
+layout(push_constant) uniform PushData {
+  uint texSize;
+} push;
+
+#include "noise.glsl"
+
+void main() {
+  ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+  if (gid.x >= int(push.texSize) || gid.y >= int(push.texSize))
+    return;
+
+  // X maps to radius (never wraps at runtime), Y maps to angle (wraps
+  // every 2*PI - must tile seamlessly). Embed angle as a point on a
+  // circle instead of a flat coordinate: angle 0 and 2*PI land on the
+  // exact same (cos,sin) point, so fbm evaluates identically there by
+  // construction - no seam possible, no runtime alignment tricks needed.
+  const float TWO_PI = 6.28318530718;
+  const float loopRadius = 6.0 / TWO_PI;
+  vec2 uv = vec2(gid) / float(push.texSize);
+  float angle = uv.y * TWO_PI;
+  vec2 loop = vec2(cos(angle), sin(angle)) * loopRadius;
+  float n = fbm(vec3(uv.x * 6.0, loop.x, loop.y), 4) * 0.5 + 0.5;
+
+  imageStore(outTex, gid, vec4(clamp(n, 0.0, 1.0), 0.0, 0.0, 0.0));
+}

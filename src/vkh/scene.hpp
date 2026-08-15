@@ -54,6 +54,14 @@ struct has_skinning<T, std::void_t<decltype(std::declval<T>().jointWeights),
 template <typename VertexType> struct SceneCreateInfo {
   std::vector<VertexType> &vertices;
   std::vector<uint32_t> &indices;
+
+  // Optional base-color texture. If pixels is empty, the Scene falls back to
+  // a solid white 1x1 texture (previous default behavior). Pixels are
+  // tightly packed RGBA8, sRGB is NOT applied to them (unlike the fallback
+  // white color, which is gamma corrected) since callers are expected to
+  // supply already-encoded sRGB bytes.
+  std::vector<uint8_t> texturePixels{};
+  glm::uvec2 textureSize{0, 0};
 };
 
 template <typename VertexType> class Scene {
@@ -64,7 +72,7 @@ public:
   };
   struct Mesh {
     AABB aabb{};
-    glm::mat4 transform;
+    glm::mat4 transform{1.f};
     std::optional<size_t> skinIndex;
     struct Primitive {
       uint32_t indexOffset{};
@@ -126,7 +134,8 @@ public:
 
   Scene(EngineContext &context, const std::filesystem::path &path,
         bool disableMaterial = false);
-  Scene(EngineContext &context, const SceneCreateInfo<VertexType> &createInfo);
+  Scene(EngineContext &context, const SceneCreateInfo<VertexType> &createInfo,
+        vk::DescriptorSetLayout setLayout = nullptr);
 
   Scene(const Scene &) = delete;
   Scene &operator=(const Scene &) = delete;

@@ -594,9 +594,92 @@ Image::Image(EngineContext &context, const ImageCreateInfo_data &createInfo)
   setDbgInfo(createInfo.name);
 }
 
+Image::Image(EngineContext &context,
+            const ImageCreateInfo_cubemapStorage &createInfo)
+    : context{context}, format{createInfo.format},
+      size{glm::uvec2{createInfo.faceSize, createInfo.faceSize}},
+      layout{vk::ImageLayout::eUndefined} {
+  numSamples = createInfo.samples;
+  mipLevels = createInfo.mipLevels;
+  aspectMask = createInfo.aspect;
+
+  // Not reusing the private createImage()/createView() helpers here since
+  // those hardcode arrayLayers=1 / a single 2D view - a cubemap needs 6
+  // array layers and the eCubeCompatible flag instead.
+  vk::ImageCreateInfo imageInfo{};
+  imageInfo.imageType = vk::ImageType::e2D;
+  imageInfo.format = format;
+  imageInfo.mipLevels = mipLevels;
+  imageInfo.arrayLayers = 6;
+  imageInfo.samples = numSamples;
+  imageInfo.tiling = vk::ImageTiling::eOptimal;
+  imageInfo.usage = createInfo.usage;
+  imageInfo.sharingMode = vk::SharingMode::eExclusive;
+  imageInfo.initialLayout = vk::ImageLayout::eUndefined;
+  imageInfo.flags = vk::ImageCreateFlagBits::eCubeCompatible;
+  imageInfo.extent.width = createInfo.faceSize;
+  imageInfo.extent.height = createInfo.faceSize;
+  imageInfo.extent.depth = 1;
+
+  if (context.vulkan.device.createImage(&imageInfo, nullptr, &img) !=
+      vk::Result::eSuccess) {
+    throw std::runtime_error("failed to create cubemap image!");
+  }
+
+  vk::MemoryRequirements memRequirements =
+      context.vulkan.device.getImageMemoryRequirements(img);
+  vk::MemoryAllocateInfo allocInfo{
+      memRequirements.size,
+      findMemoryType(context, memRequirements.memoryTypeBits,
+                     vk::MemoryPropertyFlagBits::eDeviceLocal)};
+  if (context.vulkan.device.allocateMemory(&allocInfo, nullptr, &memory) !=
+      vk::Result::eSuccess) {
+    throw std::runtime_error("failed to allocate cubemap image memory!");
+  }
+  context.vulkan.device.bindImageMemory(img, memory, 0);
+
+  // 2D-array view (6 layers), for compute imageStore access per face.
+  vk::ImageViewCreateInfo arrayViewInfo{};
+  arrayViewInfo.image = img;
+  arrayViewInfo.viewType = vk::ImageViewType::e2DArray;
+  arrayViewInfo.format = format;
+  arrayViewInfo.subresourceRange = {aspectMask, 0, mipLevels, 0, 6};
+  if (context.vulkan.device.createImageView(&arrayViewInfo, nullptr,
+                                            &arrayView) !=
+      vk::Result::eSuccess) {
+    throw std::runtime_error("failed to create cubemap array view!");
+  }
+
+  // Cube view, for sampling (this is what view/getDescriptorInfo() use).
+  vk::ImageViewCreateInfo cubeViewInfo{};
+  cubeViewInfo.image = img;
+  cubeViewInfo.viewType = vk::ImageViewType::eCube;
+  cubeViewInfo.format = format;
+  cubeViewInfo.subresourceRange = {aspectMask, 0, mipLevels, 0, 6};
+  if (context.vulkan.device.createImageView(&cubeViewInfo, nullptr, &view) !=
+      vk::Result::eSuccess) {
+    throw std::runtime_error("failed to create cubemap cube view!");
+  }
+
+  layout = vk::ImageLayout::eUndefined;
+  if (createInfo.layout != vk::ImageLayout::eUndefined) {
+    // Covers all 6 layers, unlike the generic transitionLayout()/
+    // recordTransitionLayout(cmd,newLayout) overload, which hardcodes
+    // layerCount=1 and would leave layers 1-5 in the wrong layout.
+    auto cmd = beginSingleTimeCommands(context);
+    recordTransitionLayout(
+        cmd, createInfo.layout,
+        vk::ImageSubresourceRange{aspectMask, 0, mipLevels, 0, 6});
+    endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+  }
+  setDbgInfo(createInfo.name);
+}
+
 Image::~Image() {
   if (view)
     context.vulkan.device.destroyImageView(view, nullptr);
+  if (arrayView)
+    context.vulkan.device.destroyImageView(arrayView, nullptr);
   if (isKtxManaged) {
     ktxVulkanTexture_Destruct(&ktxVkTexture, context.vulkan.device, nullptr);
   } else {

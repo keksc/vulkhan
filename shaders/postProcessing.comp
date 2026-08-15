@@ -82,20 +82,20 @@ void main() {
 
   vec3 finalColor = color;
 
-  if (hit) {
-    float hitDist = distance(camPos, hitPos);
-    if (hitDist < sceneDist) {
-      vec2 e = vec2(0.001, 0.0);
-      vec3 normal = normalize(vec3(
-        sdManor(hitPos + e.xyy) - sdManor(hitPos - e.xyy),
-        sdManor(hitPos + e.yxy) - sdManor(hitPos - e.yxy),
-        sdManor(hitPos + e.yyx) - sdManor(hitPos - e.yyx)
-      ));
-      vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
-      float ndotl = max(dot(normal, lightDir), 0.0);
-      finalColor = vec3(0.8, 0.2, 0.2) * (0.2 + 0.8 * ndotl);
-    }
-  }
+  // if (hit) {
+  //   float hitDist = distance(camPos, hitPos);
+  //   if (hitDist < sceneDist) {
+  //     vec2 e = vec2(0.001, 0.0);
+  //     vec3 normal = normalize(vec3(
+  //       sdManor(hitPos + e.xyy) - sdManor(hitPos - e.xyy),
+  //       sdManor(hitPos + e.yxy) - sdManor(hitPos - e.yxy),
+  //       sdManor(hitPos + e.yyx) - sdManor(hitPos - e.yyx)
+  //     ));
+  //     vec3 lightDir = normalize(vec3(0.5, 1.0, 0.3));
+  //     float ndotl = max(dot(normal, lightDir), 0.0);
+  //     finalColor = vec3(0.8, 0.2, 0.2) * (0.2 + 0.8 * ndotl);
+  //   }
+  // }
 
   vec3 srgb = pow(clamp(finalColor, 0.0, 1.0), vec3(1.0 / 2.2));
   imageStore(outputImage, pixel, vec4(srgb, 1.0));

@@ -51,7 +51,7 @@ public:
 
   struct Transform {
     glm::vec3 position{};
-    glm::quat orientation{};
+    glm::quat orientation{1.f, 0.f, 0.f, 0.f};
     glm::vec3 scale{1.f, 1.f, 1.f};
 
     glm::mat4 mat4() const;

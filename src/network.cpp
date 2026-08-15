@@ -1,10 +1,12 @@
 #include "network.hpp"
+
 #include <enet/enet.h>
+
+#include <cstring>
 #include <print>
 #include <stdexcept>
-#include <cstring>
 
-Network::Network(const char* server) {
+Network::Network(const char *server) {
   if (enet_initialize() != 0) {
     throw std::runtime_error("Failed to initialize ENet");
   }
@@ -21,26 +23,37 @@ Network::Network(const char* server) {
 
   peer = enet_host_connect(client, &address, 2, 0);
   if (!peer) {
-    throw std::runtime_error("No available peers for connection");
+    std::println("No available peers for connection; starting offline.");
+    return;
   }
 
-  if (enet_host_service(client, &event, 5000) > 0 &&
+  if (enet_host_service(client, &event, 1000) > 0 &&
       event.type == ENET_EVENT_TYPE_CONNECT) {
     std::println("Connected to server");
+    connected = true;
   } else {
     enet_peer_reset(peer);
-    throw std::runtime_error("Connection to server failed");
+    std::println("Connection to server timed out; starting offline.");
+    peer = nullptr;
+    return;
   }
   enet_host_flush(client);
 }
 
-void Network::send(const void* data, size_t length) {
-  ENetPacket *packet = enet_packet_create(data, length, ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
+void Network::send(const void *data, size_t length, bool reliable) {
+  if (!connected)
+    return;
+  ENetPacket *packet = enet_packet_create(
+      data, length,
+      reliable ? ENET_PACKET_FLAG_RELIABLE
+               : ENET_PACKET_FLAG_UNRELIABLE_FRAGMENT);
   enet_peer_send(peer, 0, packet);
   enet_host_flush(client);
 }
 
-bool Network::receive(std::vector<uint8_t>& outData, unsigned int timeout) {
+bool Network::receive(std::vector<uint8_t> &outData, unsigned int timeout) {
+  if (!connected)
+    return false;
   while (enet_host_service(client, &event, timeout) > 0) {
     if (event.type == ENET_EVENT_TYPE_RECEIVE) {
       outData.resize(event.packet->dataLength);
@@ -49,17 +62,24 @@ bool Network::receive(std::vector<uint8_t>& outData, unsigned int timeout) {
       return true; // Return true on first successful read
     } else if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
       std::println("Server closed the connection.");
+      connected = false;
     }
   }
   return false;
 }
 
 Network::~Network() {
+  if (!connected) {
+    enet_host_destroy(client);
+    enet_deinitialize();
+    return;
+  }
+
   enet_peer_disconnect(peer, 0);
 
   std::vector<uint8_t> dump;
   receive(dump);
-  
+
   while (enet_host_service(client, &event, 3000) > 0) {
     if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
       std::println("Disconnected cleanly");

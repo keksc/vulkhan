@@ -21,26 +21,84 @@ Scene<VertexType>::Scene(EngineContext &context,
 
 template <typename VertexType>
 Scene<VertexType>::Scene(EngineContext &context,
-                         const SceneCreateInfo<VertexType> &createInfo)
+                         const SceneCreateInfo<VertexType> &createInfo,
+                         vk::DescriptorSetLayout setLayout)
     : context{context}, disableMaterial{true} {
-  ImageCreateInfo_color imageInfo{};
-  imageInfo.size = {1, 1};
-  glm::vec4 color = {1.0f, 1.0f, 1.0f, 1.0f}; // White
-  color.r = std::pow(color.r, 1.0f / 2.2f);
-  color.g = std::pow(color.g, 1.0f / 2.2f);
-  color.b = std::pow(color.b, 1.0f / 2.2f);
-  uint8_t r = static_cast<uint8_t>(color.r * 255.0f + 0.5f);
-  uint8_t g = static_cast<uint8_t>(color.g * 255.0f + 0.5f);
-  uint8_t b = static_cast<uint8_t>(color.b * 255.0f + 0.5f);
-  uint8_t a = static_cast<uint8_t>(color.a * 255.0f + 0.5f);
-  imageInfo.color = (a << 24) | (b << 16) | (g << 8) | r;
-  imageInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
-  imageInfo.usage =
-      vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
-  imageInfo.format = vk::Format::eR8G8B8A8Unorm;
-  std::string name = std::format("{:#x} color image", imageInfo.color);
-  imageInfo.name = name.c_str();
-  images.emplace_back(context, imageInfo);
+  if (!createInfo.texturePixels.empty() && createInfo.textureSize.x > 0 &&
+      createInfo.textureSize.y > 0) {
+    ImageCreateInfo_data imageInfo{};
+    imageInfo.size = createInfo.textureSize;
+    imageInfo.data =
+        const_cast<void *>(static_cast<const void *>(createInfo.texturePixels.data()));
+    imageInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+    imageInfo.usage =
+        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
+    imageInfo.format = vk::Format::eR8G8B8A8Unorm;
+    imageInfo.name = "procedural scene gradient image";
+    images.emplace_back(context, imageInfo);
+  } else {
+    ImageCreateInfo_color imageInfo{};
+    imageInfo.size = {1, 1};
+    glm::vec4 color = {1.0f, 1.0f, 1.0f, 1.0f}; // White
+    color.r = std::pow(color.r, 1.0f / 2.2f);
+    color.g = std::pow(color.g, 1.0f / 2.2f);
+    color.b = std::pow(color.b, 1.0f / 2.2f);
+    uint8_t r = static_cast<uint8_t>(color.r * 255.0f + 0.5f);
+    uint8_t g = static_cast<uint8_t>(color.g * 255.0f + 0.5f);
+    uint8_t b = static_cast<uint8_t>(color.b * 255.0f + 0.5f);
+    uint8_t a = static_cast<uint8_t>(color.a * 255.0f + 0.5f);
+    imageInfo.color = (a << 24) | (b << 16) | (g << 8) | r;
+    imageInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+    imageInfo.usage =
+        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
+    imageInfo.format = vk::Format::eR8G8B8A8Unorm;
+    std::string name = std::format("{:#x} color image", imageInfo.color);
+    imageInfo.name = name.c_str();
+    images.emplace_back(context, imageInfo);
+  }
+
+  // The glTF-loading path is the only one that normally populates
+  // `materials`, since it's built from gltf.materials. This constructor has
+  // no glTF material data to draw from, but entities.cpp still looks up
+  // primitives[0].materialIndex (hardcoded to 0 below in createBuffers())
+  // against `materials` to resolve a texture index for the shader; without
+  // an entry here it silently falls back to kDefaultMaterial (no texture),
+  // so the image we just uploaded above (always exactly one, at index 0)
+  // would never actually get sampled.
+  Material mat{};
+  mat.baseColorFactor = glm::vec4{1.f};
+  mat.baseColorTextureIndex = 0;
+  materials.emplace_back(mat);
+
+  // The glTF-loading path only allocates/writes sceneTextureSet (set 1) when
+  // materials are enabled, since it's built from gltf.materials. This
+  // constructor is always disableMaterial=true (no glTF material data to
+  // build from). Callers that bind this scene through EntitySys's pipeline
+  // (which statically expects set 1) must pass a setLayout so it gets
+  // allocated and written here; callers with their own pipeline/descriptor
+  // setup (e.g. WaterSys, which manages the displacement texture itself and
+  // never binds sceneTextureSet at all) can omit it.
+  if (setLayout) {
+    sceneTextureSet =
+        context.vulkan.globalDescriptorAllocator->allocate(setLayout);
+
+    std::vector<vk::DescriptorImageInfo> imageInfos;
+    imageInfos.reserve(images.size());
+    for (auto &img : images) {
+      imageInfos.push_back(
+          img.getDescriptorInfo(context.vulkan.defaultSampler));
+    }
+
+    vk::WriteDescriptorSet write{
+        sceneTextureSet,                           // dstSet
+        0,                                         // dstBinding
+        0,                                         // dstArrayElement
+        static_cast<uint32_t>(imageInfos.size()),  // descriptorCount
+        vk::DescriptorType::eCombinedImageSampler, // descriptorType
+        imageInfos.data()                          // pImageInfo
+    };
+    context.vulkan.device.updateDescriptorSets(1, &write, 0, nullptr);
+  }
 
   createBuffers(createInfo.vertices, createInfo.indices);
 }
