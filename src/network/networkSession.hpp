@@ -1,8 +1,8 @@
 #pragma once
 
+#include "../vkh/paths.hpp"
 #include "network.hpp"
 #include "packet.hpp"
-#include "vkh/paths.hpp"
 #include <array>
 #include <cstring>
 #include <fstream>
@@ -36,31 +36,31 @@ public:
       if (buf.size() < sizeof(Packet))
         continue; // too short to even hold a type + id, malformed
 
-      Packet header;
-      std::memcpy(&header, buf.data(), sizeof(Packet));
+      Packet *header = reinterpret_cast<Packet *>(buf.data());
 
-      switch (header.type) {
-      case PacketType::Join:
-      case PacketType::Update: {
-        // These carry position/orientation too -- only Leave gets to skip
-        // the extra bytes.
-        if (buf.size() < sizeof(UpdatePacket))
+      switch (header->type) {
+      case PacketType::ServerUpdate: {
+        if (buf.size() < sizeof(ServerUpdatePacket))
           continue; // malformed, ignore
 
-        UpdatePacket pkt;
-        std::memcpy(&pkt, buf.data(), sizeof(UpdatePacket));
-        RemotePlayer &p = remotePlayers[pkt.id];
-        p.position = pkt.position;
-        p.orientation = pkt.orientation;
+        ServerUpdatePacket *pkt =
+            reinterpret_cast<ServerUpdatePacket *>(buf.data());
+        RemotePlayer &p = remotePlayers[pkt->id];
+        p.position = pkt->position;
+        p.orientation = pkt->orientation;
         break;
       }
 
-      case PacketType::Leave:
-        remotePlayers.erase(header.id);
-        break;
+      case PacketType::Leave: {
+        if (buf.size() < sizeof(LeavePacket))
+          continue;
 
-      case PacketType::Hello:
-        // Client-to-server only; the server never sends this back to us.
+        LeavePacket *pkt = reinterpret_cast<LeavePacket *>(buf.data());
+
+        remotePlayers.erase(pkt->id);
+        break;
+      }
+      default:
         break;
       }
     }
@@ -73,13 +73,12 @@ public:
     if (!net.isConnected())
       return;
 
-    UpdatePacket pkt{};
-    pkt.type = PacketType::Update;
-    pkt.id = 0; // unused: server identifies us by peer, not by an id we send
+    ClientUpdatePacket pkt{};
+    pkt.type = PacketType::ClientUpdate;
     pkt.position = position;
     pkt.orientation = orientation;
 
-    net.send(&pkt, sizeof(UpdatePacket));
+    net.send(&pkt, sizeof(ClientUpdatePacket));
   }
 
   bool connected() const { return net.isConnected(); }

@@ -80,8 +80,13 @@ public:
   ~Image();
 
   void copyFromBuffer(vk::Buffer buffer, uint32_t bufferOffset = 0);
+  // baseArrayLayer/layerCount let a multi-layer image (e.g. a cubemap's 6
+  // faces) be filled from a single tightly-packed buffer in one call, on
+  // top of the plain single-layer case the defaults preserve.
   void recordCopyFromBuffer(vk::CommandBuffer cmd, vk::Buffer buffer,
-                            uint32_t bufferOffset = 0);
+                            uint32_t bufferOffset = 0,
+                            uint32_t baseArrayLayer = 0,
+                            uint32_t layerCount = 1);
 
   void transitionLayout(vk::ImageLayout newLayout);
 
@@ -99,7 +104,12 @@ public:
                               vk::ImageSubresourceRange subresourceRange);
 
   std::vector<unsigned char> downloadAndSerializeToPNG();
-  void downloadPixels(unsigned char *dst, uint32_t mipLevel);
+  // baseArrayLayer/layerCount let a multi-layer image (e.g. a cubemap's 6
+  // faces) be read back into a single tightly-packed dst buffer in one
+  // call, on top of the plain single-layer case the defaults preserve.
+  // Restores whatever layout the image was in before the call.
+  void downloadPixels(unsigned char *dst, uint32_t mipLevel,
+                      uint32_t baseArrayLayer = 0, uint32_t layerCount = 1);
 
   vk::ImageView getView() const { return view; }
   // Only set for images created via ImageCreateInfo_cubemapStorage - the

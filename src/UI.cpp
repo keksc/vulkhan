@@ -7,9 +7,10 @@
 #include <ranges>
 #include <string>
 
-#include "network.hpp"
+#include "network/network.hpp"
 #include "vkh/engineContext.hpp"
 #include "vkh/input.hpp"
+#include "settings.hpp"
 #include "vkh/systems/hud/hud.hpp"
 #include "vkh/systems/hud/view.hpp"
 
@@ -21,6 +22,37 @@
 #include "UI/stylizedBtn.hpp"
 #include "UI/text.hpp"
 #include "UI/textInput.hpp"
+
+namespace {
+
+// Switches the window between fullscreen (on the primary monitor's current
+// video mode) and windowed, restoring the last windowed position/size when
+// coming back out. Only touches GLFW state -- no dependency on window.hpp
+// internals beyond context.window already being a GLFWwindow*, which the
+// rest of this file already assumes (glfwSetCursorPos(context.window, ...)
+// etc).
+void applyFullscreen(vkh::EngineContext &context, bool enabled) {
+  static glm::ivec2 windowedPos{100, 100};
+  static glm::ivec2 windowedSize{1280, 720};
+
+  bool alreadyFullscreen = glfwGetWindowMonitor(context.window) != nullptr;
+  if (enabled == alreadyFullscreen)
+    return;
+
+  if (enabled) {
+    glfwGetWindowPos(context.window, &windowedPos.x, &windowedPos.y);
+    glfwGetWindowSize(context.window, &windowedSize.x, &windowedSize.y);
+    GLFWmonitor *monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode *mode = glfwGetVideoMode(monitor);
+    glfwSetWindowMonitor(context.window, monitor, 0, 0, mode->width,
+                         mode->height, mode->refreshRate);
+  } else {
+    glfwSetWindowMonitor(context.window, nullptr, windowedPos.x,
+                         windowedPos.y, windowedSize.x, windowedSize.y, 0);
+  }
+}
+
+} // namespace
 
 struct GameUI::Impl {
   vkh::HudSys hudSys;
@@ -50,6 +82,11 @@ struct GameUI::Impl {
         smokeView(context, hudSys) {
     hudSys.solidColorSys.addTextureFromFile(
         "textures/hud.png"); // Will be default texture since at index 0
+
+    // Apply settings that need to take effect immediately at launch (the
+    // ones only ever read on a toggle, like useCachedSkyBake, don't need
+    // this -- they're picked up next time whoever reads them runs).
+    applyFullscreen(context, vkh::settings::current().fullscreen);
 
     auto canvas = canvasView.container.addChild<UI::Canvas>(glm::vec2{},
                                                             glm::vec2{1.f}, 0);
@@ -89,6 +126,68 @@ struct GameUI::Impl {
         },
         "Edit settings");
 
+    // Persistent settings toggles. Each one flips a bool in
+    // vkh::settings::current() and immediately persists the whole struct
+    // to settings.bin via vkh::settings::save(), so changes survive a
+    // crash rather than only a clean exit.
+    //
+    // These reuse UI::BindEdit purely as "a button with a label whose
+    // text/callback can be changed after construction" (that's the only
+    // widget in this file exposing setCallback()/label publicly). Their
+    // `action` field is never touched, and they're never assigned to
+    // `selectedButton`, so they never enter the keybind-rebinding flow
+    // that field is normally used for.
+    {
+      struct ToggleDef {
+        const char *label;
+        bool vkh::Settings::*field;
+      };
+      static const ToggleDef toggles[] = {
+          {"V-Sync", &vkh::Settings::vsync},
+          {"Show FPS", &vkh::Settings::showFps},
+          {"Invert Y axis", &vkh::Settings::invertYAxis},
+          {"Fullscreen", &vkh::Settings::fullscreen},
+          {"Cache sky bake", &vkh::Settings::useCachedSkyBake},
+      };
+
+      auto labelFor = [](const char *name, bool value) {
+        return std::string(name) + ": " + (value ? "On" : "Off");
+      };
+
+      float y = 0.f;
+      for (const auto &toggle : toggles) {
+        auto toggleBtn = settingsView.container.addChild<UI::BindEdit>(
+            glm::vec2{0.6f, y}, glm::vec2{.1f}, 0, [](int, int, int) {},
+            labelFor(toggle.label, vkh::settings::current().*toggle.field));
+        // Size the button to fit its label instead of a guessed fixed
+        // size -- getAbsoluteSize()/setAbsoluteSize() work in pixel space
+        // (same pattern as fpsRect below), so this holds regardless of
+        // this container's relative scale, unlike getSize()/setSize().
+        toggleBtn->setAbsoluteSize(toggleBtn->label->getAbsoluteSize());
+
+        toggleBtn->setCallback([&, toggleBtn, field = toggle.field,
+                                name = toggle.label](int button, int action,
+                                                     int) {
+          if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
+            return;
+          auto &s = vkh::settings::current();
+          s.*field = !(s.*field);
+          vkh::settings::save();
+          toggleBtn->label->content = labelFor(name, s.*field);
+          toggleBtn->setAbsoluteSize(toggleBtn->label->getAbsoluteSize());
+
+          // Most settings are just read wherever they're needed (e.g.
+          // useCachedSkyBake, read once in main.cpp at SkySys
+          // construction) and don't need anything here. Fullscreen is the
+          // exception: it has to take effect on the already-running
+          // window right away.
+          if (field == &vkh::Settings::fullscreen)
+            applyFullscreen(context, s.fullscreen);
+        });
+        y += 0.1f;
+      }
+    }
+
     glm::vec2 keyBtnSize{.1f};
 
     auto settingsScroll = settingsView.container.addChild<UI::Scrollable>(
@@ -110,6 +209,7 @@ struct GameUI::Impl {
         }
       });
       kbEdit->action = action;
+      kbEdit->setAbsoluteSize(kbEdit->label->getAbsoluteSize());
       i++;
     }
 
@@ -123,6 +223,7 @@ struct GameUI::Impl {
                   static_cast<std::string>(
                       magic_enum::enum_name(selectedButton->action)) +
                   ":" + vkh::input::getKeyName(GLFW_KEY_UNKNOWN);
+              selectedButton->setAbsoluteSize(selectedButton->label->getAbsoluteSize());
               vkh::input::keybinds[selectedButton->action] = GLFW_KEY_UNKNOWN;
               selectedButton = nullptr;
               return true;
@@ -131,6 +232,7 @@ struct GameUI::Impl {
                 static_cast<std::string>(
                     magic_enum::enum_name(selectedButton->action)) +
                 ":" + vkh::input::getKeyName(key);
+            selectedButton->setAbsoluteSize(selectedButton->label->getAbsoluteSize());
             vkh::input::keybinds[selectedButton->action] = key;
             selectedButton = nullptr;
             return true;
@@ -218,8 +320,10 @@ struct GameUI::Impl {
   void update(vkh::EngineContext &context, float frameTime) {
     UI::animateBubbly(context, hudSys.getView()->container);
 
-    fpsText->content =
-        std::format("FPS: {}", static_cast<int>(1.f / frameTime));
+    fpsText->content = vkh::settings::current().showFps
+                           ? std::format("FPS: {}",
+                                        static_cast<int>(1.f / frameTime))
+                           : "";
     fpsRect->setAbsoluteSize(fpsText->getAbsoluteSize());
 
     orientationTxt->setPosition(1.f -

@@ -1,10 +1,16 @@
 #include "sky.hpp"
 
+#include "../buffer.hpp"
 #include "../debug.hpp"
 #include "../descriptors.hpp"
 #include "../deviceHelpers.hpp"
+#include "../paths.hpp"
 #include "../pipeline.hpp"
 #include "../sceneBuilder.hpp"
+#include <filesystem>
+#include <fstream>
+#include <print>
+#include <vector>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
 
@@ -14,6 +20,17 @@ struct PushConstantData {
   glm::mat4 modelMatrix{1.f};
   glm::mat4 normalMatrix{1.f};
 };
+
+namespace {
+
+std::filesystem::path milkyWayCachePath() {
+  return paths::cacheDir() / "sky_milkyway.bin";
+}
+std::filesystem::path discCachePath() {
+  return paths::cacheDir() / "sky_disc.bin";
+}
+
+} // namespace
 
 void SkySys::createBakedDescriptorSetLayout() {
   std::vector<vk::DescriptorSetLayoutBinding> bindings = {
@@ -33,6 +50,146 @@ void SkySys::createBakedDescriptorSetLayout() {
                     "sky baked resources set layout");
 }
 
+// Tries to restore milkyWayCubemap/discTurbulence from the on-disk cache
+// written by saveBakedToCache(). See sky.hpp for the exact contract.
+bool SkySys::tryLoadBakedFromCache() {
+  if (!useCachedBake)
+    return false;
+
+  const vk::DeviceSize milkyWayBytes =
+      vk::DeviceSize{MILKY_WAY_FACE_SIZE} * MILKY_WAY_FACE_SIZE * 6 *
+      Image::getFormatSize(vk::Format::eR16G16B16A16Sfloat);
+  const vk::DeviceSize discBytes =
+      vk::DeviceSize{DISC_TURBULENCE_SIZE} * DISC_TURBULENCE_SIZE *
+      Image::getFormatSize(vk::Format::eR8Unorm);
+
+  std::error_code ec;
+  if (!std::filesystem::exists(milkyWayCachePath(), ec) ||
+      !std::filesystem::exists(discCachePath(), ec))
+    return false;
+  if (std::filesystem::file_size(milkyWayCachePath(), ec) != milkyWayBytes ||
+      ec)
+    return false; // stale cache (e.g. from a different bake resolution)
+  if (std::filesystem::file_size(discCachePath(), ec) != discBytes || ec)
+    return false;
+
+  std::vector<unsigned char> milkyWayPixels(milkyWayBytes);
+  std::vector<unsigned char> discPixels(discBytes);
+  {
+    std::ifstream milkyWayFile(milkyWayCachePath(), std::ios::binary);
+    std::ifstream discFile(discCachePath(), std::ios::binary);
+    if (!milkyWayFile || !discFile)
+      return false;
+    milkyWayFile.read(reinterpret_cast<char *>(milkyWayPixels.data()),
+                      milkyWayBytes);
+    discFile.read(reinterpret_cast<char *>(discPixels.data()), discBytes);
+    if (!milkyWayFile || !discFile) {
+      std::println("sky bake cache read failed, falling back to a fresh bake");
+      return false;
+    }
+  }
+
+  // Recreate the target images exactly as the compute-bake path would.
+  ImageCreateInfo_cubemapStorage cubemapInfo{};
+  cubemapInfo.faceSize = MILKY_WAY_FACE_SIZE;
+  cubemapInfo.format = vk::Format::eR16G16B16A16Sfloat;
+  cubemapInfo.usage = vk::ImageUsageFlagBits::eStorage |
+                      vk::ImageUsageFlagBits::eSampled |
+                      vk::ImageUsageFlagBits::eTransferDst;
+  cubemapInfo.layout = vk::ImageLayout::eGeneral;
+  cubemapInfo.name = "milky way cubemap (cached)";
+  auto cachedMilkyWay = std::make_unique<Image>(context, cubemapInfo);
+
+  ImageCreateInfo_empty discInfo{};
+  discInfo.size = {DISC_TURBULENCE_SIZE, DISC_TURBULENCE_SIZE};
+  discInfo.format = vk::Format::eR8Unorm;
+  discInfo.usage = vk::ImageUsageFlagBits::eStorage |
+                   vk::ImageUsageFlagBits::eSampled |
+                   vk::ImageUsageFlagBits::eTransferDst;
+  discInfo.layout = vk::ImageLayout::eGeneral;
+  discInfo.name = "disc turbulence texture (cached)";
+  auto cachedDisc = std::make_unique<Image>(context, discInfo);
+
+  // Host-visible source buffers for the upload -- same pattern the
+  // ImageCreateInfo_data constructor uses for its own staging buffer.
+  Buffer<std::byte> milkyWayStaging(
+      context, vk::BufferUsageFlagBits::eTransferSrc,
+      vk::MemoryPropertyFlagBits::eHostVisible |
+          vk::MemoryPropertyFlagBits::eHostCoherent,
+      milkyWayBytes);
+  milkyWayStaging.map();
+  milkyWayStaging.write(milkyWayPixels.data());
+
+  Buffer<std::byte> discStaging(
+      context, vk::BufferUsageFlagBits::eTransferSrc,
+      vk::MemoryPropertyFlagBits::eHostVisible |
+          vk::MemoryPropertyFlagBits::eHostCoherent,
+      discBytes);
+  discStaging.map();
+  discStaging.write(discPixels.data());
+
+  auto cmd = beginSingleTimeCommands(context);
+
+  cachedMilkyWay->recordTransitionLayout(
+      cmd, vk::ImageLayout::eTransferDstOptimal,
+      vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 6});
+  cachedMilkyWay->recordCopyFromBuffer(cmd, milkyWayStaging, 0, 0, 6);
+  cachedMilkyWay->recordTransitionLayout(
+      cmd, vk::ImageLayout::eShaderReadOnlyOptimal,
+      vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 6});
+
+  cachedDisc->recordTransitionLayout(cmd,
+                                     vk::ImageLayout::eTransferDstOptimal);
+  cachedDisc->recordCopyFromBuffer(cmd, discStaging);
+  cachedDisc->recordTransitionLayout(cmd,
+                                     vk::ImageLayout::eShaderReadOnlyOptimal);
+
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+
+  milkyWayCubemap = std::move(cachedMilkyWay);
+  discTurbulence = std::move(cachedDisc);
+
+  std::println("sky: loaded baked environment from cache ({})",
+               paths::cacheDir().string());
+  return true;
+}
+
+// Downloads milkyWayCubemap/discTurbulence to disk. See sky.hpp for the
+// exact contract (images must already hold their final baked contents).
+void SkySys::saveBakedToCache() {
+  const vk::DeviceSize milkyWayBytes =
+      vk::DeviceSize{MILKY_WAY_FACE_SIZE} * MILKY_WAY_FACE_SIZE * 6 *
+      Image::getFormatSize(vk::Format::eR16G16B16A16Sfloat);
+  const vk::DeviceSize discBytes =
+      vk::DeviceSize{DISC_TURBULENCE_SIZE} * DISC_TURBULENCE_SIZE *
+      Image::getFormatSize(vk::Format::eR8Unorm);
+
+  std::vector<unsigned char> milkyWayPixels(milkyWayBytes);
+  milkyWayCubemap->downloadPixels(milkyWayPixels.data(), /*mipLevel=*/0,
+                                  /*baseArrayLayer=*/0, /*layerCount=*/6);
+
+  std::vector<unsigned char> discPixels(discBytes);
+  discTurbulence->downloadPixels(discPixels.data(), /*mipLevel=*/0);
+
+  std::error_code ec;
+  std::filesystem::create_directories(paths::cacheDir(), ec);
+
+  std::ofstream milkyWayFile(milkyWayCachePath(),
+                            std::ios::binary | std::ios::trunc);
+  milkyWayFile.write(reinterpret_cast<const char *>(milkyWayPixels.data()),
+                     static_cast<std::streamsize>(milkyWayPixels.size()));
+
+  std::ofstream discFile(discCachePath(), std::ios::binary | std::ios::trunc);
+  discFile.write(reinterpret_cast<const char *>(discPixels.data()),
+                 static_cast<std::streamsize>(discPixels.size()));
+
+  if (!milkyWayFile || !discFile)
+    std::println("failed to write sky bake cache to {}",
+                 paths::cacheDir().string());
+  else
+    std::println("sky: cached baked environment for faster future startups");
+}
+
 // One-time compute bake of the milky way cubemap and accretion-disc
 // turbulence texture. Both are static (no runtime dependency on time,
 // camera, etc.), so this only ever runs once at startup - the black hole
@@ -40,13 +197,22 @@ void SkySys::createBakedDescriptorSetLayout() {
 // its two "texture channels" (originally iChannel0/iChannel1 in the
 // Shadertoy source) are baked ahead of time instead of computed per pixel
 // per frame.
+//
+// If a valid cache exists on disk and useCachedBake is true (see
+// tryLoadBakedFromCache()/saveBakedToCache()), the compute dispatch below
+// is skipped entirely and the images are just uploaded from disk instead,
+// which is significantly cheaper at startup.
 void SkySys::bakeEnvironment() {
+  if (tryLoadBakedFromCache())
+    return;
+
   // ---- create the target images (storage-writable, then sampled) ----
   ImageCreateInfo_cubemapStorage cubemapInfo{};
   cubemapInfo.faceSize = MILKY_WAY_FACE_SIZE;
   cubemapInfo.format = vk::Format::eR16G16B16A16Sfloat;
-  cubemapInfo.usage =
-      vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled;
+  cubemapInfo.usage = vk::ImageUsageFlagBits::eStorage |
+                      vk::ImageUsageFlagBits::eSampled |
+                      vk::ImageUsageFlagBits::eTransferSrc;
   cubemapInfo.layout = vk::ImageLayout::eGeneral;
   cubemapInfo.name = "milky way cubemap";
   milkyWayCubemap = std::make_unique<Image>(context, cubemapInfo);
@@ -54,8 +220,9 @@ void SkySys::bakeEnvironment() {
   ImageCreateInfo_empty discInfo{};
   discInfo.size = {DISC_TURBULENCE_SIZE, DISC_TURBULENCE_SIZE};
   discInfo.format = vk::Format::eR8Unorm;
-  discInfo.usage =
-      vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled;
+  discInfo.usage = vk::ImageUsageFlagBits::eStorage |
+                   vk::ImageUsageFlagBits::eSampled |
+                   vk::ImageUsageFlagBits::eTransferSrc;
   discInfo.layout = vk::ImageLayout::eGeneral;
   discInfo.name = "disc turbulence texture";
   discTurbulence = std::make_unique<Image>(context, discInfo);
@@ -165,9 +332,12 @@ void SkySys::bakeEnvironment() {
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 
   context.vulkan.device.destroyDescriptorSetLayout(bakeSetLayout, nullptr);
+
+  saveBakedToCache();
 }
 
-SkySys::SkySys(EngineContext &context) : System(context) {
+SkySys::SkySys(EngineContext &context, bool useCachedBake)
+    : System(context), useCachedBake(useCachedBake) {
   bakeEnvironment();
   createBakedDescriptorSetLayout();
 

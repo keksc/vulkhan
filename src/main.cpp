@@ -12,6 +12,7 @@
 #include "vkh/input.hpp"
 #include "vkh/paths.hpp"
 #include "vkh/renderer.hpp"
+#include "settings.hpp"
 #include "vkh/sceneBuilder.hpp"
 #include "vkh/swapChain.hpp"
 #include "vkh/systems/entity/entities.hpp"
@@ -24,7 +25,7 @@
 #include "vkh/window.hpp"
 
 #include "dungeonGenerator.hpp"
-#include "networkSession.hpp"
+#include "network/networkSession.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -93,6 +94,7 @@ std::vector<glm::mat4> genTransform() {
 void run() {
   paths::initCacheDir("vulkhan");
   paths::setWorkingDirectoryToExecutable();
+  vkh::settings::load();
 
   vkh::EngineContext context{};
   vkh::initWindow(context);
@@ -118,7 +120,9 @@ void run() {
     // vkh::audio::Sound bgm("sounds/Enter Remollon.opus");
     // bgm.play();
 
-    vkh::SkySys skySys(context);
+    // SkySys doesn't know about Settings (it's graphics-layer code) --
+    // main.cpp reads the toggle and passes it in as a plain bool instead.
+    vkh::SkySys skySys(context, vkh::settings::current().useCachedSkyBake);
     vkh::EntitySys entitySys(context);
 
     vkh::SmokeSys smokeSys(context);

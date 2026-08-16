@@ -691,15 +691,23 @@ Image::~Image() {
 }
 
 void Image::recordCopyFromBuffer(vk::CommandBuffer cmd, vk::Buffer buffer,
-                                 uint32_t bufferOffset) {
+                                 uint32_t bufferOffset,
+                                 uint32_t baseArrayLayer,
+                                 uint32_t layerCount) {
   assert(layout == vk::ImageLayout::eTransferDstOptimal);
 
+  // For layerCount > 1 (e.g. a cubemap's 6 faces), the source buffer must
+  // hold `layerCount` faces of width*height*formatSize bytes each, packed
+  // back-to-back in layer order starting at bufferOffset -- that's the
+  // layout a tightly-packed vk::BufferImageCopy with bufferRowLength=0/
+  // bufferImageHeight=0 assumes per layer.
   vk::BufferImageCopy region{
-      bufferOffset,              // bufferOffset
-      0,                         // bufferRowLength
-      0,                         // bufferImageHeight
+      bufferOffset, // bufferOffset
+      0,            // bufferRowLength
+      0,            // bufferImageHeight
       vk::ImageSubresourceLayers{// imageSubresource
-                                 vk::ImageAspectFlagBits::eColor, 0, 0, 1},
+                                 vk::ImageAspectFlagBits::eColor, 0,
+                                 baseArrayLayer, layerCount},
       vk::Offset3D{0, 0, 0},          // imageOffset
       vk::Extent3D{size.x, size.y, 1} // imageExtent
   };
@@ -719,7 +727,8 @@ void Image::copyFromBuffer(vk::Buffer buffer, uint32_t bufferOffset) {
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 }
 
-void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel) {
+void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel,
+                           uint32_t baseArrayLayer, uint32_t layerCount) {
   if (mipLevel >= mipLevels) {
     throw std::runtime_error("Mip level out of range");
   }
@@ -729,8 +738,8 @@ void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel) {
 
   // Dynamically query format size instead of hardcoding 4 bytes
   vk::DeviceSize pixelSize = getFormatSize(format);
-  vk::DeviceSize bufferSize =
-      static_cast<vk::DeviceSize>(width) * height * pixelSize;
+  vk::DeviceSize bufferSize = static_cast<vk::DeviceSize>(width) * height *
+                              pixelSize * layerCount;
 
   Buffer<std::byte> stagingBuffer(context,
                                   vk::BufferUsageFlagBits::eTransferDst,
@@ -741,17 +750,22 @@ void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel) {
   vk::CommandBuffer cmd = beginSingleTimeCommands(context);
 
   vk::ImageSubresourceRange subresourceRange = {vk::ImageAspectFlagBits::eColor,
-                                                mipLevel, 1, 0, 1};
+                                                mipLevel, 1, baseArrayLayer,
+                                                layerCount};
   vk::ImageLayout oldLayout = layout;
   recordTransitionLayout(cmd, vk::ImageLayout::eTransferSrcOptimal,
                          subresourceRange);
 
+  // With layerCount > 1 this writes `layerCount` faces back-to-back into
+  // dst (tightly packed, same layout recordCopyFromBuffer's upload side
+  // expects), which is what lets a cubemap round-trip through a single
+  // flat buffer.
   vk::BufferImageCopy region = {
       0,
       0,
       0,
-      vk::ImageSubresourceLayers{vk::ImageAspectFlagBits::eColor, mipLevel, 0,
-                                 1},
+      vk::ImageSubresourceLayers{vk::ImageAspectFlagBits::eColor, mipLevel,
+                                 baseArrayLayer, layerCount},
       {0, 0, 0},
       {width, height, 1}};
 
