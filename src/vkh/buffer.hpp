@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cstring>
 #include <glm/ext.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.hpp>
 
 #include "deviceHelpers.hpp"
@@ -15,19 +16,15 @@ public:
          vk::MemoryPropertyFlags memoryProperties,
          unsigned int instanceCount = 1)
       : context{context} {
-    // alignmentSize = getAlignment(createInfo.instanceSize, 1);
     instanceSize = sizeof(T);
     bufSize = instanceSize * instanceCount;
-    createBuffer(context, bufSize, usage, memoryProperties, buf, memory);
+    createBuffer(context, bufSize, usage, memoryProperties, buf, allocation);
   }
 
   ~Buffer() {
     unmap();
     if (buf) {
-      context.vulkan.device.destroyBuffer(buf);
-    }
-    if (memory) {
-      context.vulkan.device.freeMemory(memory);
+      vmaDestroyBuffer(context.vulkan.allocator, buf, allocation);
     }
   }
 
@@ -43,34 +40,34 @@ public:
     if (this != &other) {
       unmap();
       if (buf)
-        context.vulkan.device.destroyBuffer(buf);
-      if (memory)
-        context.vulkan.device.freeMemory(memory);
+        vmaDestroyBuffer(context.vulkan.allocator, buf, allocation);
 
       mapped = other.mapped;
       buf = other.buf;
-      memory = other.memory;
+      allocation = other.allocation;
       bufSize = other.bufSize;
       instanceSize = other.instanceSize;
       alignmentSize = other.alignmentSize;
 
       other.mapped = nullptr;
       other.buf = nullptr;
-      other.memory = nullptr;
+      other.allocation = nullptr;
     }
     return *this;
   }
 
   void *map(vk::DeviceSize size = VK_WHOLE_SIZE, vk::DeviceSize offset = 0) {
-    assert(buf && memory && "Called map on buffer before create");
-    mapped = context.vulkan.device.mapMemory(memory, offset, size,
-                                             vk::MemoryMapFlags(0));
+    assert(buf && allocation && "Called map on buffer before create");
+    if (vmaMapMemory(context.vulkan.allocator, allocation, &mapped) !=
+        VK_SUCCESS) {
+      throw std::runtime_error("failed to map buffer memory via VMA!");
+    }
     return mapped;
   }
 
   void unmap() {
     if (mapped) {
-      context.vulkan.device.unmapMemory(memory);
+      vmaUnmapMemory(context.vulkan.allocator, allocation);
       mapped = nullptr;
     }
   }
@@ -89,10 +86,10 @@ public:
   }
 
   void flush(vk::DeviceSize size = VK_WHOLE_SIZE, vk::DeviceSize offset = 0) {
-    vk::MappedMemoryRange mappedRange{memory, offset, size};
-    if (context.vulkan.device.flushMappedMemoryRanges(1, &mappedRange) !=
-        vk::Result::eSuccess)
-      throw std::runtime_error("Failed to flush mapped memory range");
+    if (vmaFlushAllocation(context.vulkan.allocator, allocation, offset,
+                           size) != VK_SUCCESS) {
+      throw std::runtime_error("Failed to flush VMA allocation");
+    }
   }
 
   vk::DescriptorBufferInfo descriptorInfo(vk::DeviceSize size = VK_WHOLE_SIZE,
@@ -106,10 +103,10 @@ public:
 
   void invalidate(vk::DeviceSize size = VK_WHOLE_SIZE,
                   vk::DeviceSize offset = 0) {
-    vk::MappedMemoryRange mappedRange{memory, offset, size};
-    if (context.vulkan.device.invalidateMappedMemoryRanges(1, &mappedRange) !=
-        vk::Result::eSuccess)
-      throw std::runtime_error("Failed to invalidate mapped memory range");
+    if (vmaInvalidateAllocation(context.vulkan.allocator, allocation, offset,
+                                size) != VK_SUCCESS) {
+      throw std::runtime_error("Failed to invalidate VMA allocation");
+    }
   }
 
   void writeToIndex(void *data, int index);
@@ -149,33 +146,11 @@ public:
   }
 
 private:
-  void allocateMemory(vk::MemoryPropertyFlags properties) {
-    assert(buf);
-
-    vk::MemoryRequirements memRequirements =
-        context.vulkan.device.getBufferMemoryRequirements(buf);
-
-    vk::MemoryAllocateInfo allocInfo{
-        memRequirements.size,
-        findMemoryType(context, memRequirements.memoryTypeBits, properties)};
-
-    memory = context.vulkan.device.allocateMemory(allocInfo);
-  }
-
-  vk::DeviceSize getAlignment(vk::DeviceSize instanceSize,
-                              vk::DeviceSize minOffsetAlignment) {
-    if (minOffsetAlignment > 0) {
-      return (instanceSize + minOffsetAlignment - 1) &
-             ~(minOffsetAlignment - 1);
-    }
-    return instanceSize;
-  }
-
   EngineContext &context;
 
   void *mapped = nullptr;
   vk::Buffer buf;
-  vk::DeviceMemory memory;
+  VmaAllocation allocation = nullptr;
   vk::DeviceSize bufSize;
   vk::DeviceSize instanceSize;
   vk::DeviceSize alignmentSize;

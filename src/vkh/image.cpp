@@ -1,5 +1,5 @@
 #include "image.hpp"
-#include <magic_enum/magic_enum.hpp>
+#include <ktxvulkan.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -11,7 +11,6 @@
 #include <stb/stb_image_write.h>
 #endif
 #include <ktx.h>
-#include <ktxvulkan.h>
 
 #include "buffer.hpp"
 #include "debug.hpp"
@@ -19,12 +18,33 @@
 
 namespace vkh {
 
+// ============================== Image (base) ==============================
+
+Image::Image(Image &&other) noexcept
+    : context{other.context}, img{other.img}, view{other.view},
+      allocation{other.allocation}, format{other.format},
+      layout{other.layout}, numSamples{other.numSamples},
+      aspectMask{other.aspectMask} {
+  mipLevels = other.mipLevels;
+  other.img = nullptr;
+  other.view = nullptr;
+  other.allocation = nullptr;
+  other.layout = vk::ImageLayout::eUndefined;
+}
+
+Image::~Image() {
+  if (view)
+    context.vulkan.device.destroyImageView(view, nullptr);
+  if (img)
+    vmaDestroyImage(context.vulkan.allocator, img, allocation);
+}
+
 void Image::recordTransitionLayout(vk::CommandBuffer cmd,
                                    vk::ImageLayout newLayout) {
   if (newLayout == layout)
     return;
-  vk::ImageSubresourceRange range = {aspectMask, 0, mipLevels, 0, 1};
-
+  vk::ImageSubresourceRange range = {aspectMask, 0, mipLevels, 0,
+                                     getLayerCount()};
   recordTransitionLayout(cmd, newLayout, range);
 }
 
@@ -190,7 +210,281 @@ void Image::transitionLayout(vk::ImageLayout newLayout) {
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 }
 
-void Image::createView() {
+void Image::recordCopyFromBuffer(vk::CommandBuffer cmd, vk::Buffer buffer,
+                                 uint32_t bufferOffset,
+                                 uint32_t baseArrayLayer,
+                                 uint32_t layerCount) {
+  assert(layout == vk::ImageLayout::eTransferDstOptimal);
+
+  // For layerCount > 1 (e.g. a cubemap's 6 faces), the source buffer must
+  // hold `layerCount` faces/slices packed back-to-back starting at
+  // bufferOffset -- that's what a tightly-packed vk::BufferImageCopy with
+  // bufferRowLength=0/bufferImageHeight=0 assumes per layer.
+  vk::BufferImageCopy region{
+      bufferOffset,
+      0,
+      0,
+      vk::ImageSubresourceLayers{vk::ImageAspectFlagBits::eColor, 0,
+                                 baseArrayLayer, layerCount},
+      vk::Offset3D{0, 0, 0},
+      getExtent()};
+
+  cmd.copyBufferToImage(buffer, img, vk::ImageLayout::eTransferDstOptimal, 1,
+                        &region);
+}
+
+void Image::copyFromBuffer(vk::Buffer buffer, uint32_t bufferOffset) {
+  auto cmd = beginSingleTimeCommands(context);
+  vk::ImageLayout oldLayout = layout;
+  if (layout != vk::ImageLayout::eTransferDstOptimal)
+    recordTransitionLayout(cmd, vk::ImageLayout::eTransferDstOptimal);
+  recordCopyFromBuffer(cmd, buffer, bufferOffset);
+  if (oldLayout != vk::ImageLayout::eTransferDstOptimal)
+    recordTransitionLayout(cmd, oldLayout);
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+}
+
+void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel,
+                           uint32_t baseArrayLayer, uint32_t layerCount) {
+  if (mipLevel >= mipLevels) {
+    throw std::runtime_error("Mip level out of range");
+  }
+
+  vk::Extent3D extent = getExtent(mipLevel);
+  vk::DeviceSize pixelSize = getFormatSize(format);
+  vk::DeviceSize bufferSize = static_cast<vk::DeviceSize>(extent.width) *
+                              extent.height * extent.depth * pixelSize *
+                              layerCount;
+
+  Buffer<std::byte> stagingBuffer(context,
+                                  vk::BufferUsageFlagBits::eTransferDst,
+                                  vk::MemoryPropertyFlagBits::eHostVisible |
+                                      vk::MemoryPropertyFlagBits::eHostCoherent,
+                                  bufferSize);
+
+  vk::CommandBuffer cmd = beginSingleTimeCommands(context);
+
+  vk::ImageSubresourceRange subresourceRange = {vk::ImageAspectFlagBits::eColor,
+                                                mipLevel, 1, baseArrayLayer,
+                                                layerCount};
+  vk::ImageLayout oldLayout = layout;
+  recordTransitionLayout(cmd, vk::ImageLayout::eTransferSrcOptimal,
+                         subresourceRange);
+
+  vk::BufferImageCopy region = {
+      0,
+      0,
+      0,
+      vk::ImageSubresourceLayers{vk::ImageAspectFlagBits::eColor, mipLevel,
+                                 baseArrayLayer, layerCount},
+      {0, 0, 0},
+      extent};
+
+  cmd.copyImageToBuffer(img, vk::ImageLayout::eTransferSrcOptimal,
+                        stagingBuffer, 1, &region);
+
+  recordTransitionLayout(cmd, oldLayout, subresourceRange);
+
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+
+  stagingBuffer.map();
+  std::memcpy(dst, stagingBuffer.getMappedAddr(), bufferSize);
+  stagingBuffer.unmap();
+}
+
+void Image::setDbgInfo(const char *name) {
+  std::string str = std::format("{} image", name);
+  debug::setObjName(context, vk::ObjectType::eImage,
+                    reinterpret_cast<uint64_t>(static_cast<VkImage>(img)),
+                    str.c_str());
+  str = std::format("image view for image {}", name);
+  debug::setObjName(context, vk::ObjectType::eImageView,
+                    reinterpret_cast<uint64_t>(static_cast<VkImageView>(view)),
+                    str.c_str());
+}
+
+// ======================= Shared ktx2 loading/upload =======================
+
+Image::KtxLoadResult Image::loadKtx2(EngineContext &context,
+                                     const std::filesystem::path &path) {
+  ktxTexture2 *texture;
+  ktxResult result = ktxTexture2_CreateFromNamedFile(
+      path.string().c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture);
+  if (result != KTX_SUCCESS)
+    throw std::runtime_error(
+        std::format("Failed to create texture from file {}", path.c_str()));
+
+  vk::Format fmt = (vk::Format)ktxTexture2_GetVkFormat(texture);
+
+  if (ktxTexture2_NeedsTranscoding(texture)) {
+    ktx_transcode_fmt_e tf;
+
+    VkPhysicalDeviceFeatures deviceFeatures;
+    vkGetPhysicalDeviceFeatures(context.vulkan.physicalDevice, &deviceFeatures);
+    khr_df_model_e colorModel = ktxTexture2_GetColorModel_e(texture);
+    if (colorModel == KHR_DF_MODEL_UASTC &&
+        deviceFeatures.textureCompressionASTC_LDR) {
+      tf = KTX_TTF_ASTC_4x4_RGBA;
+    } else if (colorModel == KHR_DF_MODEL_UASTC &&
+               deviceFeatures.textureCompressionBC) {
+      tf = KTX_TTF_BC7_RGBA;
+    } else if (colorModel == KHR_DF_MODEL_ETC1S &&
+               deviceFeatures.textureCompressionETC2) {
+      tf = KTX_TTF_ETC;
+    } else if (deviceFeatures.textureCompressionASTC_LDR) {
+      tf = KTX_TTF_ASTC_4x4_RGBA;
+    } else if (deviceFeatures.textureCompressionETC2)
+      tf = KTX_TTF_ETC2_RGBA;
+    else if (deviceFeatures.textureCompressionBC)
+      tf = KTX_TTF_BC3_RGBA;
+    else {
+      throw std::runtime_error(std::format(
+          "Vulkan implementation does not support any available transcode "
+          "target (transcoding file {})",
+          path.c_str()));
+    }
+
+    result = ktxTexture2_TranscodeBasis(texture, tf, 0);
+    if (result != KTX_SUCCESS)
+      throw std::runtime_error(
+          std::format("Failed to transcode file {}", path.c_str()));
+
+    fmt = (vk::Format)ktxTexture2_GetVkFormat(texture);
+  }
+
+  // Many GPUs don't support 3-channel 8-bit formats as sampled optimal
+  // images, so RGB is always expanded to RGBA here; every other format
+  // uploads as-is.
+  bool expandRgbToRgba =
+      (fmt == vk::Format::eR8G8B8Srgb || fmt == vk::Format::eR8G8B8Unorm);
+  vk::Format format =
+      expandRgbToRgba
+          ? (fmt == vk::Format::eR8G8B8Srgb ? vk::Format::eR8G8B8A8Srgb
+                                            : vk::Format::eR8G8B8A8Unorm)
+          : fmt;
+
+  ktxTexture *baseTex = ktxTexture(texture);
+  uint32_t numFaces = texture->numFaces; // 6 for cubemaps, 1 otherwise
+  uint32_t numLevels = texture->numLevels;
+  uint32_t srcTexelSize = expandRgbToRgba ? 3 : Image::getFormatSize(format);
+  uint32_t dstTexelSize = expandRgbToRgba ? 4 : srcTexelSize;
+
+  KtxLoadResult out{};
+  out.format = format;
+  out.size = {texture->baseWidth, texture->baseHeight};
+  out.numFaces = numFaces;
+  out.numLevels = numLevels;
+
+  vk::DeviceSize totalSize = 0;
+  for (uint32_t level = 0; level < numLevels; level++) {
+    uint32_t w = std::max(1u, out.size.x >> level);
+    uint32_t h = std::max(1u, out.size.y >> level);
+    for (uint32_t face = 0; face < numFaces; face++) {
+      ktx_size_t offset;
+      ktxTexture_GetImageOffset(baseTex, level, 0, face, &offset);
+      const unsigned char *src = ktxTexture_GetData(baseTex) + offset;
+
+      size_t pixelCount = static_cast<size_t>(w) * h;
+      size_t writeOffset = out.uploadData.size();
+      out.uploadData.resize(writeOffset + pixelCount * dstTexelSize);
+      unsigned char *dst = out.uploadData.data() + writeOffset;
+
+      if (expandRgbToRgba) {
+        for (size_t p = 0; p < pixelCount; p++) {
+          dst[p * 4 + 0] = src[p * 3 + 0];
+          dst[p * 4 + 1] = src[p * 3 + 1];
+          dst[p * 4 + 2] = src[p * 3 + 2];
+          dst[p * 4 + 3] = 0xFF;
+        }
+      } else {
+        std::memcpy(dst, src, pixelCount * srcTexelSize);
+      }
+
+      vk::BufferImageCopy region{};
+      region.bufferOffset = totalSize;
+      region.imageSubresource = vk::ImageSubresourceLayers{
+          vk::ImageAspectFlagBits::eColor, level, face, 1};
+      region.imageExtent = vk::Extent3D{w, h, 1};
+      out.regions.push_back(region);
+
+      totalSize += pixelCount * dstTexelSize;
+    }
+  }
+
+  ktxTexture2_Destroy(texture);
+  return out;
+}
+
+std::pair<vk::Image, VmaAllocation>
+Image::createAndUploadKtxImage(EngineContext &context,
+                               const KtxLoadResult &data,
+                               uint32_t arrayLayers,
+                               vk::ImageCreateFlags flags) {
+  vk::ImageCreateInfo imageInfo{};
+  imageInfo.imageType = vk::ImageType::e2D;
+  imageInfo.format = data.format;
+  imageInfo.extent = vk::Extent3D{data.size.x, data.size.y, 1};
+  imageInfo.mipLevels = data.numLevels;
+  imageInfo.arrayLayers = arrayLayers;
+  imageInfo.samples = vk::SampleCountFlagBits::e1;
+  imageInfo.tiling = vk::ImageTiling::eOptimal;
+  imageInfo.usage = vk::ImageUsageFlagBits::eTransferDst |
+                    vk::ImageUsageFlagBits::eSampled;
+  imageInfo.sharingMode = vk::SharingMode::eExclusive;
+  imageInfo.initialLayout = vk::ImageLayout::eUndefined;
+  imageInfo.flags = flags;
+
+  VmaAllocation allocation = nullptr;
+  vk::Image img = createImageWithInfo(context, imageInfo, allocation);
+
+  Buffer<std::byte> stagingBuffer(context, vk::BufferUsageFlagBits::eTransferSrc,
+                                  vk::MemoryPropertyFlagBits::eHostVisible |
+                                      vk::MemoryPropertyFlagBits::eHostCoherent,
+                                  data.uploadData.size());
+  stagingBuffer.map();
+  stagingBuffer.write(const_cast<unsigned char *>(data.uploadData.data()));
+
+  vk::ImageSubresourceRange fullRange{vk::ImageAspectFlagBits::eColor, 0,
+                                      data.numLevels, 0, arrayLayers};
+
+  // Transitions/copy are recorded manually here (rather than through an
+  // Image instance's recordTransitionLayout) since the vk::Image doesn't
+  // belong to a constructed Image object yet - the caller assigns `img`
+  // into its own `this->img` right after this returns.
+  auto cmd = beginSingleTimeCommands(context);
+  vk::ImageMemoryBarrier toDst{};
+  toDst.oldLayout = vk::ImageLayout::eUndefined;
+  toDst.newLayout = vk::ImageLayout::eTransferDstOptimal;
+  toDst.image = img;
+  toDst.subresourceRange = fullRange;
+  toDst.srcAccessMask = vk::AccessFlagBits::eNone;
+  toDst.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+  cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe,
+                     vk::PipelineStageFlagBits::eTransfer, {}, nullptr,
+                     nullptr, toDst);
+
+  cmd.copyBufferToImage(stagingBuffer, img, vk::ImageLayout::eTransferDstOptimal,
+                       static_cast<uint32_t>(data.regions.size()),
+                       data.regions.data());
+
+  vk::ImageMemoryBarrier toRead{};
+  toRead.oldLayout = vk::ImageLayout::eTransferDstOptimal;
+  toRead.newLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+  toRead.image = img;
+  toRead.subresourceRange = fullRange;
+  toRead.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+  toRead.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+  cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+                     vk::PipelineStageFlagBits::eFragmentShader, {}, nullptr,
+                     nullptr, toRead);
+  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+
+  return {img, allocation};
+}
+
+
+
+void Image2D::createView() {
   vk::ImageViewCreateInfo viewInfo{};
   viewInfo.image = img;
   viewInfo.viewType = vk::ImageViewType::e2D;
@@ -207,8 +501,7 @@ void Image::createView() {
   }
 }
 
-void Image::createImage(EngineContext &context, glm::uvec2 size,
-                        vk::ImageUsageFlags usage) {
+void Image2D::createImage(glm::uvec2 imgSize, vk::ImageUsageFlags usage) {
   const vk::ImageLayout initLayout = vk::ImageLayout::eUndefined;
   vk::ImageCreateInfo imageInfo{};
   imageInfo.imageType = vk::ImageType::e2D;
@@ -222,41 +515,22 @@ void Image::createImage(EngineContext &context, glm::uvec2 size,
   imageInfo.initialLayout = initLayout;
   layout = initLayout;
 
-  imageInfo.extent.width = size.x;
-  imageInfo.extent.height = size.y;
+  imageInfo.extent.width = imgSize.x;
+  imageInfo.extent.height = imgSize.y;
   imageInfo.extent.depth = 1;
 
-  if (context.vulkan.device.createImage(&imageInfo, nullptr, &img) !=
-      vk::Result::eSuccess) {
-    throw std::runtime_error("failed to create image!");
-  }
-
-  vk::MemoryRequirements memRequirements =
-      context.vulkan.device.getImageMemoryRequirements(img);
-
-  vk::MemoryAllocateInfo allocInfo{};
-  allocInfo.allocationSize = memRequirements.size;
-  allocInfo.memoryTypeIndex =
-      findMemoryType(context, memRequirements.memoryTypeBits,
-                     vk::MemoryPropertyFlagBits::eDeviceLocal);
-
-  if (context.vulkan.device.allocateMemory(&allocInfo, nullptr, &memory) !=
-      vk::Result::eSuccess) {
-    throw std::runtime_error("failed to allocate image memory!");
-  }
-
-  context.vulkan.device.bindImageMemory(img, memory, 0);
+  img = createImageWithInfo(context, imageInfo, allocation);
 }
 
-void Image::createImageFromData(void *pixels, const size_t dataSize,
-                                glm::uvec2 size) {
+void Image2D::createImageFromData(void *pixels, const size_t dataSize,
+                                  glm::uvec2 imgSize) {
   if (!pixels) {
     throw std::runtime_error("failed to load texture image from memory!");
   }
 
-  createImage(context, size,
-              vk::ImageUsageFlagBits::eTransferDst |
-                  vk::ImageUsageFlagBits::eSampled);
+  createImage(imgSize,
+             vk::ImageUsageFlagBits::eTransferDst |
+                 vk::ImageUsageFlagBits::eSampled);
 
   Buffer<std::byte> stagingBuffer(context,
                                   vk::BufferUsageFlagBits::eTransferSrc,
@@ -275,8 +549,8 @@ void Image::createImageFromData(void *pixels, const size_t dataSize,
   createView();
 }
 
-Image::Image(EngineContext &context, const ImageCreateInfo_PNGdata &createInfo)
-    : context{context} {
+Image2D::Image2D(EngineContext &context, const ImageCreateInfo_PNGdata &createInfo)
+    : Image(context) {
   format = vk::Format::eR8G8B8A8Srgb;
   numSamples = createInfo.samples;
   mipLevels = createInfo.mipLevels;
@@ -294,241 +568,16 @@ Image::Image(EngineContext &context, const ImageCreateInfo_PNGdata &createInfo)
   setDbgInfo(createInfo.name);
 }
 
-Image::Image(EngineContext &context, const std::filesystem::path &path)
-    : context{context} {
-  if (path.extension() == ".ktx2") {
-    ktxTexture2 *texture;
-    ktxResult result = ktxTexture2_CreateFromNamedFile(
-        path.string().c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
-        &texture);
-    if (result != KTX_SUCCESS)
-      throw std::runtime_error(
-          std::format("Failed to create texture from file {}", path.c_str()));
-
-    vk::Format fmt = (vk::Format)ktxTexture2_GetVkFormat(texture);
-
-    if (ktxTexture2_NeedsTranscoding(texture)) {
-      ktx_transcode_fmt_e tf;
-
-      VkPhysicalDeviceFeatures deviceFeatures;
-      vkGetPhysicalDeviceFeatures(context.vulkan.physicalDevice,
-                                  &deviceFeatures);
-      khr_df_model_e colorModel = ktxTexture2_GetColorModel_e(texture);
-      if (colorModel == KHR_DF_MODEL_UASTC &&
-          deviceFeatures.textureCompressionASTC_LDR) {
-        tf = KTX_TTF_ASTC_4x4_RGBA;
-      } else if (colorModel == KHR_DF_MODEL_UASTC &&
-                 deviceFeatures.textureCompressionBC) {
-        tf = KTX_TTF_BC7_RGBA;
-      } else if (colorModel == KHR_DF_MODEL_ETC1S &&
-                 deviceFeatures.textureCompressionETC2) {
-        tf = KTX_TTF_ETC;
-      } else if (deviceFeatures.textureCompressionASTC_LDR) {
-        tf = KTX_TTF_ASTC_4x4_RGBA;
-      } else if (deviceFeatures.textureCompressionETC2)
-        tf = KTX_TTF_ETC2_RGBA;
-      else if (deviceFeatures.textureCompressionBC)
-        tf = KTX_TTF_BC3_RGBA;
-      else {
-        throw std::runtime_error(
-            std::format("Vulkan implementation does not support any available "
-                        "transcode target (transcoding file {})",
-                        path.c_str()));
-      }
-
-      result = ktxTexture2_TranscodeBasis(texture, tf, 0);
-
-      if (result != KTX_SUCCESS)
-        throw std::runtime_error(
-            std::format("Failed to transcode file {}", path.c_str()));
-    }
-
-    if (!ktxTexture2_NeedsTranscoding(texture) &&
-        (fmt == vk::Format::eR8G8B8Srgb || fmt == vk::Format::eR8G8B8Unorm)) {
-      // Many GPUs don't support 3-channel 8-bit formats as sampled optimal
-      // images. Manually expand RGB -> RGBA and upload ourselves instead of
-      // handing this straight to ktxTexture2_VkUploadEx (which would upload
-      // in the original 3-channel format).
-      bool isSrgb = (fmt == vk::Format::eR8G8B8Srgb);
-      format = isSrgb ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm;
-
-      ktxTexture *baseTex = ktxTexture(texture);
-      uint32_t numFaces = texture->numFaces; // 6 for cubemaps, 1 otherwise
-      uint32_t numLevels = texture->numLevels;
-      bool cube = (numFaces == 6);
-
-      size.x = texture->baseWidth;
-      size.y = texture->baseHeight;
-      mipLevels = numLevels;
-
-      std::vector<vk::BufferImageCopy> regions;
-      std::vector<unsigned char> converted;
-      vk::DeviceSize totalSize = 0;
-
-      for (uint32_t level = 0; level < numLevels; level++) {
-        uint32_t w = std::max(1u, size.x >> level);
-        uint32_t h = std::max(1u, size.y >> level);
-        for (uint32_t face = 0; face < numFaces; face++) {
-          ktx_size_t offset;
-          ktxTexture_GetImageOffset(baseTex, level, 0, face, &offset);
-          const unsigned char *src = ktxTexture_GetData(baseTex) + offset;
-
-          size_t pixelCount = static_cast<size_t>(w) * h;
-          size_t writeOffset = converted.size();
-          converted.resize(writeOffset + pixelCount * 4);
-          unsigned char *dst = converted.data() + writeOffset;
-          for (size_t p = 0; p < pixelCount; p++) {
-            dst[p * 4 + 0] = src[p * 3 + 0];
-            dst[p * 4 + 1] = src[p * 3 + 1];
-            dst[p * 4 + 2] = src[p * 3 + 2];
-            dst[p * 4 + 3] = 0xFF;
-          }
-
-          vk::BufferImageCopy region{};
-          region.bufferOffset = totalSize;
-          region.imageSubresource = vk::ImageSubresourceLayers{
-              vk::ImageAspectFlagBits::eColor, level, face, 1};
-          region.imageExtent = vk::Extent3D{w, h, 1};
-          regions.push_back(region);
-
-          totalSize += pixelCount * 4;
-        }
-      }
-
-      ktxTexture2_Destroy(texture);
-
-      vk::ImageCreateInfo imageInfo{};
-      imageInfo.imageType = vk::ImageType::e2D;
-      imageInfo.format = format;
-      imageInfo.extent = vk::Extent3D{size.x, size.y, 1};
-      imageInfo.mipLevels = mipLevels;
-      imageInfo.arrayLayers = numFaces;
-      imageInfo.samples = vk::SampleCountFlagBits::e1;
-      imageInfo.tiling = vk::ImageTiling::eOptimal;
-      imageInfo.usage = vk::ImageUsageFlagBits::eTransferDst |
-                        vk::ImageUsageFlagBits::eSampled;
-      imageInfo.sharingMode = vk::SharingMode::eExclusive;
-      imageInfo.initialLayout = vk::ImageLayout::eUndefined;
-      if (cube)
-        imageInfo.flags = vk::ImageCreateFlagBits::eCubeCompatible;
-
-      if (context.vulkan.device.createImage(&imageInfo, nullptr, &img) !=
-          vk::Result::eSuccess) {
-        throw std::runtime_error("failed to create image!");
-      }
-
-      vk::MemoryRequirements memRequirements =
-          context.vulkan.device.getImageMemoryRequirements(img);
-      vk::MemoryAllocateInfo allocInfo{};
-      allocInfo.allocationSize = memRequirements.size;
-      allocInfo.memoryTypeIndex =
-          findMemoryType(context, memRequirements.memoryTypeBits,
-                         vk::MemoryPropertyFlagBits::eDeviceLocal);
-      if (context.vulkan.device.allocateMemory(&allocInfo, nullptr, &memory) !=
-          vk::Result::eSuccess) {
-        throw std::runtime_error("failed to allocate image memory!");
-      }
-      context.vulkan.device.bindImageMemory(img, memory, 0);
-      layout = vk::ImageLayout::eUndefined;
-
-      Buffer<std::byte> stagingBuffer(
-          context, vk::BufferUsageFlagBits::eTransferSrc,
-          vk::MemoryPropertyFlagBits::eHostVisible |
-              vk::MemoryPropertyFlagBits::eHostCoherent,
-          totalSize);
-      stagingBuffer.map();
-      stagingBuffer.write(converted.data());
-
-      vk::ImageSubresourceRange fullRange{vk::ImageAspectFlagBits::eColor, 0,
-                                          mipLevels, 0, numFaces};
-
-      auto cmd = beginSingleTimeCommands(context);
-      recordTransitionLayout(cmd, vk::ImageLayout::eTransferDstOptimal,
-                             fullRange);
-      cmd.copyBufferToImage(
-          stagingBuffer, img, vk::ImageLayout::eTransferDstOptimal,
-          static_cast<uint32_t>(regions.size()), regions.data());
-      recordTransitionLayout(cmd, vk::ImageLayout::eShaderReadOnlyOptimal,
-                             fullRange);
-      endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
-
-      vk::ImageViewCreateInfo viewInfo{};
-      viewInfo.image = img;
-      viewInfo.viewType =
-          cube ? vk::ImageViewType::eCube : vk::ImageViewType::e2D;
-      viewInfo.format = format;
-      viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0,
-                                   mipLevels, 0, numFaces};
-      if (context.vulkan.device.createImageView(&viewInfo, nullptr, &view) !=
-          vk::Result::eSuccess) {
-        throw std::runtime_error("failed to create image view!");
-      }
-
-      setDbgInfo(path.c_str());
-      return;
-    }
-
-    ktxVulkanDeviceInfo vdi;
-    ktxVulkanDeviceInfo_Construct(
-        &vdi, context.vulkan.physicalDevice, context.vulkan.device,
-        context.vulkan.graphicsQueue, context.vulkan.commandPool, nullptr);
-    ktxVulkanTexture vkTexture;
-    result = ktxTexture2_VkUploadEx(
-        texture, &vdi, &vkTexture, VK_IMAGE_TILING_OPTIMAL,
-        VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    if (result != KTX_SUCCESS) {
-      ktxVulkanDeviceInfo_Destruct(&vdi);
-      ktxTexture2_Destroy(texture);
-      throw std::runtime_error(
-          std::format("failed to upload {} image to Vulkan! Error: {}",
-                      path.c_str(), magic_enum::enum_name(result)));
-    }
-    ktxVkTexture = vkTexture;
-    isKtxManaged = true;
-    img = vkTexture.image;
-    memory = vkTexture.deviceMemory;
-    format = static_cast<vk::Format>(vkTexture.imageFormat);
-    layout = static_cast<vk::ImageLayout>(vkTexture.imageLayout);
-    size = {vkTexture.width, vkTexture.height};
-    mipLevels = vkTexture.levelCount;
-
-    vk::ImageViewCreateInfo viewInfo{};
-    viewInfo.viewType = static_cast<vk::ImageViewType>(vkTexture.viewType);
-    viewInfo.format = format;
-    viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-    viewInfo.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
-    viewInfo.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-    viewInfo.image = img;
-
-    if (context.vulkan.device.createImageView(&viewInfo, nullptr, &view) !=
-        vk::Result::eSuccess) {
-      throw std::runtime_error("failed to create image view!");
-    }
-
-    ktxVulkanDeviceInfo_Destruct(&vdi);
-    ktxTexture2_Destroy(texture);
-    return;
-  }
-
-  format = vk::Format::eR8G8B8A8Unorm;
-  int w, h, texChannels;
-  stbi_uc *pixels =
-      stbi_load(path.string().c_str(), &w, &h, &texChannels, STBI_rgb_alpha);
-  size.x = static_cast<unsigned int>(w);
-  size.y = static_cast<unsigned int>(h);
-  createImageFromData(pixels, size.x * size.y * 4, size);
-  stbi_image_free(pixels);
-  setDbgInfo(path.c_str());
-}
-
-Image::Image(EngineContext &context, const ImageCreateInfo_color &createInfo)
-    : context{context}, format{createInfo.format}, size{createInfo.size},
-      layout{createInfo.layout} {
+Image2D::Image2D(EngineContext &context, const ImageCreateInfo_color &createInfo)
+    : Image(context) {
+  format = createInfo.format;
+  size = createInfo.size;
+  layout = createInfo.layout;
   numSamples = createInfo.samples;
   mipLevels = createInfo.mipLevels;
   aspectMask = createInfo.aspect;
 
-  createImage(context, createInfo.size, createInfo.usage);
+  createImage(createInfo.size, createInfo.usage);
   createView();
 
   uint32_t color = createInfo.color;
@@ -550,13 +599,15 @@ Image::Image(EngineContext &context, const ImageCreateInfo_color &createInfo)
   setDbgInfo(createInfo.name);
 }
 
-Image::Image(EngineContext &context, const ImageCreateInfo_empty &createInfo)
-    : context{context}, size{createInfo.size}, format{createInfo.format} {
+Image2D::Image2D(EngineContext &context, const ImageCreateInfo_empty &createInfo)
+    : Image(context) {
+  size = createInfo.size;
+  format = createInfo.format;
   numSamples = createInfo.samples;
   mipLevels = createInfo.mipLevels;
   aspectMask = createInfo.aspect;
 
-  createImage(context, size, createInfo.usage);
+  createImage(size, createInfo.usage);
   createView();
 
   layout = vk::ImageLayout::eUndefined;
@@ -566,14 +617,16 @@ Image::Image(EngineContext &context, const ImageCreateInfo_empty &createInfo)
   setDbgInfo(createInfo.name);
 }
 
-Image::Image(EngineContext &context, const ImageCreateInfo_data &createInfo)
-    : context{context}, format{createInfo.format}, size{createInfo.size},
-      layout{createInfo.layout} {
+Image2D::Image2D(EngineContext &context, const ImageCreateInfo_data &createInfo)
+    : Image(context) {
+  format = createInfo.format;
+  size = createInfo.size;
+  layout = createInfo.layout;
   numSamples = createInfo.samples;
   mipLevels = createInfo.mipLevels;
   aspectMask = createInfo.aspect;
 
-  createImage(context, createInfo.size, createInfo.usage);
+  createImage(createInfo.size, createInfo.usage);
   createView();
 
   vk::DeviceSize bufferSize =
@@ -594,18 +647,145 @@ Image::Image(EngineContext &context, const ImageCreateInfo_data &createInfo)
   setDbgInfo(createInfo.name);
 }
 
-Image::Image(EngineContext &context,
-            const ImageCreateInfo_cubemapStorage &createInfo)
-    : context{context}, format{createInfo.format},
-      size{glm::uvec2{createInfo.faceSize, createInfo.faceSize}},
-      layout{vk::ImageLayout::eUndefined} {
+void Image2D::loadFromKtx2(const std::filesystem::path &path) {
+  KtxLoadResult data = Image::loadKtx2(context, path);
+  if (data.numFaces == 6)
+    throw std::runtime_error(std::format(
+        "{} is a cubemap (6 faces) - load it as a Cubemap, not an Image2D",
+        path.c_str()));
+
+  format = data.format;
+  size = data.size;
+  mipLevels = data.numLevels;
+  layout = vk::ImageLayout::eUndefined;
+
+  auto [createdImg, createdAlloc] =
+      Image::createAndUploadKtxImage(context, data, 1, {});
+  img = createdImg;
+  allocation = createdAlloc;
+  layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+
+  vk::ImageViewCreateInfo viewInfo{};
+  viewInfo.image = img;
+  viewInfo.viewType = vk::ImageViewType::e2D;
+  viewInfo.format = format;
+  viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, mipLevels,
+                               0, 1};
+  if (context.vulkan.device.createImageView(&viewInfo, nullptr, &view) !=
+      vk::Result::eSuccess)
+    throw std::runtime_error("failed to create image view!");
+
+  setDbgInfo(path.c_str());
+}
+
+Image2D::Image2D(EngineContext &context, const std::filesystem::path &path)
+    : Image(context) {
+  if (path.extension() == ".ktx2") {
+    loadFromKtx2(path);
+    return;
+  }
+
+  format = vk::Format::eR8G8B8A8Unorm;
+  int w, h, texChannels;
+  stbi_uc *pixels =
+      stbi_load(path.string().c_str(), &w, &h, &texChannels, STBI_rgb_alpha);
+  size.x = static_cast<unsigned int>(w);
+  size.y = static_cast<unsigned int>(h);
+  createImageFromData(pixels, size.x * size.y * 4, size);
+  stbi_image_free(pixels);
+  setDbgInfo(path.c_str());
+}
+
+std::vector<unsigned char> Image2D::downloadAndSerializeToPNG() {
+  if (format != vk::Format::eR8G8B8A8Unorm &&
+      format != vk::Format::eR8G8B8A8Srgb) {
+    throw std::runtime_error("downloadAndSerializeToPNG only supports "
+                             "R8G8B8A8_UNORM or SRGB formats");
+  }
+
+  std::vector<unsigned char> pixels(size.x * size.y * 4);
+  downloadPixels(pixels.data(), 0);
+
+  int len;
+  unsigned char *pngData = stbi_write_png_to_mem(
+      pixels.data(), static_cast<int>(size.x * 4), static_cast<int>(size.x),
+      static_cast<int>(size.y), 4, &len);
+
+  if (!pngData) {
+    throw std::runtime_error("Failed to serialize to PNG: " +
+                             std::string(stbi_failure_reason()));
+  }
+
+  std::vector<uint8_t> result(pngData, pngData + len);
+  STBIW_FREE(pngData);
+  return result;
+}
+
+// =============================== Image3D ===============================
+
+void Image3D::createView() {
+  vk::ImageViewCreateInfo viewInfo{};
+  viewInfo.image = img;
+  viewInfo.viewType = vk::ImageViewType::e3D;
+  viewInfo.format = format;
+  viewInfo.subresourceRange = {aspectMask, 0, mipLevels, 0, 1};
+  if (context.vulkan.device.createImageView(&viewInfo, nullptr, &view) !=
+      vk::Result::eSuccess) {
+    throw std::runtime_error("failed to create 3D image view!");
+  }
+}
+
+void Image3D::createImage(glm::uvec3 imgSize, vk::ImageUsageFlags usage) {
+  const vk::ImageLayout initLayout = vk::ImageLayout::eUndefined;
+  vk::ImageCreateInfo imageInfo{};
+  imageInfo.imageType = vk::ImageType::e3D;
+  imageInfo.format = format;
+  imageInfo.mipLevels = mipLevels;
+  imageInfo.arrayLayers = 1;
+  imageInfo.samples = numSamples;
+  imageInfo.tiling = vk::ImageTiling::eOptimal;
+  imageInfo.usage = usage;
+  imageInfo.sharingMode = vk::SharingMode::eExclusive;
+  imageInfo.initialLayout = initLayout;
+  layout = initLayout;
+  imageInfo.extent = vk::Extent3D{imgSize.x, imgSize.y, imgSize.z};
+
+  img = createImageWithInfo(context, imageInfo, allocation);
+}
+
+Image3D::Image3D(EngineContext &context, const ImageCreateInfo_empty3D &createInfo)
+    : Image(context) {
+  size = createInfo.size;
+  format = createInfo.format;
   numSamples = createInfo.samples;
   mipLevels = createInfo.mipLevels;
   aspectMask = createInfo.aspect;
 
-  // Not reusing the private createImage()/createView() helpers here since
-  // those hardcode arrayLayers=1 / a single 2D view - a cubemap needs 6
-  // array layers and the eCubeCompatible flag instead.
+  createImage(size, createInfo.usage);
+  createView();
+
+  layout = vk::ImageLayout::eUndefined;
+  if (createInfo.layout != vk::ImageLayout::eUndefined) {
+    transitionLayout(createInfo.layout);
+  }
+  setDbgInfo(createInfo.name);
+}
+
+// =============================== Cubemap ===============================
+
+Cubemap::Cubemap(EngineContext &context,
+                 const ImageCreateInfo_cubemapStorage &createInfo)
+    : Image(context) {
+  faceSize = createInfo.faceSize;
+  format = createInfo.format;
+  layout = vk::ImageLayout::eUndefined;
+  numSamples = createInfo.samples;
+  mipLevels = createInfo.mipLevels;
+  aspectMask = createInfo.aspect;
+
+  // Not reusing Image2D's helpers here since those hardcode arrayLayers=1 /
+  // a single 2D view - a cubemap needs 6 array layers and the
+  // eCubeCompatible flag instead.
   vk::ImageCreateInfo imageInfo{};
   imageInfo.imageType = vk::ImageType::e2D;
   imageInfo.format = format;
@@ -621,22 +801,7 @@ Image::Image(EngineContext &context,
   imageInfo.extent.height = createInfo.faceSize;
   imageInfo.extent.depth = 1;
 
-  if (context.vulkan.device.createImage(&imageInfo, nullptr, &img) !=
-      vk::Result::eSuccess) {
-    throw std::runtime_error("failed to create cubemap image!");
-  }
-
-  vk::MemoryRequirements memRequirements =
-      context.vulkan.device.getImageMemoryRequirements(img);
-  vk::MemoryAllocateInfo allocInfo{
-      memRequirements.size,
-      findMemoryType(context, memRequirements.memoryTypeBits,
-                     vk::MemoryPropertyFlagBits::eDeviceLocal)};
-  if (context.vulkan.device.allocateMemory(&allocInfo, nullptr, &memory) !=
-      vk::Result::eSuccess) {
-    throw std::runtime_error("failed to allocate cubemap image memory!");
-  }
-  context.vulkan.device.bindImageMemory(img, memory, 0);
+  img = createImageWithInfo(context, imageInfo, allocation);
 
   // 2D-array view (6 layers), for compute imageStore access per face.
   vk::ImageViewCreateInfo arrayViewInfo{};
@@ -664,8 +829,9 @@ Image::Image(EngineContext &context,
   layout = vk::ImageLayout::eUndefined;
   if (createInfo.layout != vk::ImageLayout::eUndefined) {
     // Covers all 6 layers, unlike the generic transitionLayout()/
-    // recordTransitionLayout(cmd,newLayout) overload, which hardcodes
-    // layerCount=1 and would leave layers 1-5 in the wrong layout.
+    // recordTransitionLayout(cmd,newLayout) overload, which would derive
+    // layerCount from getLayerCount() anyway - kept explicit here to match
+    // the original behaviour.
     auto cmd = beginSingleTimeCommands(context);
     recordTransitionLayout(
         cmd, createInfo.layout,
@@ -675,146 +841,131 @@ Image::Image(EngineContext &context,
   setDbgInfo(createInfo.name);
 }
 
-Image::~Image() {
-  if (view)
-    context.vulkan.device.destroyImageView(view, nullptr);
+Cubemap::Cubemap(EngineContext &context, const std::filesystem::path &path)
+    : Image(context) {
+  if (path.extension() != ".ktx2")
+    throw std::runtime_error(std::format(
+        "{} isn't a .ktx2 file - Cubemap only loads ktx2 cube textures",
+        path.c_str()));
+
+  Image::KtxLoadResult data = Image::loadKtx2(context, path);
+  if (data.numFaces != 6)
+    throw std::runtime_error(std::format(
+        "{} isn't a cubemap (expected 6 faces, got {}) - load it as an "
+        "Image2D instead",
+        path.c_str(), data.numFaces));
+
+  format = data.format;
+  faceSize = data.size.x;
+  mipLevels = data.numLevels;
+
+  auto [createdImg, createdAlloc] = Image::createAndUploadKtxImage(
+      context, data, 6, vk::ImageCreateFlagBits::eCubeCompatible);
+  img = createdImg;
+  allocation = createdAlloc;
+  layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+
+  vk::ImageViewCreateInfo arrayViewInfo{};
+  arrayViewInfo.image = img;
+  arrayViewInfo.viewType = vk::ImageViewType::e2DArray;
+  arrayViewInfo.format = format;
+  arrayViewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0,
+                                    mipLevels, 0, 6};
+  if (context.vulkan.device.createImageView(&arrayViewInfo, nullptr,
+                                            &arrayView) != vk::Result::eSuccess)
+    throw std::runtime_error("failed to create cubemap array view!");
+
+  vk::ImageViewCreateInfo viewInfo{};
+  viewInfo.image = img;
+  viewInfo.viewType = vk::ImageViewType::eCube;
+  viewInfo.format = format;
+  viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, mipLevels,
+                               0, 6};
+  if (context.vulkan.device.createImageView(&viewInfo, nullptr, &view) !=
+      vk::Result::eSuccess)
+    throw std::runtime_error("failed to create cubemap cube view!");
+
+  setDbgInfo(path.c_str());
+}
+
+Cubemap::~Cubemap() {
   if (arrayView)
     context.vulkan.device.destroyImageView(arrayView, nullptr);
-  if (isKtxManaged) {
-    ktxVulkanTexture_Destruct(&ktxVkTexture, context.vulkan.device, nullptr);
-  } else {
-    if (img)
-      context.vulkan.device.destroyImage(img, nullptr);
-    if (memory)
-      context.vulkan.device.freeMemory(memory, nullptr);
-  }
 }
 
-void Image::recordCopyFromBuffer(vk::CommandBuffer cmd, vk::Buffer buffer,
-                                 uint32_t bufferOffset,
-                                 uint32_t baseArrayLayer,
-                                 uint32_t layerCount) {
-  assert(layout == vk::ImageLayout::eTransferDstOptimal);
+// ============================== Image::fromFile ==============================
 
-  // For layerCount > 1 (e.g. a cubemap's 6 faces), the source buffer must
-  // hold `layerCount` faces of width*height*formatSize bytes each, packed
-  // back-to-back in layer order starting at bufferOffset -- that's the
-  // layout a tightly-packed vk::BufferImageCopy with bufferRowLength=0/
-  // bufferImageHeight=0 assumes per layer.
-  vk::BufferImageCopy region{
-      bufferOffset, // bufferOffset
-      0,            // bufferRowLength
-      0,            // bufferImageHeight
-      vk::ImageSubresourceLayers{// imageSubresource
-                                 vk::ImageAspectFlagBits::eColor, 0,
-                                 baseArrayLayer, layerCount},
-      vk::Offset3D{0, 0, 0},          // imageOffset
-      vk::Extent3D{size.x, size.y, 1} // imageExtent
-  };
+std::unique_ptr<Image> Image::fromFile(EngineContext &context,
+                                       const std::filesystem::path &path) {
+  if (path.extension() != ".ktx2")
+    return std::make_unique<Image2D>(context, path);
 
-  cmd.copyBufferToImage(buffer, img, vk::ImageLayout::eTransferDstOptimal, 1,
-                        &region);
-}
+  // Parsed once here (rather than re-delegating to Image2D's/Cubemap's own
+  // path constructors, which would each call loadKtx2 independently) since
+  // we don't know which type to construct until after parsing.
+  KtxLoadResult data = loadKtx2(context, path);
 
-void Image::copyFromBuffer(vk::Buffer buffer, uint32_t bufferOffset) {
-  auto cmd = beginSingleTimeCommands(context);
-  vk::ImageLayout oldLayout = layout;
-  if (layout != vk::ImageLayout::eTransferDstOptimal)
-    recordTransitionLayout(cmd, vk::ImageLayout::eTransferDstOptimal);
-  recordCopyFromBuffer(cmd, buffer, bufferOffset);
-  if (oldLayout != vk::ImageLayout::eTransferDstOptimal)
-    recordTransitionLayout(cmd, oldLayout);
-  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
-}
+  if (data.numFaces == 6) {
+    std::unique_ptr<Cubemap> outImg(new Cubemap(context));
+    outImg->format = data.format;
+    outImg->faceSize = data.size.x;
+    outImg->mipLevels = data.numLevels;
 
-void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel,
-                           uint32_t baseArrayLayer, uint32_t layerCount) {
-  if (mipLevel >= mipLevels) {
-    throw std::runtime_error("Mip level out of range");
-  }
+    auto [img, alloc] = createAndUploadKtxImage(
+        context, data, 6, vk::ImageCreateFlagBits::eCubeCompatible);
+    outImg->img = img;
+    outImg->allocation = alloc;
+    outImg->layout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
-  uint32_t width = size.x >> mipLevel;
-  uint32_t height = size.y >> mipLevel;
+    vk::ImageViewCreateInfo arrayViewInfo{};
+    arrayViewInfo.image = img;
+    arrayViewInfo.viewType = vk::ImageViewType::e2DArray;
+    arrayViewInfo.format = data.format;
+    arrayViewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0,
+                                      data.numLevels, 0, 6};
+    if (context.vulkan.device.createImageView(&arrayViewInfo, nullptr,
+                                              &outImg->arrayView) !=
+        vk::Result::eSuccess)
+      throw std::runtime_error("failed to create cubemap array view!");
 
-  // Dynamically query format size instead of hardcoding 4 bytes
-  vk::DeviceSize pixelSize = getFormatSize(format);
-  vk::DeviceSize bufferSize = static_cast<vk::DeviceSize>(width) * height *
-                              pixelSize * layerCount;
+    vk::ImageViewCreateInfo viewInfo{};
+    viewInfo.image = img;
+    viewInfo.viewType = vk::ImageViewType::eCube;
+    viewInfo.format = data.format;
+    viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0,
+                                 data.numLevels, 0, 6};
+    if (context.vulkan.device.createImageView(&viewInfo, nullptr,
+                                              &outImg->view) !=
+        vk::Result::eSuccess)
+      throw std::runtime_error("failed to create cubemap cube view!");
 
-  Buffer<std::byte> stagingBuffer(context,
-                                  vk::BufferUsageFlagBits::eTransferDst,
-                                  vk::MemoryPropertyFlagBits::eHostVisible |
-                                      vk::MemoryPropertyFlagBits::eHostCoherent,
-                                  bufferSize);
-
-  vk::CommandBuffer cmd = beginSingleTimeCommands(context);
-
-  vk::ImageSubresourceRange subresourceRange = {vk::ImageAspectFlagBits::eColor,
-                                                mipLevel, 1, baseArrayLayer,
-                                                layerCount};
-  vk::ImageLayout oldLayout = layout;
-  recordTransitionLayout(cmd, vk::ImageLayout::eTransferSrcOptimal,
-                         subresourceRange);
-
-  // With layerCount > 1 this writes `layerCount` faces back-to-back into
-  // dst (tightly packed, same layout recordCopyFromBuffer's upload side
-  // expects), which is what lets a cubemap round-trip through a single
-  // flat buffer.
-  vk::BufferImageCopy region = {
-      0,
-      0,
-      0,
-      vk::ImageSubresourceLayers{vk::ImageAspectFlagBits::eColor, mipLevel,
-                                 baseArrayLayer, layerCount},
-      {0, 0, 0},
-      {width, height, 1}};
-
-  cmd.copyImageToBuffer(img, vk::ImageLayout::eTransferSrcOptimal,
-                        stagingBuffer, 1, &region);
-
-  recordTransitionLayout(cmd, oldLayout, subresourceRange);
-
-  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
-
-  stagingBuffer.map();
-  std::memcpy(dst, stagingBuffer.getMappedAddr(), bufferSize);
-  stagingBuffer.unmap();
-}
-
-std::vector<unsigned char> Image::downloadAndSerializeToPNG() {
-  if (format != vk::Format::eR8G8B8A8Unorm &&
-      format != vk::Format::eR8G8B8A8Srgb) {
-    throw std::runtime_error("downloadAndSerializeToPNG only supports "
-                             "R8G8B8A8_UNORM or SRGB formats");
+    outImg->setDbgInfo(path.c_str());
+    return outImg;
   }
 
-  std::vector<unsigned char> pixels(size.x * size.y * 4);
-  downloadPixels(pixels.data(), 0);
+  std::unique_ptr<Image2D> outImg(new Image2D(context));
+  outImg->format = data.format;
+  outImg->size = data.size;
+  outImg->mipLevels = data.numLevels;
 
-  int len;
-  unsigned char *pngData = stbi_write_png_to_mem(
-      pixels.data(), static_cast<int>(size.x * 4), static_cast<int>(size.x),
-      static_cast<int>(size.y), 4, &len);
+  auto [img, alloc] = createAndUploadKtxImage(context, data, 1, {});
+  outImg->img = img;
+  outImg->allocation = alloc;
+  outImg->layout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
-  if (!pngData) {
-    throw std::runtime_error("Failed to serialize to PNG: " +
-                             std::string(stbi_failure_reason()));
-  }
+  vk::ImageViewCreateInfo viewInfo{};
+  viewInfo.image = img;
+  viewInfo.viewType = vk::ImageViewType::e2D;
+  viewInfo.format = data.format;
+  viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0,
+                               data.numLevels, 0, 1};
+  if (context.vulkan.device.createImageView(&viewInfo, nullptr,
+                                            &outImg->view) !=
+      vk::Result::eSuccess)
+    throw std::runtime_error("failed to create image view!");
 
-  std::vector<uint8_t> result(pngData, pngData + len);
-  STBIW_FREE(pngData);
-  return result;
-}
-
-void Image::setDbgInfo(const char *name) {
-  std::string str = std::format("{} image", name);
-  debug::setObjName(context, vk::ObjectType::eImage,
-                    reinterpret_cast<uint64_t>(static_cast<VkImage>(img)),
-                    str.c_str());
-  str = std::format("image view for image {}", name);
-  debug::setObjName(context, vk::ObjectType::eImageView,
-                    reinterpret_cast<uint64_t>(static_cast<VkImageView>(view)),
-                    str.c_str());
+  outImg->setDbgInfo(path.c_str());
+  return outImg;
 }
 
 } // namespace vkh

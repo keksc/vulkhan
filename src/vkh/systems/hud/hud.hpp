@@ -10,6 +10,7 @@
 
 namespace vkh {
 class GraphicsPipeline;
+class Image2D;
 namespace hud {
 class View;
 class Element;
@@ -32,7 +33,7 @@ private:
 
   std::unique_ptr<GraphicsPipeline> pipeline;
 
-  std::shared_ptr<Image> fontAtlas;
+  std::shared_ptr<Image2D> fontAtlas;
   hud::DrawInfo drawInfo;
   hud::View *view{};
 }; // namespace hudSys

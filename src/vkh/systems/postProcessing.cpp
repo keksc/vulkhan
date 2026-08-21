@@ -25,6 +25,10 @@ void PostProcessingSys::createDescriptors() {
                 // Binding 2: Depth Sampler (Input)
                 vk::DescriptorSetLayoutBinding{
                     2, vk::DescriptorType::eCombinedImageSampler, 1,
+                    vk::ShaderStageFlagBits::eCompute, nullptr},
+                // Binding 3: Smoke dye volume (Input) — sampler3D, periodic
+                vk::DescriptorSetLayoutBinding{
+                    3, vk::DescriptorType::eCombinedImageSampler, 1,
                     vk::ShaderStageFlagBits::eCompute, nullptr}});
 
   debug::setObjName(
@@ -65,11 +69,19 @@ void PostProcessingSys::allocateAndWriteDescriptorSets() {
         context.vulkan.swapChain->getResolvedDepthImageView(i);
     depthImageInfo.imageLayout = vk::ImageLayout::eDepthStencilReadOnlyOptimal;
 
+    // The dye volume isn't per-swapchain-image (it's owned by FluidGrid,
+    // one shared image), so this same descriptor info is written into
+    // every per-image set below - not indexed by i like the three above.
+    vk::DescriptorImageInfo smokeVolumeInfo =
+        smokeGrid.dyeImage->getDescriptorInfo(smokeVolumeSampler);
+
     DescriptorWriter writer(context);
     writer.writeImage(0, swapImageInfo, vk::DescriptorType::eStorageImage);
     writer.writeImage(1, sceneColorInfo,
                       vk::DescriptorType::eCombinedImageSampler);
     writer.writeImage(2, depthImageInfo,
+                      vk::DescriptorType::eCombinedImageSampler);
+    writer.writeImage(3, smokeVolumeInfo,
                       vk::DescriptorType::eCombinedImageSampler);
     writer.updateSet(descriptorSets[i]);
   }
@@ -79,16 +91,38 @@ void PostProcessingSys::createPipeline() {
   std::vector<vk::DescriptorSetLayout> setLayouts{
       context.vulkan.globalDescriptorSetLayout, setLayout};
 
+  vk::PushConstantRange pcRange{};
+  pcRange.stageFlags = vk::ShaderStageFlagBits::eCompute;
+  pcRange.offset = 0;
+  pcRange.size = sizeof(SmokePush);
+
   vk::PipelineLayoutCreateInfo layoutInfo{};
   layoutInfo.pSetLayouts = setLayouts.data();
   layoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+  layoutInfo.pushConstantRangeCount = 1;
+  layoutInfo.pPushConstantRanges = &pcRange;
 
   pipeline = std::make_unique<ComputePipeline>(
       context, "shaders/postProcessing.comp.spv", layoutInfo,
       "post processing");
 }
 
-PostProcessingSys::PostProcessingSys(EngineContext &context) : System(context) {
+PostProcessingSys::PostProcessingSys(EngineContext &context,
+                                     FluidGrid &smokeGrid)
+    : System(context), smokeGrid{smokeGrid} {
+  vk::SamplerCreateInfo samplerInfo{};
+  samplerInfo.magFilter = vk::Filter::eLinear;
+  samplerInfo.minFilter = vk::Filter::eLinear;
+  samplerInfo.addressModeU = vk::SamplerAddressMode::eRepeat;
+  samplerInfo.addressModeV = vk::SamplerAddressMode::eRepeat;
+  samplerInfo.addressModeW = vk::SamplerAddressMode::eRepeat;
+  samplerInfo.borderColor = vk::BorderColor::eIntOpaqueBlack;
+  samplerInfo.unnormalizedCoordinates = false;
+  if (context.vulkan.device.createSampler(&samplerInfo, nullptr,
+                                          &smokeVolumeSampler) !=
+      vk::Result::eSuccess)
+    throw std::runtime_error("failed to create smoke volume sampler!");
+
   createDescriptors();
   createPipeline();
   savedSwapChain = context.vulkan.swapChain.get();
@@ -96,15 +130,22 @@ PostProcessingSys::PostProcessingSys(EngineContext &context) : System(context) {
 
 PostProcessingSys::~PostProcessingSys() {
   context.vulkan.device.destroyDescriptorSetLayout(setLayout);
+  context.vulkan.device.destroySampler(smokeVolumeSampler);
 }
 
-void PostProcessingSys::runPassthrough(vk::CommandBuffer cmd,
-                                       uint32_t imageIndex) {
+void PostProcessingSys::runPassthrough(uint32_t imageIndex) {
+  auto &cmd = context.frameInfo.cmd;
+
   // No compute pass this frame: just copy the resolved scene color directly
   // into the swapchain image and get it into a presentable layout. Scene
   // color and the swapchain image share format and extent (see
   // SwapChain::createSceneColorResources), so a straight copy works — no
   // blit/filtering needed.
+  //
+  // NOTE: smoke compositing lives in the compute path below (run()'s
+  // dispatch), not here - smoke will not render at all while postprocessing
+  // is disabled. If that's ever a problem, this is where a smoke-only
+  // fallback composite would need to go.
 
   vk::ImageMemoryBarrier barriers[2]{};
 
@@ -165,14 +206,15 @@ void PostProcessingSys::runPassthrough(vk::CommandBuffer cmd,
                       &barriers[1]);
 }
 
-void PostProcessingSys::run(vk::CommandBuffer cmd, uint32_t imageIndex) {
+void PostProcessingSys::run(uint32_t imageIndex) {
+  auto &cmd = context.frameInfo.cmd;
   if (context.vulkan.swapChain.get() != savedSwapChain) {
     savedSwapChain = context.vulkan.swapChain.get();
     recreateDescriptors();
   }
 
   if (!enabled) {
-    runPassthrough(cmd, imageIndex);
+    runPassthrough(imageIndex);
     return;
   }
 
@@ -238,6 +280,14 @@ void PostProcessingSys::run(vk::CommandBuffer cmd, uint32_t imageIndex) {
   cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipeline->getLayout(),
                          0, static_cast<uint32_t>(sets.size()), sets.data(), 0,
                          nullptr);
+
+  SmokePush push{};
+  push.boxMin =
+      glm::vec4(glm::vec3(smokeGrid.gridOrigin) * smokeGrid.cellSize,
+               smokeGrid.cellSize);
+  push.cellCount = glm::ivec4(smokeGrid.cellCount, 0);
+  cmd.pushConstants(pipeline->getLayout(), vk::ShaderStageFlagBits::eCompute, 0,
+                    sizeof(SmokePush), &push);
 
   // Dispatch compute shader
   uint32_t groupCountX = (context.window.size.x + 15) / 16;

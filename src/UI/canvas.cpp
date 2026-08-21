@@ -462,7 +462,7 @@ void Canvas::saveToFile(const std::filesystem::path &path) {
 
   // --- Texture Deduplication ---
   std::unordered_map<unsigned short, size_t> textureToSavedIndex;
-  std::vector<vkh::Image *> savedImages;
+  std::vector<vkh::Image2D *> savedImages;
 
   for (const auto &child : children) {
     if (child == modeBg || child == modeText || child == selectIndicator)

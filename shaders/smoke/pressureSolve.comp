@@ -1,28 +1,35 @@
 #version 450
 
-layout(local_size_x = 16, local_size_y = 16) in;
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 layout(push_constant) uniform PushConstants {
   int rb;
   float cellSize;
   float dt;
+  ivec3 cellCount;
 } pc;
 
 #include "common.glsl"
 
 void main() {
-  int x = int(gl_GlobalInvocationID.x);
-  int y = int(gl_GlobalInvocationID.y);
-
-  if (isSolid(x, y))
+  ivec3 p = ivec3(gl_GlobalInvocationID);
+  if (p.x >= pc.cellCount.x || p.y >= pc.cellCount.y || p.z >= pc.cellCount.z)
     return;
 
-  if ((x + y) % 2 != pc.rb)
+  if (isSolid(p, pc.cellCount))
     return;
 
-  setPressure(x, y,
-      (getPressure(x + 1, y) + getPressure(x - 1, y) +
-       getPressure(x, y + 1) + getPressure(x, y - 1) -
-       getDiv(x, y)) *
-      scale);
+  // 3D checkerboard parity
+  // TODO: spawn half the threads and make them find the right coord
+  if ((p.x + p.y + p.z) % 2 != pc.rb)
+    return;
+
+  float sum = getPressure(p + ivec3(1, 0, 0), pc.cellCount) +
+              getPressure(p + ivec3(-1, 0, 0), pc.cellCount) +
+              getPressure(p + ivec3(0, 1, 0), pc.cellCount) +
+              getPressure(p + ivec3(0, -1, 0), pc.cellCount) +
+              getPressure(p + ivec3(0, 0, 1), pc.cellCount) +
+              getPressure(p + ivec3(0, 0, -1), pc.cellCount);
+
+  setPressure(p, pc.cellCount, (sum - getDiv(p, pc.cellCount)) * scale);
 }

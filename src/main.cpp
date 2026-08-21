@@ -4,6 +4,8 @@
 #include "UI.hpp"
 #include "boids.hpp"
 #include "modding.hpp"
+#include "mountain.hpp"
+#include "settings.hpp"
 #include "vkh/audio.hpp"
 #include "vkh/camera.hpp"
 #include "vkh/cleanup.hpp"
@@ -12,11 +14,9 @@
 #include "vkh/input.hpp"
 #include "vkh/paths.hpp"
 #include "vkh/renderer.hpp"
-#include "settings.hpp"
 #include "vkh/sceneBuilder.hpp"
 #include "vkh/swapChain.hpp"
 #include "vkh/systems/entity/entities.hpp"
-#include "mountain.hpp"
 #include "vkh/systems/particles.hpp"
 #include "vkh/systems/postProcessing.hpp"
 #include "vkh/systems/sky.hpp"
@@ -95,6 +95,7 @@ void run() {
   paths::initCacheDir("vulkhan");
   paths::setWorkingDirectoryToExecutable();
   vkh::settings::load();
+  vkh::settings::validateSkyResolution();
 
   vkh::EngineContext context{};
   vkh::initWindow(context);
@@ -121,14 +122,19 @@ void run() {
     // bgm.play();
 
     // SkySys doesn't know about Settings (it's graphics-layer code) --
-    // main.cpp reads the toggle and passes it in as a plain bool instead.
-    vkh::SkySys skySys(context, vkh::settings::current().useCachedSkyBake);
+    // main.cpp reads the useCachedSkyBake toggle and the resolution
+    // fields and passes them in as plain values instead. The resolution
+    // can also change later, live, via GameUI's sky-resolution button --
+    // see the ui.setSkyResolutionHandler(...) call below.
+    vkh::SkySys skySys(context, vkh::settings::current().skyMilkyWayFaceSize,
+                       vkh::settings::current().skyDiscTurbulenceSize,
+                       vkh::settings::current().useCachedSkyBake);
     vkh::EntitySys entitySys(context);
 
     vkh::SmokeSys smokeSys(context);
     // vkh::WaterSys waterSys(context, skySys);
     vkh::ParticleSys particleSys(context);
-    vkh::PostProcessingSys postProcessingSys(context);
+    vkh::PostProcessingSys postProcessingSys(context, smokeSys.fluidGrid);
 
     auto &entities = entitySys.entities;
     // generateDungeon(context, entitySys);
@@ -224,6 +230,16 @@ void run() {
 
     GameUI ui(context);
 
+    // Live sky-resolution changes: the settings menu's sky resolution
+    // button (see UI.cpp) persists the new value to settings.bin and then
+    // fires this handler so the change is visible immediately rather than
+    // only on next launch. Capturing skySys by reference is safe here --
+    // this handler doesn't outlive skySys, both are local to this scope.
+    ui.setSkyResolutionHandler(
+        [&skySys](uint32_t milkyWayFaceSize, uint32_t discTurbulenceSize) {
+          skySys.rebake(milkyWayFaceSize, discTurbulenceSize);
+        });
+
     bool updateParticleSysAttractor = false;
     std::vector<glm::mat4> newTransform = genTransform();
     std::vector<glm::mat4> prevTransform = newTransform;
@@ -314,7 +330,8 @@ void run() {
       // our own transform out. Cheap no-op until the Hello handshake has
       // completed (see NetworkSession::sendUpdate).
       netSession.poll();
-      netSession.sendUpdate(context.camera.position, glm::quat_cast(context.camera.viewMatrix));
+      netSession.sendUpdate(context.camera.position,
+                            glm::quat_cast(context.camera.viewMatrix));
 
       // Sync remote player avatars against netSession.players(): spawn a
       // shoe-model entity group for anyone newly present, update transforms
@@ -455,8 +472,7 @@ void run() {
           particleSys.update();
           entitySys.updateJoints();
           entitySys.cull(commandBuffer);
-        }
-        if (ui.isSmokeViewActive()) {
+
           smokeSys.update();
         }
 
@@ -477,15 +493,11 @@ void run() {
         if (ui.isWorldViewActive()) {
           particleSys.render();
         }
-        if (ui.isSmokeViewActive()) {
-          smokeSys.render();
-        }
 
         // --- End pass 1 (replaces endSwapChainRenderPass) ---
         vkh::renderer::endOneXPass(commandBuffer);
 
-        postProcessingSys.run(commandBuffer,
-                              vkh::renderer::getCurrentImageIndex());
+        postProcessingSys.run(vkh::renderer::getCurrentImageIndex());
 
         // --- HUD pass: draw directly onto the swapchain image, after
         // tonemapping/postprocessing ---

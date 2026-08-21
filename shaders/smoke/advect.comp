@@ -1,0 +1,36 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(push_constant) uniform PushConstants {
+  int rb;          // unused here, kept so it shares AdvectPushConstants layout if you want one struct
+  float cellSize;
+  float dt;
+  ivec3 cellCount;
+} pc;
+
+#include "common.glsl"
+
+void main() {
+  ivec3 p = ivec3(gl_GlobalInvocationID);
+  if (p.x >= pc.cellCount.x || p.y >= pc.cellCount.y || p.z >= pc.cellCount.z)
+    return;
+
+  if (isSolid(p, pc.cellCount)) {
+    imageStore(targetVelocities, p, vec4(0.0));
+    imageStore(targetDye, p, vec4(0.0));
+    return;
+  }
+
+  vec3 vel = getVel(p, pc.cellCount);
+  vec3 cellCenter = vec3(p) + 0.5;
+  vec3 prevPos = cellCenter - vel * (pc.dt / pc.cellSize);
+
+  vec3 velSamplePos = mod(prevPos, vec3(pc.cellCount));
+  vec3 dyeSamplePos = mod(prevPos - vec3(0.5), vec3(pc.cellCount));
+
+  vec3 newVel = sampleVelAtLocalPos(velSamplePos, pc.cellCount);
+  float newDye = sampleDyeAtLocalPos(dyeSamplePos, pc.cellCount);
+
+  imageStore(targetVelocities, p, vec4(newVel, 0.0));
+  imageStore(targetDye, p, vec4(newDye, 0.0, 0.0, 0.0));
+}

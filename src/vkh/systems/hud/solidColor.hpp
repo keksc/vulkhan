@@ -13,7 +13,7 @@ namespace vkh {
 
 template <typename T> class Buffer;
 class GraphicsPipeline;
-class Image;
+class Image2D;
 
 class SolidColorSys : public System {
 public:
@@ -85,7 +85,7 @@ public:
   size_t addTextureFromPNGMemory(void *data, size_t size);
   size_t addTextureFromFile(std::filesystem::path path);
 
-  std::vector<Image> images;
+  std::vector<Image2D> images;
 
 private:
   void createBuffers();

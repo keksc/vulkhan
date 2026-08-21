@@ -1,26 +1,30 @@
 #version 450
 
-layout(local_size_x = 16, local_size_y = 16) in;
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 layout(push_constant) uniform PushConstants {
   int rb;
   float cellSize;
   float dt;
+  ivec3 cellCount;
 } pc;
 
 #include "common.glsl"
 
 void main() {
+  ivec3 p = ivec3(gl_GlobalInvocationID);
+  if (p.x >= pc.cellCount.x || p.y >= pc.cellCount.y || p.z >= pc.cellCount.z)
+    return;
+
   float dtRhoSize = (density * pc.cellSize / pc.dt);
 
-  int x = int(gl_GlobalInvocationID.x);
-  int y = int(gl_GlobalInvocationID.y);
-
-  if (isSolid(x, y)) {
-    setDiv(x, y, 0.0);
+  if (isSolid(p, pc.cellCount)) {
+    setDiv(p, pc.cellCount, 0.0);
     return;
   }
 
-  float div = getVel(x + 1, y).x - getVel(x, y).x + getVel(x, y + 1).y - getVel(x, y).y;
-  setDiv(x, y, div * dtRhoSize);
+  float div = getVel(p + ivec3(1, 0, 0), pc.cellCount).x - getVel(p, pc.cellCount).x +
+              getVel(p + ivec3(0, 1, 0), pc.cellCount).y - getVel(p, pc.cellCount).y +
+              getVel(p + ivec3(0, 0, 1), pc.cellCount).z - getVel(p, pc.cellCount).z;
+  setDiv(p, pc.cellCount, div * dtRhoSize);
 }

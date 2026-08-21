@@ -93,7 +93,7 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
                      vk::ImageUsageFlagBits::eStorage;
   createInfo.layout = vk::ImageLayout::eGeneral;
   createInfo.name = "water displacement map";
-  displacementFoamMap = std::make_unique<Image>(context, createInfo);
+  displacementFoamMap = std::make_unique<Image2D>(context, createInfo);
 
   // VkFFT Interop configuration using raw handles extracted via casting
   // wrappers

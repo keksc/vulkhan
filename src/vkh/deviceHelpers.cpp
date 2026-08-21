@@ -1,3 +1,4 @@
+#define VMA_IMPLEMENTATION
 #include "deviceHelpers.hpp"
 
 #include <fstream>
@@ -102,32 +103,29 @@ vk::Format findSupportedFormat(EngineContext &context,
 void createBuffer(EngineContext &context, vk::DeviceSize size,
                   vk::BufferUsageFlags usage,
                   vk::MemoryPropertyFlags properties, vk::Buffer &buffer,
-                  vk::DeviceMemory &bufferMemory) {
-  vk::BufferCreateInfo bufferInfo{{},    // flags
-                                  size,  // size
-                                  usage, // usage
-                                  vk::SharingMode::eExclusive};
+                  VmaAllocation &allocation, VmaAllocationCreateFlags vmaFlags) {
+  VkBufferCreateInfo bufferInfo{};
+  bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  bufferInfo.size = size;
+  bufferInfo.usage = static_cast<VkBufferUsageFlags>(usage);
+  bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-  try {
-    buffer = context.vulkan.device.createBuffer(bufferInfo);
-  } catch (const vk::SystemError &) {
-    throw std::runtime_error("failed to create vertex buffer!");
+  VmaAllocationCreateInfo allocInfo{};
+  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+  allocInfo.flags = vmaFlags;
+  // Host-visible buffers (staging buffers, mapped UBOs) need to be
+  // actually mappable; this mirrors the old MemoryPropertyFlags-based
+  // selection without us picking a memory type by hand.
+  if (properties & vk::MemoryPropertyFlagBits::eHostVisible) {
+    allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
   }
 
-  vk::MemoryRequirements memRequirements =
-      context.vulkan.device.getBufferMemoryRequirements(buffer);
-
-  vk::MemoryAllocateInfo allocInfo{
-      memRequirements.size,
-      findMemoryType(context, memRequirements.memoryTypeBits, properties)};
-
-  try {
-    bufferMemory = context.vulkan.device.allocateMemory(allocInfo);
-  } catch (const vk::SystemError &) {
-    throw std::runtime_error("failed to allocate vertex buffer memory!");
+  VkBuffer rawBuffer;
+  if (vmaCreateBuffer(context.vulkan.allocator, &bufferInfo, &allocInfo,
+                      &rawBuffer, &allocation, nullptr) != VK_SUCCESS) {
+    throw std::runtime_error("failed to create buffer via VMA!");
   }
-
-  context.vulkan.device.bindBufferMemory(buffer, bufferMemory, 0);
+  buffer = rawBuffer;
 }
 
 vk::CommandBuffer beginSingleTimeCommands(EngineContext &context) {
@@ -261,30 +259,19 @@ void writeFile(const std::filesystem::path &filepath, const void *data,
 
 vk::Image createImageWithInfo(EngineContext &context,
                               const vk::ImageCreateInfo &imageInfo,
-                              vk::DeviceMemory &imageMemory) {
-  vk::Image image;
-  try {
-    image = context.vulkan.device.createImage(imageInfo);
-  } catch (const vk::SystemError &) {
-    throw std::runtime_error("failed to create image!");
+                              VmaAllocation &allocation,
+                              VmaMemoryUsage memoryUsage) {
+  VkImageCreateInfo cImageInfo = imageInfo;
+
+  VmaAllocationCreateInfo allocInfo{};
+  allocInfo.usage = memoryUsage;
+
+  VkImage rawImage;
+  if (vmaCreateImage(context.vulkan.allocator, &cImageInfo, &allocInfo,
+                     &rawImage, &allocation, nullptr) != VK_SUCCESS) {
+    throw std::runtime_error("failed to create image via VMA!");
   }
-
-  vk::MemoryRequirements memRequirements =
-      context.vulkan.device.getImageMemoryRequirements(image);
-
-  vk::MemoryAllocateInfo allocInfo{
-      memRequirements.size,
-      findMemoryType(context, memRequirements.memoryTypeBits,
-                     vk::MemoryPropertyFlagBits::eDeviceLocal)};
-
-  try {
-    imageMemory = context.vulkan.device.allocateMemory(allocInfo);
-  } catch (const vk::SystemError &) {
-    throw std::runtime_error("failed to allocate image memory!");
-  }
-
-  context.vulkan.device.bindImageMemory(image, imageMemory, 0);
-  return image;
+  return rawImage;
 }
 
 size_t getNonCoherentAtomSizeAlignment(EngineContext &context,

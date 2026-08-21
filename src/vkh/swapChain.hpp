@@ -6,6 +6,7 @@
 #include "image.hpp"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace vkh {
@@ -89,10 +90,10 @@ private:
 
   vk::Format swapChainImageFormat;
   vk::Format swapChainDepthFormat;
-  std::vector<Image> colorImages;
-  std::vector<Image> depthImages;
-  std::vector<Image> resolvedDepthImages;
-  std::vector<Image> sceneColorImages;
+  std::vector<Image2D> colorImages;
+  std::vector<Image2D> depthImages;
+  std::vector<Image2D> resolvedDepthImages;
+  std::vector<Image2D> sceneColorImages;
   std::vector<vk::Image> swapChainImages;
   std::vector<vk::ImageView> swapChainImageViews;
 
@@ -101,7 +102,9 @@ private:
   std::shared_ptr<SwapChain> oldSwapChain;
   std::vector<vk::Semaphore> imageAvailableSemaphores;
   std::vector<vk::Semaphore> renderFinishedSemaphores;
+
   std::vector<vk::Fence> inFlightFences;
+
   std::vector<vk::Fence> imagesInFlight;
 
   size_t currentFrame = 0;

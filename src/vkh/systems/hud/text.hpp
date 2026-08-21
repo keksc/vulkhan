@@ -5,7 +5,6 @@
 #include <vulkan/vulkan.hpp>
 
 #include "../../buffer.hpp"
-#include "../../image.hpp"
 #include "../system.hpp"
 
 #include <memory>
@@ -14,6 +13,7 @@
 namespace vkh {
 
 class GraphicsPipeline;
+class Image2D;
 
 class TextSys : public System {
 public:
@@ -82,7 +82,7 @@ private:
   std::unique_ptr<GraphicsPipeline> pipeline;
   vk::DescriptorSetLayout setLayout;
   vk::DescriptorSet set;
-  std::unique_ptr<Image> fontAtlas;
+  std::unique_ptr<Image2D> fontAtlas;
 };
 
 } // namespace vkh

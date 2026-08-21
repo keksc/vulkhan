@@ -223,7 +223,7 @@ public:
     }
   }
 
-  std::vector<Image> images;
+  std::vector<Image2D> images;
   vk::DescriptorSet sceneTextureSet = nullptr;
   std::vector<Material> materials;
 

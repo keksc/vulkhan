@@ -7,6 +7,19 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 layout(set = 1, binding = 0, rgba8) uniform writeonly image2D outputImage;
 layout(set = 1, binding = 1) uniform sampler2D sceneColor;
 layout(set = 1, binding = 2) uniform sampler2D sceneDepth;
+// Smoke dye volume - periodic (see FluidGrid's localIndex: a fixed
+// wrap(worldCell, cellCount) with no origin offset), sampled with a
+// dedicated REPEAT-mode sampler (see PostProcessingSys::smokeVolumeSampler)
+// rather than whatever clamp-mode sampler the other bindings above use.
+layout(set = 1, binding = 3) uniform sampler3D dyeVolume;
+
+layout(push_constant) uniform SmokePush {
+  // xyz = gridOrigin * cellSize (world-space AABB min, for the ray/box
+  // test only - NOT for texture addressing, see uvwOf below). w = cellSize.
+  vec4 boxMin;
+  // xyz = cellCount. w unused.
+  ivec4 cellCount;
+} pc;
 
 const int MAX_STEPS = 128;
 const float SURF_EPS = 0.001;
@@ -14,10 +27,8 @@ const float MAX_DIST = 500.0;
 
 const vec3 HALL_CENTER  = vec3(0.0, 0.0, 0.0);
 const vec3 HALL_HALF    = vec3(8.0, 3.0, 5.0);
-
 const vec3 WING_CENTER  = vec3(10.0, 2.5, 3.0);
 const vec3 WING_HALF    = vec3(3.0, 2.5, 6.0);
-
 const vec3 TOWER_CENTER = vec3(-9.0, 5.0, -4.0);
 const vec3 TOWER_HALF   = vec3(2.0, 5.0, 2.0);
 
@@ -37,6 +48,15 @@ float sdManor(vec3 p) {
   return d;
 }
 
+// UVW is deliberately NOT relative to boxMin/gridOrigin: the dye volume is
+// indexed by worldCell mod cellCount with no origin offset (see FluidGrid's
+// localIndex), so the REPEAT sampler reproduces that addressing directly
+// from raw world position - using boxMin here would desync from the actual
+// texel layout as soon as gridOrigin stops being a multiple of cellCount.
+vec3 uvwOf(vec3 worldPos, float cellSize) {
+  return worldPos / (vec3(pc.cellCount.xyz) * cellSize);
+}
+
 void main() {
   ivec2 outSize = imageSize(outputImage);
   ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
@@ -49,8 +69,8 @@ void main() {
 
   vec3 camPos = ubo.inverseView[3].xyz;
   mat4 invProjView = inverse(ubo.projView);
-
   vec2 ndc = uv * 2.0 - 1.0;
+
   vec4 nearP = invProjView * vec4(ndc, 1.0, 1.0); // reversed-Z: near = 1
   vec4 farP  = invProjView * vec4(ndc, 0.0, 1.0); // reversed-Z: far = 0
   nearP /= nearP.w;
@@ -66,7 +86,6 @@ void main() {
   float t = 0.0;
   bool hit = false;
   vec3 hitPos;
-
   for (int i = 0; i < MAX_STEPS; i++) {
     vec3 p = rayOrigin + rayDir * t;
     float dist = sdManor(p);
@@ -96,6 +115,43 @@ void main() {
   //     finalColor = vec3(0.8, 0.2, 0.2) * (0.2 + 0.8 * ndotl);
   //   }
   // }
+
+  // --- Smoke: volumetric raymarch through FluidGrid's dye volume,
+  // composited over finalColor before tonemap. Uses the SAME primary
+  // camera ray (camPos/rayDir) and the SAME sceneDist already computed
+  // above for the manor SDF, rather than re-deriving either. ---
+  {
+    float smokeCellSize = pc.boxMin.w;
+    vec3 boxMinWorld = pc.boxMin.xyz;
+    vec3 boxMaxWorld = boxMinWorld + vec3(pc.cellCount.xyz) * smokeCellSize;
+
+    vec3 invDir = 1.0 / rayDir;
+    vec3 t0v = (boxMinWorld - camPos) * invDir;
+    vec3 t1v = (boxMaxWorld - camPos) * invDir;
+    vec3 tminV = min(t0v, t1v);
+    vec3 tmaxV = max(t0v, t1v);
+    float tNear = max(max(tminV.x, tminV.y), tminV.z);
+    float tFar = min(min(tmaxV.x, tmaxV.y), tmaxV.z);
+    tNear = max(tNear, 0.0);
+    tFar = min(tFar, sceneDist); // don't march past opaque scene geometry
+
+    if (tNear < tFar) {
+      const int SMOKE_STEPS = 96;
+      float stepSize = (tFar - tNear) / float(SMOKE_STEPS);
+      vec4 accum = vec4(0.0);
+      float st = tNear;
+      for (int i = 0; i < SMOKE_STEPS && accum.a < 0.99; i++, st += stepSize) {
+        vec3 worldPos = camPos + rayDir * st;
+        float density = texture(dyeVolume, uvwOf(worldPos, smokeCellSize)).r;
+        if (density > 0.001) {
+          float a = clamp(density * stepSize * 0.5, 0.0, 1.0);
+          accum.rgb += (1.0 - accum.a) * a * vec3(1.0); // flat white, placeholder shading
+          accum.a += (1.0 - accum.a) * a;
+        }
+      }
+      finalColor = mix(finalColor, accum.rgb, accum.a);
+    }
+  }
 
   vec3 srgb = pow(clamp(finalColor, 0.0, 1.0), vec3(1.0 / 2.2));
   imageStore(outputImage, pixel, vec4(srgb, 1.0));

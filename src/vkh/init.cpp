@@ -3,6 +3,7 @@
 
 #include <GLFW/glfw3.h>
 #include <magic_enum/magic_enum.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.hpp>
 
 #include <print>
@@ -362,6 +363,7 @@ void createLogicalDevice(EngineContext &context) {
 
   vk::PhysicalDeviceVulkan12Features vulkan12Features{};
   vulkan12Features.pNext = &vulkan13Features;
+  vulkan12Features.bufferDeviceAddress = VK_TRUE;
   vulkan12Features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
   vulkan12Features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
   vulkan12Features.descriptorBindingPartiallyBound = VK_TRUE;
@@ -438,12 +440,31 @@ void createLogicalDevice(EngineContext &context) {
                     "present queue");
 }
 
+void createAllocator(EngineContext &context) {
+  VmaAllocatorCreateInfo allocatorInfo{};
+  allocatorInfo.physicalDevice = context.vulkan.physicalDevice;
+  allocatorInfo.device = context.vulkan.device;
+  allocatorInfo.instance = context.vulkan.instance;
+  allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+  // Buffer<T>::getDeviceAddress() calls vkGetBufferDeviceAddress, so the
+  // allocator needs to know buffer device addresses may be requested.
+  allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+
+  if (vmaCreateAllocator(&allocatorInfo, &context.vulkan.allocator) !=
+      VK_SUCCESS) {
+    throw std::runtime_error("failed to create VMA allocator!");
+  }
+}
+
 void createCommandPool(EngineContext &context) {
   QueueFamilyIndices queueFamilyIndices =
       findQueueFamilies(context, context.vulkan.physicalDevice);
 
   vk::CommandPoolCreateInfo poolInfo{};
-  poolInfo.queueFamilyIndex = queueFamilyIndices.graphicsFamily;
+  poolInfo.queueFamilyIndex =
+      queueFamilyIndices.graphicsFamily; // TODO: I also use it to make command
+                                         // buffers for compute queue, make sure
+                                         // it's not suboptimal or optimize it
   poolInfo.flags = vk::CommandPoolCreateFlagBits::eTransient |
                    vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
 
@@ -549,6 +570,7 @@ void init(EngineContext &context) {
 
   pickPhysicalDevice(context);
   createLogicalDevice(context);
+  createAllocator(context);
   debug::setObjName(context, vk::ObjectType::eInstance,
                     reinterpret_cast<uint64_t>(
                         static_cast<VkInstance>(context.vulkan.instance)),

@@ -1,0 +1,42 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(push_constant) uniform BrushPushConstants {
+  ivec4 cellCount;             // xyz used
+  ivec4 brushMinCell;          // xyz = box origin, w = box side length
+  vec4 brushCenterAndRadius;   // xyz = brush center cell (float), w = radius in cells
+  vec4 velocityDeltaAndSmoke;  // xyz = forward*strength*dt-independent delta, w = smoke rate
+} pc;
+
+#include "common.glsl"
+
+void main() {
+  int boxSize = pc.brushMinCell.w;
+  ivec3 local = ivec3(gl_GlobalInvocationID);
+  if (local.x >= boxSize || local.y >= boxSize || local.z >= boxSize)
+    return;
+
+  // Unwrapped world-cell coordinate for distance & solidity checking
+  ivec3 p = pc.brushMinCell.xyz + local;
+  ivec3 dims = pc.cellCount.xyz;
+
+  // Toroidal wrap for image storage lookup
+  ivec3 pWrap = (p % dims + dims) % dims;
+
+  if (isSolid(pWrap, dims))
+    return;
+
+  vec3 center = pc.brushCenterAndRadius.xyz;
+  float radius = pc.brushCenterAndRadius.w;
+  float dist = length(vec3(p) - center);
+  if (dist > radius)
+    return;
+
+  float falloff = 1.0 - (dist / radius);
+
+  vec3 curVel = imageLoad(velocities, pWrap).xyz;
+  float curDye = imageLoad(dye, pWrap).r;
+
+  imageStore(velocities, pWrap, vec4(curVel + pc.velocityDeltaAndSmoke.xyz * falloff, 0.0));
+  imageStore(dye, pWrap, vec4(min(1.0, curDye + pc.velocityDeltaAndSmoke.w * falloff)));
+}

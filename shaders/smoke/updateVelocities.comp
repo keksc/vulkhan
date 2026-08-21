@@ -1,37 +1,47 @@
 #version 450
 
-layout(local_size_x = 16, local_size_y = 16) in;
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 layout(push_constant) uniform PushConstants {
   int rb;
   float cellSize;
   float dt;
+  ivec3 cellCount;
 } pc;
 
 #include "common.glsl"
 
 void main() {
-  int x = int(gl_GlobalInvocationID.x);
-  int y = int(gl_GlobalInvocationID.y);
+  ivec3 p = ivec3(gl_GlobalInvocationID);
+  if (p.x >= pc.cellCount.x || p.y >= pc.cellCount.y || p.z >= pc.cellCount.z)
+    return;
 
   const float K = pc.dt / (density * pc.cellSize);
 
-  if(x >= 1) {
-    if(!(isSolid(x, y) || isSolid(x-1, y))) {
-      float pRight = getPressure(x, y);
-      float pLeft = getPressure(x-1, y);
-      setVelX(x, y, getVel(x, y).r - K * (pRight - pLeft));
-    } else {
-      setVelX(x, y, 0.0);
-    }
+  ivec3 nx = p - ivec3(1, 0, 0);
+  if (!(isSolid(p, pc.cellCount) || isSolid(nx, pc.cellCount))) {
+    float pRight = getPressure(p, pc.cellCount);
+    float pLeft = getPressure(nx, pc.cellCount);
+    setVelX(p, pc.cellCount, getVel(p, pc.cellCount).x - K * (pRight - pLeft));
+  } else {
+    setVelX(p, pc.cellCount, 0.0);
   }
-  if(y >= 1) {
-    if(!(isSolid(x, y) || isSolid(x, y-1))) {
-      float pTop = getPressure(x, y);
-      float pBottom = getPressure(x, y-1);
-      setVelY(x, y, getVel(x, y).y - K * (pTop - pBottom));
-    } else {
-      setVelY(x, y, 0.0);
-    }
+
+  ivec3 ny = p - ivec3(0, 1, 0);
+  if (!(isSolid(p, pc.cellCount) || isSolid(ny, pc.cellCount))) {
+    float pTop = getPressure(p, pc.cellCount);
+    float pBottom = getPressure(ny, pc.cellCount);
+    setVelY(p, pc.cellCount, getVel(p, pc.cellCount).y - K * (pTop - pBottom));
+  } else {
+    setVelY(p, pc.cellCount, 0.0);
+  }
+
+  ivec3 nz = p - ivec3(0, 0, 1);
+  if (!(isSolid(p, pc.cellCount) || isSolid(nz, pc.cellCount))) {
+    float pFront = getPressure(p, pc.cellCount);
+    float pBack = getPressure(nz, pc.cellCount);
+    setVelZ(p, pc.cellCount, getVel(p, pc.cellCount).z - K * (pFront - pBack));
+  } else {
+    setVelZ(p, pc.cellCount, 0.0);
   }
 }

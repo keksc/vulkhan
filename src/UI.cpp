@@ -1,16 +1,20 @@
 #include "UI.hpp"
 
 #include <GLFW/glfw3.h>
+#include <cstddef>
 #include <format>
 #include <magic_enum/magic_enum.hpp>
 #include <print>
 #include <ranges>
+#include <span>
 #include <string>
+#include <utility>
 
 #include "network/network.hpp"
 #include "vkh/engineContext.hpp"
 #include "vkh/input.hpp"
 #include "settings.hpp"
+#include "skyResolutionPresets.hpp"
 #include "vkh/systems/hud/hud.hpp"
 #include "vkh/systems/hud/view.hpp"
 
@@ -52,6 +56,13 @@ void applyFullscreen(vkh::EngineContext &context, bool enabled) {
   }
 }
 
+size_t indexOfPreset(std::span<const uint32_t> presets, uint32_t value) {
+  for (size_t i = 0; i < presets.size(); ++i)
+    if (presets[i] == value)
+      return i;
+  return presets.size() / 2; // fall back to the middle preset
+}
+
 } // namespace
 
 struct GameUI::Impl {
@@ -61,7 +72,6 @@ struct GameUI::Impl {
   vkh::hud::View pauseView;
   vkh::hud::View settingsView;
   vkh::hud::View canvasView;
-  vkh::hud::View smokeView;
 
   std::unique_ptr<Network> network;
 
@@ -71,6 +81,8 @@ struct GameUI::Impl {
 
   std::shared_ptr<UI::BindEdit> selectedButton;
 
+  GameUI::SkyResolutionHandler skyResolutionHandler;
+
   // Cursor/camera state stashed when entering the pause menu so escaping
   // back out restores exactly where the player was looking/pointing.
   glm::dvec2 worldCursorPos{};
@@ -78,8 +90,8 @@ struct GameUI::Impl {
 
   explicit Impl(vkh::EngineContext &context)
       : hudSys(context), worldView(context, hudSys), pauseView(context, hudSys),
-        settingsView(context, hudSys), canvasView(context, hudSys),
-        smokeView(context, hudSys) {
+        settingsView(context, hudSys), canvasView(context, hudSys)
+         {
     hudSys.solidColorSys.addTextureFromFile(
         "textures/hud.png"); // Will be default texture since at index 0
 
@@ -99,24 +111,6 @@ struct GameUI::Impl {
           }
         },
         "Go to canvas");
-    auto smokeBtn = pauseView.container.addChild<UI::Button>(
-        glm::vec2{.8f, .8f}, glm::vec2{.2f, .2f}, 0,
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            hudSys.setView(&smokeView);
-          }
-        },
-        "Go to smoke");
-    smokeView.container.addEventHandler<vkh::input::EventType::Key>(
-        [&](int key, int scancode, int action, int mods) {
-          if (action != GLFW_PRESS)
-            return false;
-          if (key == GLFW_KEY_ESCAPE) {
-            hudSys.setView(&pauseView);
-            return true;
-          }
-          return false;
-        });
     auto settingsBtn = pauseView.container.addChild<UI::Button>(
         glm::vec2{}, glm::vec2{.2f, .2f}, 0,
         [&](int button, int action, int) {
@@ -125,6 +119,8 @@ struct GameUI::Impl {
           }
         },
         "Edit settings");
+
+    float y = 0.f;
 
     // Persistent settings toggles. Each one flips a bool in
     // vkh::settings::current() and immediately persists the whole struct
@@ -154,7 +150,6 @@ struct GameUI::Impl {
         return std::string(name) + ": " + (value ? "On" : "Off");
       };
 
-      float y = 0.f;
       for (const auto &toggle : toggles) {
         auto toggleBtn = settingsView.container.addChild<UI::BindEdit>(
             glm::vec2{0.6f, y}, glm::vec2{.1f}, 0, [](int, int, int) {},
@@ -186,6 +181,69 @@ struct GameUI::Impl {
         });
         y += 0.1f;
       }
+    }
+
+    // Sky bake resolution: two independent cycling buttons (milky way
+    // cubemap face size, disc turbulence texture size -- see
+    // skyResolutionPresets.hpp), each persisting its own setting.
+    // skyResolutionHandler always gets called with *both* current values
+    // together, since SkySys::rebake() takes both at once -- so changing
+    // one button re-sends the other setting's already-current value
+    // unchanged.
+    {
+      auto fireRebake = [&] {
+        auto &s = vkh::settings::current();
+        if (skyResolutionHandler)
+          skyResolutionHandler(s.skyMilkyWayFaceSize, s.skyDiscTurbulenceSize);
+      };
+
+      auto &s0 = vkh::settings::current();
+      auto milkyWayBtn = settingsView.container.addChild<UI::BindEdit>(
+          glm::vec2{0.6f, y}, glm::vec2{.1f}, 0, [](int, int, int) {},
+          std::format("Milky way res: {}", s0.skyMilkyWayFaceSize));
+      milkyWayBtn->setAbsoluteSize(milkyWayBtn->label->getAbsoluteSize());
+      milkyWayBtn->setCallback([&, milkyWayBtn, fireRebake](int button,
+                                                            int action, int) {
+        if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
+          return;
+        auto &s = vkh::settings::current();
+        size_t current =
+            indexOfPreset(vkh::milkyWayFaceSizePresets, s.skyMilkyWayFaceSize);
+        size_t next = (current + 1) % std::size(vkh::milkyWayFaceSizePresets);
+        s.skyMilkyWayFaceSize = vkh::milkyWayFaceSizePresets[next];
+        vkh::settings::save();
+
+        milkyWayBtn->label->content =
+            std::format("Milky way res: {}", s.skyMilkyWayFaceSize);
+        milkyWayBtn->setAbsoluteSize(milkyWayBtn->label->getAbsoluteSize());
+
+        fireRebake();
+      });
+      y += 0.1f;
+
+      auto discBtn = settingsView.container.addChild<UI::BindEdit>(
+          glm::vec2{0.6f, y}, glm::vec2{.1f}, 0, [](int, int, int) {},
+          std::format("Disc turbulence res: {}", s0.skyDiscTurbulenceSize));
+      discBtn->setAbsoluteSize(discBtn->label->getAbsoluteSize());
+      discBtn->setCallback([&, discBtn, fireRebake](int button, int action,
+                                                     int) {
+        if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
+          return;
+        auto &s = vkh::settings::current();
+        size_t current = indexOfPreset(vkh::discTurbulenceSizePresets,
+                                       s.skyDiscTurbulenceSize);
+        size_t next =
+            (current + 1) % std::size(vkh::discTurbulenceSizePresets);
+        s.skyDiscTurbulenceSize = vkh::discTurbulenceSizePresets[next];
+        vkh::settings::save();
+
+        discBtn->label->content =
+            std::format("Disc turbulence res: {}", s.skyDiscTurbulenceSize);
+        discBtn->setAbsoluteSize(discBtn->label->getAbsoluteSize());
+
+        fireRebake();
+      });
+      y += 0.1f;
     }
 
     glm::vec2 keyBtnSize{.1f};
@@ -348,10 +406,6 @@ bool GameUI::isWorldViewActive() const {
   return impl->hudSys.getView() == &impl->worldView;
 }
 
-bool GameUI::isSmokeViewActive() const {
-  return impl->hudSys.getView() == &impl->smokeView;
-}
-
 void GameUI::addWorldViewKeyHandler(KeyHandler handler) {
   impl->worldView.container.addEventHandler<vkh::input::EventType::Key>(
       std::move(handler));
@@ -360,4 +414,8 @@ void GameUI::addWorldViewKeyHandler(KeyHandler handler) {
 void GameUI::addWorldViewFocusHandler(FocusHandler handler) {
   impl->worldView.container.addEventHandler<vkh::input::EventType::WindowFocus>(
       std::move(handler));
+}
+
+void GameUI::setSkyResolutionHandler(SkyResolutionHandler handler) {
+  impl->skyResolutionHandler = std::move(handler);
 }

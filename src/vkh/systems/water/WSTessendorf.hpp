@@ -15,7 +15,7 @@ namespace vkh {
 template <typename T> class Buffer;
 class ComputePipeline;
 class EngineContext;
-class Image;
+class Image2D;
 
 class WSTessendorf : public System {
 public:
@@ -28,7 +28,7 @@ public:
   static constexpr unsigned int tileSizeSquared = tileSize * tileSize;
   static constexpr float tileLength = 1000.f;
 
-  Image &getDisplacementFoamImage() { return *displacementFoamMap; }
+  Image2D &getDisplacementFoamImage() { return *displacementFoamMap; }
 
 private:
   struct WaveVector {
@@ -75,7 +75,7 @@ private:
 
   void createDescriptors();
 
-  std::unique_ptr<Image> displacementFoamMap;
+  std::unique_ptr<Image2D> displacementFoamMap;
 };
 
 } // namespace vkh

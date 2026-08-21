@@ -5,8 +5,10 @@
 #include <filesystem>
 #include <fstream>
 #include <print>
+#include <span>
 #include <type_traits>
 
+#include "skyResolutionPresets.hpp"
 #include "vkh/paths.hpp"
 
 namespace vkh {
@@ -43,6 +45,14 @@ struct Settings {
   // about Settings -- whoever constructs it reads this and passes it in
   // as a plain bool. See sky.hpp/sky.cpp and main.cpp.
   bool useCachedSkyBake = true;
+  // Sky bake resolution. Applied at SkySys construction in main.cpp, and
+  // can also change live via GameUI's sky-resolution button, which calls
+  // SkySys::rebake() with the newly selected values. See UI.cpp's
+  // skyResPresets list for the set of resolutions the button cycles
+  // through -- these two fields just persist whichever one was last
+  // selected.
+  uint32_t skyMilkyWayFaceSize = 512;
+  uint32_t skyDiscTurbulenceSize = 256;
 };
 
 static_assert(std::is_trivially_copyable_v<Settings>,
@@ -94,6 +104,39 @@ inline void load() {
   }
 
   current() = loaded;
+}
+
+// Snaps skyMilkyWayFaceSize/skyDiscTurbulenceSize to the nearest valid
+// preset (see skyResolutionPresets.hpp) if the loaded file has a
+// resolution that isn't one of them. A version match in load() only
+// proves the *shape* of the file is right, not that every value is
+// sane -- a hand-edited or corrupted file, or one written by a future
+// build with a preset list this build doesn't have, could still contain
+// a resolution nothing here recognizes. Call once, right after load(),
+// before anything else (SkySys construction, the UI) reads current().
+//
+// The two textures are validated independently -- they're no longer
+// paired presets, so a stale/invalid milky way size doesn't force the
+// disc size to reset too, and vice versa.
+inline void validateSkyResolution() {
+  auto &s = current();
+
+  auto snapToPreset = [](uint32_t &value, std::span<const uint32_t> presets,
+                         const char *label) {
+    for (uint32_t preset : presets)
+      if (preset == value)
+        return; // already valid
+
+    uint32_t fallback = presets[presets.size() / 2];
+    std::println("settings: {} resolution {} isn't a known preset, falling "
+                 "back to {}",
+                 label, value, fallback);
+    value = fallback;
+  };
+
+  snapToPreset(s.skyMilkyWayFaceSize, milkyWayFaceSizePresets, "sky milky way");
+  snapToPreset(s.skyDiscTurbulenceSize, discTurbulenceSizePresets,
+              "sky disc turbulence");
 }
 
 // Dumps current() as a raw byte blob to settings.bin. Cheap enough to call

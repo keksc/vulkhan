@@ -1,5 +1,6 @@
 #include "cleanup.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.hpp>
 
 #include "buffer.hpp"
@@ -18,7 +19,14 @@ void cleanup(EngineContext &context) {
 
     context.vulkan.globalDescriptorAllocator = nullptr;
     context.vulkan.globalDescriptorSets.clear();
+    // Must run before the allocator is destroyed: ~Buffer() calls
+    // vmaDestroyBuffer() on each global UBO.
     context.vulkan.globalUBOs.clear();
+
+    if (context.vulkan.allocator) {
+      vmaDestroyAllocator(context.vulkan.allocator);
+      context.vulkan.allocator = nullptr;
+    }
 
     context.vulkan.device.destroyCommandPool(context.vulkan.commandPool,
                                              nullptr);

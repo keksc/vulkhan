@@ -63,6 +63,7 @@
             pkgs.libogg
             pkgs.util-linux
             pkgs.wasmtime
+            pkgs.vulkan-memory-allocator
             
             # WASM modding
             llvmPkgs.lld
@@ -115,6 +116,7 @@
             pkgs.libogg
             pkgs.util-linux
             pkgs.wasmtime
+            pkgs.vulkan-memory-allocator
 
             llvmPkgs.lld
             llvmPkgs.clang-unwrapped

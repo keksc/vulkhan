@@ -80,7 +80,7 @@ vec3 skyBackground(in vec3 rayDir) {
       noise4
   ) * dustmask * 2.0;
 
-  return star + galaxy + dust;
+  return /*star + */galaxy + dust;
 }
 
 // Standard cubemap face/UV -> direction mapping. `uv` in [-1, 1].

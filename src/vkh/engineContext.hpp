@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.hpp>
 
 #include "window.hpp"
@@ -54,6 +55,7 @@ struct EngineContext {
     vk::Queue computeQueue;
     vk::Queue presentQueue;
     vk::CommandPool commandPool;
+    VmaAllocator allocator;
     std::unique_ptr<SwapChain> swapChain;
     uint32_t maxFramesInFlight;
     std::unique_ptr<DescriptorAllocatorGrowable> globalDescriptorAllocator{};

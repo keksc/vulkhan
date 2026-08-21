@@ -14,6 +14,7 @@
 
 #include "../../buffer.hpp"
 #include "../../debug.hpp"
+#include "../../image.hpp"
 #include "../../descriptors.hpp"
 #include "../../pipeline.hpp"
 
@@ -145,7 +146,7 @@ void TextSys::createGlyphs() {
   std::string imageName = std::format("font atlas for {}", fontPath.string());
   imageInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
   imageInfo.name = imageName.c_str();
-  fontAtlas = std::make_unique<Image>(context, imageInfo);
+  fontAtlas = std::make_unique<Image2D>(context, imageInfo);
 
   for (int i = 0; i < charInfo.size(); i++) {
     char c = i + 32;
