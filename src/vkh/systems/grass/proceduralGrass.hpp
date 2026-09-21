@@ -145,6 +145,8 @@ private:
   void createFinalizePipeline();
   void buildTileOrigins(); // fills tileOrigins_ from patches_, deduplicated
 
+  static constexpr uint32_t MAX_VISIBLE_BLADES = 250'000;
+
   const std::vector<GrassPatch> patches_;
   const float tileSize_;
   const uint32_t bladesPerTileSide_;

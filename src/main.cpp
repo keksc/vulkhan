@@ -15,18 +15,18 @@
 #include "vkh/input.hpp"
 #include "vkh/paths.hpp"
 #include "vkh/renderer.hpp"
-#include "vkh/sceneBuilder.hpp"
 #include "vkh/scene.hpp"
+#include "vkh/sceneBuilder.hpp"
 #include "vkh/swapChain.hpp"
 #include "vkh/systems/entity/entities.hpp"
 #include "vkh/systems/grass/proceduralGrass.hpp"
-#include "vkh/systems/tree/treeSys.hpp"
 #include "vkh/systems/particles.hpp"
 #include "vkh/systems/planarReflectionSys.hpp"
 #include "vkh/systems/postProcessing.hpp"
 #include "vkh/systems/sky.hpp"
 #include "vkh/systems/smoke/compositeEffect.hpp"
 #include "vkh/systems/smoke/smoke.hpp"
+#include "vkh/systems/tree/treeSys.hpp"
 #include "vkh/systems/water/water.hpp"
 #include "vkh/window.hpp"
 
@@ -216,6 +216,10 @@ void run() {
     //   entities.emplace_back(vkh::EntitySys::Transform{},
     //                         vkh::EntitySys::RigidBody{}, houseScene, i);
 
+    // auto mosquitoModel =
+    // std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
+    //     context, "models/mosquito_aviator.glb");
+
     auto birdScene = std::make_shared<vkh::Scene<vkh::EntitySys::Vertex>>(
         context, "models/paperplane.glb");
     birdScene->uploadModelGPU(entitySys.texturesSetLayout);
@@ -243,7 +247,8 @@ void run() {
 
     // auto treeScene = std::make_shared<vkh::Scene<vkh::TreeSys::Vertex>>(
     //     context, "models/fir.glb");
-    // treeScene->lodDistances = {30.f, 80.f}; // closer than 30 -> LOD0, 30-80 -> LOD1, beyond -> LOD2
+    // treeScene->lodDistances = {30.f, 80.f}; // closer than 30 -> LOD0, 30-80
+    // -> LOD1, beyond -> LOD2
     // treeScene->uploadModelGPU(treeSys.texturesSetLayout);
 
     // Mesh 0 = trunk/branches (opaque wood), mesh 1 = needle/leaf cards
@@ -686,7 +691,7 @@ void run() {
             entitySys.cullForViewProj(commandBuffer,
                                       planarRefl.getReflViewProj());
             // treeSys.cullForViewProj(commandBuffer,
-                                    // planarRefl.getReflViewProj());
+            // planarRefl.getReflViewProj());
             planarRefl.recordReflectionPass(
                 commandBuffer, [&](vk::CommandBuffer reflCmd) {
                   vk::DescriptorSet reflSet =

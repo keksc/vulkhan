@@ -2,16 +2,21 @@
 
 #include <vulkan/vulkan.hpp>
 
+#include "../../buffer.hpp"
 #include "../../camera.hpp"
 #include "../../debug.hpp"
-#include "../../pipeline.hpp"
-#include "../../buffer.hpp"
 #include "../../descriptors.hpp"
+#include "../../pipeline.hpp"
 
 #include <cmath>
+#include <print>
 #include <unordered_set>
 
 namespace vkh {
+
+namespace {
+constexpr uint32_t kMaxVisibleGrassBlades = 250000;
+}
 
 void ProceduralGrassSys::createSetLayouts() {
   std::vector<vk::DescriptorSetLayoutBinding> bindings = {
@@ -45,7 +50,8 @@ void ProceduralGrassSys::createPipeline() {
   // with inconsistent front/back-facing per blade. Vulkan resets the
   // strip automatically at each instance boundary for non-indexed
   // drawIndirect, so no primitive-restart setup is needed here.
-  pipelineInfo.inputAssemblyInfo.topology = vk::PrimitiveTopology::eTriangleStrip;
+  pipelineInfo.inputAssemblyInfo.topology =
+      vk::PrimitiveTopology::eTriangleStrip;
   pipelineInfo.multisampleInfo.rasterizationSamples =
       static_cast<vk::SampleCountFlagBits>(context.vulkan.msaaSamples);
 
@@ -94,15 +100,15 @@ void ProceduralGrassSys::createFinalizePipeline() {
   layoutInfo.pSetLayouts = &generateSetLayout;
 
   finalizePipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/grass/finalize.comp.spv",
-      layoutInfo, "procedural grass finalize");
+      context, "shaders/grass/finalize.comp.spv", layoutInfo,
+      "procedural grass finalize");
 }
 
 void ProceduralGrassSys::buildTileOrigins() {
   std::vector<GrassPatch> effectivePatches =
-      patches_.empty()
-          ? std::vector<GrassPatch>{{glm::vec2(0.f, 0.f), glm::vec2(70.f, 70.f)}}
-          : patches_;
+      patches_.empty() ? std::vector<GrassPatch>{{glm::vec2(0.f, 0.f),
+                                                  glm::vec2(70.f, 70.f)}}
+                       : patches_;
 
   // Dedupe tiles shared by overlapping patches so overlapping meadows
   // don't double-generate (and double-count toward maxBladeCount) the
@@ -120,9 +126,11 @@ void ProceduralGrassSys::buildTileOrigins() {
       for (int tx = tileXStart; tx < tileXEnd; tx++) {
         // Pack the two 32-bit tile coords into one 64-bit key for the
         // dedupe set - cheaper than hashing a pair/struct.
-        uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(tx)) << 32) |
-                       static_cast<uint32_t>(tz);
-        if (!seen.insert(key).second) continue;
+        uint64_t key =
+            (static_cast<uint64_t>(static_cast<uint32_t>(tx)) << 32) |
+            static_cast<uint32_t>(tz);
+        if (!seen.insert(key).second)
+          continue;
         tileOrigins_.emplace_back(static_cast<float>(tx) * tileSize_,
                                   static_cast<float>(tz) * tileSize_);
       }
@@ -130,11 +138,9 @@ void ProceduralGrassSys::buildTileOrigins() {
   }
 }
 
-ProceduralGrassSys::ProceduralGrassSys(EngineContext &context,
-                                       std::vector<GrassPatch> patches,
-                                       float tileSize,
-                                       uint32_t bladesPerTileSide,
-                                       std::optional<HeightmapBinding> heightmap)
+ProceduralGrassSys::ProceduralGrassSys(
+    EngineContext &context, std::vector<GrassPatch> patches, float tileSize,
+    uint32_t bladesPerTileSide, std::optional<HeightmapBinding> heightmap)
     : System(context), patches_(std::move(patches)), tileSize_(tileSize),
       bladesPerTileSide_(bladesPerTileSide), heightmap_(std::move(heightmap)) {
   buildTileOrigins();
@@ -156,15 +162,29 @@ ProceduralGrassSys::ProceduralGrassSys(EngineContext &context,
     static const float dummyPixels[2] = {0.f, 0.f};
     dummyInfo.data = const_cast<void *>(static_cast<const void *>(dummyPixels));
     dummyInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
-    dummyInfo.usage = vk::ImageUsageFlagBits::eTransferDst |
-                      vk::ImageUsageFlagBits::eSampled;
+    dummyInfo.usage =
+        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
     dummyInfo.format = vk::Format::eR32G32Sfloat;
     dummyInfo.name = "procedural grass fallback heightmap image";
     fallbackHeightmapImage_ = std::make_shared<Image2D>(context, dummyInfo);
   }
 
   uint32_t framesInFlight = context.vulkan.maxFramesInFlight;
-  uint32_t maxBlades = maxBladeCount();
+  const uint32_t candidateBladeCount = maxBladeCount();
+
+  // The compacted output is a fixed-size GPU buffer.  It must NOT be sized
+  // to the total candidate population: large grass patches can contain
+  // millions of candidates, while only a bounded number can be rendered
+  // usefully in one frame.
+  const uint32_t maxVisibleBlades = kMaxVisibleGrassBlades;
+
+  std::println(
+      "Grass: tiles={}, blades/tile={}, candidates={}, maxVisible={}, "
+      "BladeInstance={} bytes, output={} MiB",
+      tileOrigins_.size(), bladesPerTileSide_, candidateBladeCount,
+      maxVisibleBlades, sizeof(BladeInstance),
+      (static_cast<uint64_t>(maxVisibleBlades) * sizeof(BladeInstance)) /
+          (1024ull * 1024ull));
 
   // Uploaded once - the tile layout never changes after construction, so
   // this doesn't need per-frame-in-flight copies like the other buffers.
@@ -202,7 +222,7 @@ ProceduralGrassSys::ProceduralGrassSys(EngineContext &context,
     // generated blade in the tile window passing the frustum test.
     compactedInstanceBuffers[i] = std::make_unique<Buffer<BladeInstance>>(
         context, vk::BufferUsageFlagBits::eStorageBuffer,
-        vk::MemoryPropertyFlagBits::eDeviceLocal, maxBlades);
+        vk::MemoryPropertyFlagBits::eDeviceLocal, maxVisibleBlades);
 
     visibleCountBuffers[i] = std::make_unique<Buffer<uint32_t>>(
         context, vk::BufferUsageFlagBits::eStorageBuffer,
@@ -241,10 +261,12 @@ ProceduralGrassSys::ProceduralGrassSys(EngineContext &context,
         context.vulkan.globalDescriptorAllocator->allocate(generateSetLayout);
     DescriptorWriter gWriter(context);
     vk::DescriptorBufferInfo uInfo = grassUboBuffers[i]->descriptorInfo();
-    vk::DescriptorBufferInfo tileOriginInfo = tileOriginBuffer->descriptorInfo();
+    vk::DescriptorBufferInfo tileOriginInfo =
+        tileOriginBuffer->descriptorInfo();
     vk::DescriptorBufferInfo compactedInfo =
         compactedInstanceBuffers[i]->descriptorInfo();
-    vk::DescriptorBufferInfo countInfo = visibleCountBuffers[i]->descriptorInfo();
+    vk::DescriptorBufferInfo countInfo =
+        visibleCountBuffers[i]->descriptorInfo();
     vk::DescriptorBufferInfo indirectInfo =
         indirectDrawBuffers[i]->descriptorInfo();
     gWriter.writeBuffer(0, uInfo, vk::DescriptorType::eUniformBuffer);
@@ -266,8 +288,10 @@ ProceduralGrassSys::ProceduralGrassSys(EngineContext &context,
 
 ProceduralGrassSys::~ProceduralGrassSys() {
   if (context.vulkan.device) {
-    context.vulkan.device.destroyDescriptorSetLayout(instanceSetLayout, nullptr);
-    context.vulkan.device.destroyDescriptorSetLayout(generateSetLayout, nullptr);
+    context.vulkan.device.destroyDescriptorSetLayout(instanceSetLayout,
+                                                     nullptr);
+    context.vulkan.device.destroyDescriptorSetLayout(generateSetLayout,
+                                                     nullptr);
   }
 }
 
@@ -338,7 +362,8 @@ void ProceduralGrassSys::cull(vk::CommandBuffer cmd) {
                          &generateDescriptorSets[frameIndex], 0, nullptr);
 
   generatePipeline->bind(cmd);
-  uint32_t groupCount = (maxBladeCount() + 63) / 64;
+  const uint32_t candidateBladeCount = maxBladeCount();
+  const uint32_t groupCount = (candidateBladeCount + 63u) / 64u;
   cmd.dispatch(groupCount, 1, 1);
 
   // Makes the generate+cull pass's writes (visibleCountBuffers,
@@ -355,6 +380,7 @@ void ProceduralGrassSys::cull(vk::CommandBuffer cmd) {
                       vk::DependencyFlags(), computeBarrier, nullptr, nullptr);
 
   finalizePipeline->bind(cmd);
+
   cmd.dispatch(1, 1, 1);
 
   indirectBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
@@ -374,10 +400,9 @@ void ProceduralGrassSys::render() {
 
   pipeline->bind(cmd);
 
-  cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                         pipeline->getLayout(), 0, 1,
-                         &context.vulkan.globalDescriptorSets[frameIndex], 0,
-                         nullptr);
+  cmd.bindDescriptorSets(
+      vk::PipelineBindPoint::eGraphics, pipeline->getLayout(), 0, 1,
+      &context.vulkan.globalDescriptorSets[frameIndex], 0, nullptr);
   cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
                          pipeline->getLayout(), 1, 1,
                          &instanceDescriptorSets[frameIndex], 0, nullptr);

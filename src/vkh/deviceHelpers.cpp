@@ -1,3 +1,4 @@
+#include <magic_enum/magic_enum.hpp>
 #define VMA_IMPLEMENTATION
 #include "deviceHelpers.hpp"
 
@@ -103,7 +104,8 @@ vk::Format findSupportedFormat(EngineContext &context,
 void createBuffer(EngineContext &context, vk::DeviceSize size,
                   vk::BufferUsageFlags usage,
                   vk::MemoryPropertyFlags properties, vk::Buffer &buffer,
-                  VmaAllocation &allocation, VmaAllocationCreateFlags vmaFlags) {
+                  VmaAllocation &allocation,
+                  VmaAllocationCreateFlags vmaFlags) {
   VkBufferCreateInfo bufferInfo{};
   bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   bufferInfo.size = size;
@@ -111,19 +113,24 @@ void createBuffer(EngineContext &context, vk::DeviceSize size,
   bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
   VmaAllocationCreateInfo allocInfo{};
-  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+  allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   allocInfo.flags = vmaFlags;
-  // Host-visible buffers (staging buffers, mapped UBOs) need to be
-  // actually mappable; this mirrors the old MemoryPropertyFlags-based
-  // selection without us picking a memory type by hand.
   if (properties & vk::MemoryPropertyFlagBits::eHostVisible) {
     allocInfo.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
   }
 
   VkBuffer rawBuffer;
-  if (vmaCreateBuffer(context.vulkan.allocator, &bufferInfo, &allocInfo,
-                      &rawBuffer, &allocation, nullptr) != VK_SUCCESS) {
-    throw std::runtime_error("failed to create buffer via VMA!");
+  VkResult result =
+      vmaCreateBuffer(context.vulkan.allocator, &bufferInfo, &allocInfo,
+                      &rawBuffer, &allocation, nullptr);
+  if (result != VK_SUCCESS) {
+    throw std::runtime_error(std::format(
+        "failed to create buffer via VMA! "
+        "size={} bytes ({:.2f} MiB), usage={}, properties={}, error={}",
+        size, static_cast<double>(size) / (1024.0 * 1024.0),
+        static_cast<VkBufferUsageFlags>(usage),
+        static_cast<VkMemoryPropertyFlags>(properties),
+        magic_enum::enum_name(result)));
   }
   buffer = rawBuffer;
 }

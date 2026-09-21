@@ -4,6 +4,9 @@ layout(local_size_x = 64) in;
 
 #include "../consts.glsl"
 
+// Must match kMaxVisibleGrassBlades in proceduralGrass.cpp.
+const uint MAX_VISIBLE_BLADES = 250000u;
+
 struct BladeInstance {
   vec3 basePos;
   float bendAngle;
@@ -12,9 +15,7 @@ struct BladeInstance {
   float width;
   float windPhase;
   float bendAngle2;
-  float species; // always 0.0 now (flowers removed) - kept only so this
-                  // struct's layout still matches BladeInstance on the
-                  // host side and in grass.vert without touching either.
+  float species; // always 0.0 now (flowers removed)
   vec2 pad2;
   vec3 aabbMin;
   float pad0;
@@ -32,7 +33,7 @@ layout(set = 0, binding = 0) uniform GrassUbo {
   uint tileCount;
   float maxDist;
   float lodNearDist;
-  float flowerChance; // unused now, kept for UBO layout compatibility
+  float flowerChance;
 } ubo;
 
 layout(std430, set = 0, binding = 1) readonly buffer TileOriginBuffer {
@@ -47,12 +48,8 @@ layout(std430, set = 0, binding = 3) buffer VisibleCountBuffer {
   uint visibleCount;
 };
 
-// Terrain heightmap: r = world-space Y height, g = spawn suitability
-// [0,1] (e.g. mountain.cpp's grass-band mask). Only meaningful when
-// ubo.heightmapSize is nonzero - see the sentinel check in main() below.
 layout(set = 0, binding = 5) uniform sampler2D heightmapTex;
 
-// Thomas Wang hash + per-attribute stream derivation.
 uint hashU(uint n) {
   n = (n ^ 61u) ^ (n >> 16u);
   n *= 9u;
@@ -61,17 +58,17 @@ uint hashU(uint n) {
   n = n ^ (n >> 15u);
   return n;
 }
+
 float hash01(uint n) { return float(hashU(n)) * (1.0 / 4294967296.0); }
 
 uint hashAttr(uint seed, uint attrId) {
   return hashU(seed * (2654435761u + attrId * 0x85ebca6bu) + attrId);
 }
+
 float hash01Attr(uint seed, uint attrId) {
   return float(hashAttr(seed, attrId)) * (1.0 / 4294967296.0);
 }
 
-// Domain-warp offset (breaks the lattice) and per-rotation-cell angle
-// (breaks straight rows), both keyed off small local domains.
 vec2 warp2D(uint seed) {
   float a = hash01Attr(seed, 20u) * 6.2831853;
   float r = hash01Attr(seed, 21u);
@@ -123,38 +120,25 @@ void main() {
   int globalBladeX = int(worldTileX * ubo.bladesPerTileSide + bx);
   int globalBladeZ = int(worldTileZ * ubo.bladesPerTileSide + bz);
 
-  // Position within the blade's rotation cell, jittered off-lattice.
   int rotCellX = globalBladeX / ROTATION_CELL_BLADES;
   int rotCellZ = globalBladeZ / ROTATION_CELL_BLADES;
   vec2 localBlade = vec2(globalBladeX % ROTATION_CELL_BLADES,
                           globalBladeZ % ROTATION_CELL_BLADES);
   vec2 jitter = vec2(hash01Attr(seed, 0u), hash01Attr(seed, 1u));
 
-  float rotCellHalfExtent = cellSize * float(ROTATION_CELL_BLADES) * 0.5;
-  vec2 localPos = (localBlade + jitter) * cellSize - rotCellHalfExtent;
+  float rotCellHalfExtent =
+      cellSize * float(ROTATION_CELL_BLADES) * 0.5;
+  vec2 localPos =
+      (localBlade + jitter) * cellSize - rotCellHalfExtent;
 
-  // NOTE: position is deliberately NOT rotated here. Rotating the whole
-  // square local-position domain about the cell's own center (as this
-  // used to do) sends corner blades past the cell boundary - a square
-  // rotated about its center reaches ~sqrt(2)x its half-extent at the
-  // corners - so they land on top of the neighboring cell while that
-  // cell's own edge-blades rotate away, leaving a gap. The net effect is
-  // overlapping/denser blades right at rotation-cell boundaries and
-  // thinner coverage mid-cell. `rot` is instead applied only to the
-  // blade's own bend/facing below, which still makes each 6x6-blade
-  // clump lean/face a distinct random direction without ever moving a
-  // blade's position out of its own cell.
   float rot = rotationCellAngle(rotCellX, rotCellZ);
 
-  vec2 rotCellWorldCenter = (vec2(rotCellX, rotCellZ) * float(ROTATION_CELL_BLADES)
-                              + float(ROTATION_CELL_BLADES) * 0.5) * cellSize;
+  vec2 rotCellWorldCenter =
+      (vec2(rotCellX, rotCellZ) * float(ROTATION_CELL_BLADES)
+       + float(ROTATION_CELL_BLADES) * 0.5) * cellSize;
 
   vec3 basePos;
   basePos.xz = rotCellWorldCenter + localPos;
-  // Spill multiplier shrunk from 0.6: that value was partly compensating
-  // for the seams the position-rotation used to create. Positions now
-  // stay bounded to their own cell, so a smaller spill is enough to
-  // break the lattice look without reintroducing cross-cell crowding.
   basePos.xz += warp2D(seed) * cellSize * 0.35;
 
   if (ubo.heightmapSize.x > 0.0 && ubo.heightmapSize.y > 0.0) {
@@ -167,9 +151,10 @@ void main() {
     vec2 maskJitter =
         (vec2(hash01Attr(seed, 30u), hash01Attr(seed, 31u)) - 0.5) *
         maskJitterMeters;
-    vec2 maskUv = clamp((basePos.xz + maskJitter - ubo.heightmapOrigin) /
-                            ubo.heightmapSize,
-                        vec2(0.0), vec2(1.0));
+    vec2 maskUv =
+        clamp((basePos.xz + maskJitter - ubo.heightmapOrigin) /
+                  ubo.heightmapSize,
+              vec2(0.0), vec2(1.0));
     float grassSuitability = textureLod(heightmapTex, maskUv, 0.0).g;
 
     if (hash01Attr(seed, 24u) > grassSuitability) return;
@@ -180,11 +165,13 @@ void main() {
   float distToCam = length(basePos.xz - ubo.camPos);
   if (distToCam > ubo.maxDist) return;
 
-  float keepProbability = 1.0 - smoothstep(ubo.maxDist * 0.3, ubo.maxDist, distToCam);
+  float keepProbability =
+      1.0 - smoothstep(ubo.maxDist * 0.3, ubo.maxDist, distToCam);
   if (hash01Attr(seed, 22u) > keepProbability) return;
 
   float bendAngle = hash01Attr(seed, 1u) * TWO_PI + rot;
-  float bendAngle2 = bendAngle + mix(-1.9, 1.9, hash01Attr(seed, 7u));
+  float bendAngle2 =
+      bendAngle + mix(-1.9, 1.9, hash01Attr(seed, 7u));
   float facingAngle = hash01Attr(seed, 2u) * TWO_PI + rot;
   float height = mix(0.4, 0.9, hash01Attr(seed, 3u));
   float width = mix(0.04, 0.08, hash01Attr(seed, 4u));
@@ -196,7 +183,12 @@ void main() {
 
   if (!isInFrustum(aabbMin, aabbMax)) return;
 
+  // The output buffer is intentionally bounded.  atomicAdd still gives
+  // every passing blade a unique logical slot, but only the first
+  // MAX_VISIBLE_BLADES are allowed to write to the actual buffer.
   uint slot = atomicAdd(visibleCount, 1u);
+  if (slot >= MAX_VISIBLE_BLADES) return;
+
   compacted[slot] = BladeInstance(
       basePos, bendAngle, facingAngle, height, width, windPhase,
       bendAngle2, 0.0, vec2(0.0),
