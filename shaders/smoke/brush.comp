@@ -6,6 +6,7 @@ layout(push_constant) uniform BrushPushConstants {
   ivec4 brushMinCell;          // xyz = box origin, w = box side length
   vec4 brushCenterAndRadius;   // xyz = brush center cell (float), w = radius in cells
   vec4 velocityDeltaAndSmoke;  // xyz = forward*strength*dt-independent delta, w = smoke rate
+  vec4 maxSpeedAndPad;         // x = max velocity magnitude after this write
 } pc;
 
 #include "common.glsl"
@@ -37,6 +38,24 @@ void main() {
   vec3 curVel = imageLoad(velocities, pWrap).xyz;
   float curDye = imageLoad(dye, pWrap).r;
 
-  imageStore(velocities, pWrap, vec4(curVel + pc.velocityDeltaAndSmoke.xyz * falloff, 0.0));
+  vec3 newVel = curVel + pc.velocityDeltaAndSmoke.xyz * falloff;
+
+  // Cap the WRITE, not just this call's delta - repeated hits (holding
+  // the laser down, standing in the brush, etc.) would otherwise keep
+  // adding on top of whatever's already there with nothing to pull it
+  // back down, since the only decay in this sim is the near-edge fade in
+  // advect.comp, which the interior never sees. See BrushPushConstants::
+  // maxSpeedAndPad's comment in smoke.hpp for why this matters: past a
+  // certain magnitude, advection's backward trace starts sampling many
+  // cells away per step, and because the grid is toroidal that's never
+  // "out of bounds" - it just smears existing dye across the whole
+  // domain in a frame or two, which is what runaway velocity here looks
+  // like from the outside.
+  float maxSpeed = pc.maxSpeedAndPad.x;
+  float speed = length(newVel);
+  if (speed > maxSpeed)
+    newVel *= maxSpeed / speed;
+
+  imageStore(velocities, pWrap, vec4(newVel, 0.0));
   imageStore(dye, pWrap, vec4(min(1.0, curDye + pc.velocityDeltaAndSmoke.w * falloff)));
 }

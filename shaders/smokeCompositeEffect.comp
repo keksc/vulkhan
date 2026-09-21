@@ -1,0 +1,286 @@
+#version 450
+#extension GL_EXT_nonuniform_qualifier : enable
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+#include "globalUbo.glsl"
+
+layout(set = 1, binding = 0, rgba8) uniform writeonly image2D outputImage;
+layout(set = 1, binding = 1) uniform sampler2D sceneColor;
+layout(set = 1, binding = 2) uniform sampler2D sceneDepth;
+// Smoke dye volume - periodic, sampled with a dedicated REPEAT-mode
+// sampler rather than whatever clamp-mode sampler the other bindings
+// above use.
+layout(set = 1, binding = 3) uniform sampler3D dyeVolume;
+
+struct PointLight {
+  vec4 positionAndRadius; // xyz = world pos, w = falloff radius (0 = pure inverse-square)
+  vec4 colorAndIntensity; // rgb = color, w = intensity
+};
+
+// Storage buffer with a runtime array - was a fixed-size UBO array
+// (MAX_POINT_LIGHTS = 8). readonly since this shader never writes it.
+// pc.lightCount (see push constant below) is how many entries are valid;
+// never index past it.
+layout(std430, set = 1, binding = 4) readonly buffer PointLightsSsbo {
+  PointLight lights[];
+} lightsBuf;
+
+// Descriptor-indexed array of precomputed per-light transmittance
+// volumes (see transmittance.comp), single-channel (r32f) - one volume
+// per light rather than the old 2-volume/4-lights-per-channel rgba32f
+// packing. Sized TRANSMITTANCE_CAPACITY; only the first
+// pc.shadowedLightCount entries have a valid written descriptor (see
+// SmokeCompositeEffect::writeAdditionalDescriptors) and only those are
+// ever sampled - see sampleTransmittance() below.
+#define TRANSMITTANCE_CAPACITY 64
+layout(set = 1, binding = 5) uniform sampler3D transmittanceVolumes[TRANSMITTANCE_CAPACITY];
+
+layout(push_constant) uniform SmokePush {
+  // xyz = gridOrigin * cellSize (world-space AABB min, for the ray/box
+  // test only - NOT for texture addressing, see uvwOf below). w = cellSize.
+  vec4 boxMin;
+  // xyz = cellCount. w unused.
+  ivec4 cellCount;
+  // Lights farther than this from the grid's AABB are skipped entirely
+  // below (no transmittance sample, no attenuation/phase math), fading
+  // out over the last quarter of the range rather than a hard cutoff.
+  float maxLightDistance;
+  // Total active lights - drives the main per-step light loop below.
+  int lightCount;
+  // How many of those lights (always the first shadowedLightCount, by
+  // convention on the CPU side) have a valid transmittance descriptor to
+  // sample. Lights at index >= shadowedLightCount are still lit, just
+  // unshadowed (trans = 1.0 implicitly, no texture sample).
+  int shadowedLightCount;
+} pc;
+
+const int MAX_STEPS = 128;
+const float SURF_EPS = 0.001;
+const float MAX_DIST = 500.0;
+
+const vec3 HALL_CENTER  = vec3(0.0, 0.0, 0.0);
+const vec3 HALL_HALF    = vec3(8.0, 3.0, 5.0);
+const vec3 WING_CENTER  = vec3(10.0, 2.5, 3.0);
+const vec3 WING_HALF    = vec3(3.0, 2.5, 6.0);
+const vec3 TOWER_CENTER = vec3(-9.0, 5.0, -4.0);
+const vec3 TOWER_HALF   = vec3(2.0, 5.0, 2.0);
+
+// Cheap per-pixel hash, no texture lookup needed.
+float hash(vec2 p) {
+  const vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
+  return fract(magic.z * fract(dot(p, magic.xy)));
+}
+
+float maxcomp(vec3 v) {
+  return max(v.z,max(v.x,v.y));
+}
+
+float sdBox(vec3 p, vec3 b) {
+  vec3 d = abs(p)-b;
+  return length(max(d,0.0)) + min(maxcomp(d),0.0);
+}
+
+float sdManor(vec3 p) {
+  float d = sdBox(p - HALL_CENTER, HALL_HALF);
+  d = min(d, sdBox(p - WING_CENTER, WING_HALF));
+  d = min(d, sdBox(p - TOWER_CENTER, TOWER_HALF));
+  return d;
+}
+
+// UVW is deliberately NOT relative to boxMin/gridOrigin - see localIndex
+// on the CPU side. The REPEAT sampler reproduces that addressing directly
+// from raw world position.
+vec3 uvwOf(vec3 worldPos, float cellSize) {
+  return worldPos / (vec3(pc.cellCount.xyz) * cellSize);
+}
+
+// Cheap isotropic-ish phase function with a slight forward bias.
+float phase(float cosTheta, float g) {
+  float g2 = g * g;
+  return (1.0 - g2) / (4.0 * 3.14159265 * pow(1.0 + g2 - 2.0 * g * cosTheta, 1.5));
+}
+
+// Replaces the old per-pixel-per-raymarch-step secondary march toward each
+// light with a single trilinear fetch from that light's own precomputed
+// transmittance volume. lightIndex is the SAME value every invocation
+// reads at a given loop iteration (driven by the uniform push constant
+// loop bound, not per-invocation data) - i.e. dynamically uniform - so
+// this indexing needs no nonuniformEXT decoration.
+float sampleTransmittance(vec3 worldPos, int lightIndex, float smokeCellSize) {
+  vec3 uvw = uvwOf(worldPos, smokeCellSize);
+  return texture(transmittanceVolumes[lightIndex], uvw).r;
+}
+
+void main() {
+  ivec2 outSize = imageSize(outputImage);
+  ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+  if (pixel.x >= outSize.x || pixel.y >= outSize.y)
+    return;
+
+  vec2 uv = (vec2(pixel) + 0.5) / vec2(outSize);
+  vec3 color = texture(sceneColor, uv).rgb;
+  float depth = texture(sceneDepth, uv).r;
+
+  vec3 camPos = ubo.inverseView[3].xyz;
+  mat4 invProjView = inverse(ubo.projView);
+  vec2 ndc = uv * 2.0 - 1.0;
+
+  vec4 nearP = invProjView * vec4(ndc, 1.0, 1.0); // reversed-Z: near = 1
+  vec4 farP  = invProjView * vec4(ndc, 0.0, 1.0); // reversed-Z: far = 0
+  nearP /= nearP.w;
+  farP  /= farP.w;
+  vec3 rayOrigin = nearP.xyz;
+  vec3 rayDir = normalize(farP.xyz - nearP.xyz);
+
+  vec4 sceneWorldP = invProjView * vec4(ndc, depth, 1.0);
+  sceneWorldP /= sceneWorldP.w;
+  float sceneDist = distance(camPos, sceneWorldP.xyz);
+
+  vec3 finalColor = color;
+
+  // --- Smoke: volumetric raymarch through dye volume, lit by point
+  // lights (with self-shadowing) and composited over finalColor before
+  // tonemap. Coarse-to-fine adaptive stepping: strides at COARSE_FACTOR *
+  // stepSize by default, only dropping to full stepSize resolution once
+  // density is found (empty-space skipping).
+  {
+    float smokeCellSize = pc.boxMin.w;
+    vec3 boxMinWorld = pc.boxMin.xyz;
+    vec3 boxMaxWorld = boxMinWorld + vec3(pc.cellCount.xyz) * smokeCellSize;
+
+    vec3 invDir = 1.0 / rayDir;
+    vec3 t0v = (boxMinWorld - camPos) * invDir;
+    vec3 t1v = (boxMaxWorld - camPos) * invDir;
+    vec3 tminV = min(t0v, t1v);
+    vec3 tmaxV = max(t0v, t1v);
+    float tNear = max(max(tminV.x, tminV.y), tminV.z);
+    float tFar = min(min(tmaxV.x, tmaxV.y), tmaxV.z);
+    tNear = max(tNear, 0.0);
+    tFar = min(tFar, sceneDist); // don't march past opaque scene geometry
+
+    if (tNear < tFar) {
+      const int MAX_MARCH_ITERS = 256;
+      float stepSize = smokeCellSize;
+      const float COARSE_FACTOR = 4.0;
+      float coarseStep = stepSize * COARSE_FACTOR;
+
+      // Density threshold for "found something, drop to fine stepping" -
+      // deliberately looser than the alpha-contribution cutoff below
+      // (0.002), since this just decides when to slow down, not when to
+      // skip shading.
+      const float EMPTY_DENSITY_EPS = 0.001;
+
+      // Precomputed once per pixel (not per march step): how much each
+      // shadowed-capacity light contributes given its distance from the
+      // grid's AABB. Capped at TRANSMITTANCE_CAPACITY entries - lights
+      // beyond pc.shadowedLightCount (up to TRANSMITTANCE_CAPACITY, which
+      // is itself pc.lightCount's ceiling for this cache) fall through to
+      // an inline computation in the per-step loop below instead of
+      // being cached here, so this array never needs to be sized to the
+      // full (potentially much larger) pc.lightCount.
+      float lightFade[TRANSMITTANCE_CAPACITY];
+      int fadeCacheCount = min(pc.lightCount, TRANSMITTANCE_CAPACITY);
+      for (int l = 0; l < fadeCacheCount; l++) {
+        vec3 lp = lightsBuf.lights[l].positionAndRadius.xyz;
+        vec3 closest = clamp(lp, boxMinWorld, boxMaxWorld);
+        float dist = length(lp - closest);
+        float fadeStart = pc.maxLightDistance * 0.75;
+        lightFade[l] = 1.0 - smoothstep(fadeStart, pc.maxLightDistance, dist);
+      }
+
+      float jitter = hash(vec2(pixel)); // [0,1)
+
+      bool fine = false;
+      int fineStepsLeft = 0;
+      float st = tNear + jitter * coarseStep;
+
+      vec4 accum = vec4(0.0);
+      for (int i = 0; i < MAX_MARCH_ITERS && st < tFar && accum.a < 0.99; i++) {
+        vec3 worldPos = camPos + rayDir * st;
+        float density = texture(dyeVolume, uvwOf(worldPos, smokeCellSize)).r;
+
+        if (!fine) {
+          if (density > EMPTY_DENSITY_EPS) {
+            // Found something: back up to the start of this coarse span
+            // and re-walk it at full stepSize resolution, so a thin wisp
+            // just past the coarse sample point isn't missed, and so the
+            // alpha-accumulation below sees the step size it always has.
+            st -= coarseStep;
+            fine = true;
+            fineStepsLeft = int(ceil(coarseStep / stepSize)) + 1;
+            continue; // re-sample at the backed-up position next iteration
+          }
+          st += coarseStep;
+          continue;
+        }
+
+        // --- fine step: gate on the alpha this step would actually
+        // contribute, not raw density (accounts for stepSize; a low-but-
+        // nonzero density that's visually negligible - below ~0.002, i.e.
+        // less than half an 8-bit quantization step even at full opacity
+        // - shouldn't pay the full per-light cost below).
+        float a = clamp(density * stepSize * 0.5, 0.0, 1.0);
+        if (a > 0.002) {
+          vec3 litColor = vec3(0.02);
+
+          for (int l = 0; l < pc.lightCount; l++) {
+            float fade;
+            if (l < fadeCacheCount) {
+              fade = lightFade[l];
+            } else {
+              // Beyond the fade cache (only possible if pc.lightCount >
+              // TRANSMITTANCE_CAPACITY) - compute inline instead of
+              // caching. Same math as the cache-fill loop above.
+              vec3 lp = lightsBuf.lights[l].positionAndRadius.xyz;
+              vec3 closest = clamp(lp, boxMinWorld, boxMaxWorld);
+              float dist = length(lp - closest);
+              float fadeStart = pc.maxLightDistance * 0.75;
+              fade = 1.0 - smoothstep(fadeStart, pc.maxLightDistance, dist);
+            }
+            if (fade <= 0.0)
+              continue;
+
+            PointLight L = lightsBuf.lights[l];
+
+            vec3 toLight = L.positionAndRadius.xyz - worldPos;
+            float dist2 = dot(toLight, toLight);
+            vec3 lightDir = toLight * inversesqrt(max(dist2, 1e-6));
+
+            const float MIN_LIGHT_DIST2 = 0.25;
+            float atten = L.colorAndIntensity.w / max(dist2, MIN_LIGHT_DIST2);
+            if (L.positionAndRadius.w > 0.0) {
+              float r2 = L.positionAndRadius.w * L.positionAndRadius.w;
+              atten *= clamp(1.0 - dist2 / r2, 0.0, 1.0);
+            }
+
+            // Lights beyond shadowedLightCount have no transmittance
+            // slot - treat as fully unshadowed rather than sampling an
+            // unwritten/out-of-range descriptor.
+            float trans = (l < pc.shadowedLightCount)
+                ? sampleTransmittance(worldPos, l, smokeCellSize)
+                : 1.0;
+            float ph = phase(dot(rayDir, -lightDir), 0.2);
+
+            litColor += L.colorAndIntensity.rgb * atten * trans * ph * fade;
+          }
+
+          accum.rgb += (1.0 - accum.a) * a * litColor;
+          accum.a += (1.0 - accum.a) * a;
+        }
+
+        fineStepsLeft--;
+        if (fineStepsLeft <= 0)
+          fine = false; // resume coarse search past this span
+        st += stepSize;
+      }
+      finalColor = mix(finalColor, accum.rgb, accum.a);
+    }
+  }
+
+  // Ordered/random dither to break up 8-bit quantization banding.
+  float ditherNoise = hash(vec2(pixel) + vec2(0.5, 0.5)) - 0.5; // [-0.5, 0.5)
+  vec3 srgb = pow(clamp(finalColor, 0.0, 1.0), vec3(1.0 / 2.2));
+  srgb += ditherNoise / 255.0;
+  imageStore(outputImage, pixel, vec4(srgb, 1.0));
+}

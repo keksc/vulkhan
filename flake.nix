@@ -38,8 +38,6 @@
 
           packages = [
             pkgs.vulkan-loader
-            pkgs.vulkan-validation-layers
-            pkgs.vulkan-tools
             pkgs.vulkan-headers
             pkgs.glfw
             pkgs.glm
@@ -67,9 +65,7 @@
             
             # WASM modding
             llvmPkgs.lld
-            pkgs.binaryen
-            pkgs.wabt
-            pkgs.wamr
+            llvmPkgs.clang-unwrapped
           ];
 
           shellHook = ''

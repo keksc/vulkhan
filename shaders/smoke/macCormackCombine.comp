@@ -1,0 +1,139 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(push_constant) uniform PushConstants {
+  int rb;          // unused here, kept so it shares ComputePushConstants layout
+  float cellSize;
+  float dt;
+  ivec4 cellCount;
+  // Per-frame multipliers (0..1) applied to the FINAL corrected value -
+  // see SmokeSys::dyeFadeSeconds/velocityFadeSeconds. Previously applied
+  // in advect.comp directly; now applied exactly once, here.
+  float dyeDecay;
+  float velocityDecay;
+  ivec4 gridOrigin;
+  float edgeFadeCells;
+} pc;
+
+#include "common.glsl"
+
+// Clamp bounds for ONE velocity component: min/max of the 8 raw texel
+// values of that component's OWN staggered field, around the SAME
+// backward-traced face position advect.comp used for its self-advection -
+// mirrors macCormackCombine's dye clamp, just per-component instead of
+// per-cell, since each component lives at its own location.
+// comp: 0 = x, 1 = y, 2 = z. (GLSL can't compare vec3 with == to recover
+// which stagger this is, so the component index is passed explicitly
+// instead of re-deriving it from `stag`.)
+//
+// `self` is the dispatch's own cell p (facePos always originates as
+// vec3(self)+stag) - needed so the backward trace and all 8 corner
+// fetches below clamp to the currently active window instead of
+// periodically wrapping (see common.glsl's clampToWindow).
+void velComponentBounds(vec3 facePos, vec3 velAtFace, float invH, vec3 stag,
+                        int comp, ivec3 self, ivec3 gridOrigin, ivec3 dims,
+                        out float lo, out float hi) {
+  vec3 prevPos = clampToWindow(facePos - velAtFace * invH, self, gridOrigin, dims);
+  ivec3 iPos = ivec3(floor(prevPos - stag));
+  ivec3 iPos0 = clampToWindow(iPos, self, gridOrigin, dims);
+  float v0 = comp == 0 ? getVel(iPos0, dims).x : comp == 1 ? getVel(iPos0, dims).y : getVel(iPos0, dims).z;
+  lo = v0; hi = v0;
+  for (int dz = 0; dz <= 1; dz++)
+    for (int dy = 0; dy <= 1; dy++)
+      for (int dx = 0; dx <= 1; dx++) {
+        vec3 v = getVel(clampToWindow(iPos + ivec3(dx, dy, dz), self, gridOrigin, dims), dims);
+        float c = comp == 0 ? v.x : comp == 1 ? v.y : v.z;
+        lo = min(lo, c);
+        hi = max(hi, c);
+      }
+}
+
+// Step 3/3 of MacCormack advection: combine + clamp.
+//
+//   result = phi_hat + 0.5 * (phi_n - phi_hat_n)
+//
+// where phi_n is the pre-advection field (velocities/dye), phi_hat is the
+// forward semi-Lagrangian estimate (targetVelocities/targetDye, written
+// by advect.comp), and phi_hat_n is that estimate warped back and
+// resampled (scratchVelocities/scratchDye, written by advectBackward.comp).
+//
+// Unlike plain semi-Lagrangian advection, this correction is not
+// unconditionally stable - it can overshoot into new local minima/maxima
+// that never existed in phi_n (ringing). To prevent that, the result is
+// clamped to the min/max of the 8 texels of phi_n surrounding the SAME
+// backward-traced position advect.comp used for its own lookup - see
+// Selle et al. 2007 / GPU Gems 3 ch. 30, Figure 30-2. Velocity is clamped
+// per-component (each against its own staggered neighbourhood); dye is
+// clamped as before (collocated, single neighbourhood).
+void main() {
+  ivec3 dims = pc.cellCount.xyz;
+  ivec3 gridOrigin = pc.gridOrigin.xyz;
+  ivec3 p = ivec3(gl_GlobalInvocationID);
+  if (p.x >= dims.x || p.y >= dims.y || p.z >= dims.z)
+    return;
+
+  if (isSolid(p, dims)) {
+    imageStore(targetVelocities, p, vec4(0.0));
+    imageStore(targetDye, p, vec4(0.0));
+    return;
+  }
+
+  float invH = pc.dt / pc.cellSize;
+
+  vec3 velN = getVel(p, dims);           // phi_n, exact per-face values at p
+  float dyeN = getDye(p, dims);
+  vec3 velHat = getTargetVel(p, dims);   // phi_hat (this cell, no resample needed)
+  float dyeHat = getTargetDye(p, dims);
+  vec3 velHatN = getScratchVel(p, dims); // phi_hat_n (this cell, no resample needed)
+  float dyeHatN = getScratchDye(p, dims);
+
+  vec3 velResult = velHat + 0.5 * (velN - velHatN);
+  float dyeResult = dyeHat + 0.5 * (dyeN - dyeHatN);
+
+  vec3 faceX = vec3(p) + STAG_X;
+  vec3 velAtFaceX = sampleFullVelAtLocalPos(faceX, p, gridOrigin, dims);
+  float loX, hiX;
+  velComponentBounds(faceX, velAtFaceX, invH, STAG_X, 0, p, gridOrigin, dims, loX, hiX);
+  velResult.x = clamp(velResult.x, loX, hiX);
+
+  vec3 faceY = vec3(p) + STAG_Y;
+  vec3 velAtFaceY = sampleFullVelAtLocalPos(faceY, p, gridOrigin, dims);
+  float loY, hiY;
+  velComponentBounds(faceY, velAtFaceY, invH, STAG_Y, 1, p, gridOrigin, dims, loY, hiY);
+  velResult.y = clamp(velResult.y, loY, hiY);
+
+  vec3 faceZ = vec3(p) + STAG_Z;
+  vec3 velAtFaceZ = sampleFullVelAtLocalPos(faceZ, p, gridOrigin, dims);
+  float loZ, hiZ;
+  velComponentBounds(faceZ, velAtFaceZ, invH, STAG_Z, 2, p, gridOrigin, dims, loZ, hiZ);
+  velResult.z = clamp(velResult.z, loZ, hiZ);
+
+  // Recompute the exact backward-trace position advect.comp used for dye,
+  // so the clamp bounds come from the correct neighborhood of phi_n.
+  vec3 cellCenter = vec3(p) + 0.5;
+  vec3 dyePrevPos = cellCenter - sampleFullVelAtLocalPos(cellCenter, p, gridOrigin, dims) * invH;
+  vec3 dyeSamplePos = clampToWindow(dyePrevPos - vec3(0.5), p, gridOrigin, dims);
+  {
+    ivec3 iPos = ivec3(floor(dyeSamplePos));
+    float dmin = getDye(clampToWindow(iPos, p, gridOrigin, dims), dims);
+    float dmax = dmin;
+    for (int dz = 0; dz <= 1; dz++)
+      for (int dy = 0; dy <= 1; dy++)
+        for (int dx = 0; dx <= 1; dx++) {
+          float c = getDye(clampToWindow(iPos + ivec3(dx, dy, dz), p, gridOrigin, dims), dims);
+          dmin = min(dmin, c);
+          dmax = max(dmax, c);
+        }
+    dyeResult = clamp(dyeResult, dmin, dmax);
+  }
+
+  // Near-edge decay fade - see advect.comp's old version of this comment.
+  // Applied once here, on the final corrected value.
+  float edgeDist = distanceToWindowEdge(p, gridOrigin, dims);
+  float fadeT = 1.0 - clamp(edgeDist / max(pc.edgeFadeCells, 1e-4), 0.0, 1.0);
+  float dyeMul = mix(1.0, pc.dyeDecay, fadeT);
+  float velMul = mix(1.0, pc.velocityDecay, fadeT);
+
+  imageStore(targetVelocities, p, vec4(velResult * velMul, 0.0));
+  imageStore(targetDye, p, vec4(dyeResult * dyeMul, 0.0, 0.0, 0.0));
+}

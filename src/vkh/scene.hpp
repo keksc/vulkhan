@@ -235,6 +235,29 @@ public:
 
   std::vector<Mesh> meshes;
 
+  // Groups this asset's meshes into LOD levels by NODE NAME convention: a
+  // node named "..._LOD0", "..._LOD1", "..._LOD2" etc. (see
+  // sceneBuilder.hpp's groupMeshesByLodName()) is bucketed into that
+  // numbered level - 0 being the most detailed. Index into the outer
+  // vector is the LOD level; each inner vector lists every mesh belonging
+  // to that level (usually one entry, but can be several if a level's
+  // parts - e.g. this asset's trunk/leaves/branches sub-objects - weren't
+  // merged into a single mesh with multiple primitives before export).
+  // Empty entirely if this asset has no "_LOD<N>"-named nodes at all - not
+  // every Scene uses LOD (the mountain terrain and boid models don't).
+  std::vector<std::vector<size_t>> lodMeshGroups;
+
+  // Distance thresholds (world units, camera-to-entity) at which to switch
+  // between consecutive LOD levels: closer than lodDistances[0] -> level 0
+  // (most detailed), closer than lodDistances[1] -> level 1, etc.; beyond
+  // the last threshold -> the least detailed level. One entry shorter than
+  // lodMeshGroups (N levels need N-1 boundaries). Populated with a
+  // size-derived default in uploadModelGPU() - see its comment - but
+  // that's a generic placeholder, not per-asset tuning: mutate this
+  // directly after construction if the defaults switch too early/late for
+  // a particular asset.
+  std::vector<float> lodDistances;
+
 private:
   // Declared here, defined in sceneBuilder.hpp.
   void createBuffers(const std::vector<VertexType> &vertices,

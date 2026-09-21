@@ -79,6 +79,36 @@ public:
   void recordTransitionLayout(vk::CommandBuffer cmd, vk::ImageLayout newLayout,
                               vk::ImageSubresourceRange subresourceRange);
 
+  // For transitioning a SUBRANGE of mips whose actual layout has diverged
+  // from the rest of the image (e.g. mid mip-chain generation, where mip 0
+  // might already be eTransferSrcOptimal while mip 1 is still eGeneral).
+  // The other recordTransitionLayout() overloads always read/write the
+  // single `layout` member, which represents the whole resource - correct
+  // for whole-image transitions, but wrong the moment different
+  // subresources are in different layouts at once, since that member has
+  // no per-mip granularity. This overload takes the true old layout
+  // explicitly instead of trusting `layout`, and does NOT touch the
+  // `layout` member at all - callers doing a sequence of these are
+  // responsible for finishing with a normal whole-image
+  // recordTransitionLayout() call once every subresource is uniform again,
+  // to bring the tracked `layout` back in sync with reality.
+  void recordTransitionMipLayout(vk::CommandBuffer cmd,
+                                 vk::ImageLayout oldLayout,
+                                 vk::ImageLayout newLayout,
+                                 uint32_t baseMipLevel, uint32_t levelCount);
+
+  // Updates ONLY the bookkeeping `layout` member - issues no barrier at
+  // all. For use after a sequence of recordTransitionMipLayout() calls has
+  // brought every subresource to the same real layout again (e.g. at the
+  // end of mip-chain generation): the ordinary recordTransitionLayout()
+  // overloads can't be used to resync at that point, because they'd build
+  // a barrier from the (by-then stale) tracked `layout` value even though
+  // every subresource has already physically reached `newLayout` - a real
+  // barrier there would claim a false oldLayout. Caller is responsible for
+  // the "every subresource actually is newLayout" precondition; this
+  // trusts it rather than checking it.
+  void setTrackedLayoutUnsafe(vk::ImageLayout newLayout) { layout = newLayout; }
+
   void downloadPixels(unsigned char *dst, uint32_t mipLevel,
                       uint32_t baseArrayLayer = 0, uint32_t layerCount = 1);
 
@@ -197,7 +227,6 @@ private:
   void loadFromKtx2(const std::filesystem::path &path);
 };
 
-// 3D storage/sampled volume - e.g. FluidGrid's dye/velocity/pressure fields.
 class Image3D : public Image {
 public:
   Image3D(EngineContext &context, const ImageCreateInfo_empty3D &createInfo);

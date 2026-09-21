@@ -6,42 +6,71 @@ layout(push_constant) uniform PushConstants {
   int rb;
   float cellSize;
   float dt;
-  ivec3 cellCount;
+  ivec4 cellCount;      // xyz used
+  // dyeDecay/velocityDecay unused here - present only so gridOrigin below
+  // lands at the correct byte offset (48), matching
+  // SmokeSys::ComputePushConstants.
+  float dyeDecay;
+  float velocityDecay;
+  ivec4 gridOrigin;     // xyz used
 } pc;
 
 #include "common.glsl"
 
+// True if stepping from `self` to `neighbor` would leave the currently
+// active window - i.e. whether `neighbor` is a storage slot that
+// actually holds valid data for this frame, or one wrapCoord's memory
+// reuse would otherwise alias from the window's OPPOSITE face. Reuses
+// clampToWindow: if clamping `neighbor` changes it, it was out of bounds.
+bool crossesWindowBoundary(ivec3 neighbor, ivec3 self, ivec3 gridOrigin, ivec3 dims) {
+  return clampToWindow(neighbor, self, gridOrigin, dims) != neighbor;
+}
+
 void main() {
+  ivec3 dims = pc.cellCount.xyz;
   ivec3 p = ivec3(gl_GlobalInvocationID);
-  if (p.x >= pc.cellCount.x || p.y >= pc.cellCount.y || p.z >= pc.cellCount.z)
+  if (p.x >= dims.x || p.y >= dims.y || p.z >= dims.z)
     return;
 
+  ivec3 gridOrigin = pc.gridOrigin.xyz;
   const float K = pc.dt / (density * pc.cellSize);
 
+  // Each face is closed (velocity forced to 0) if either side is a real
+  // solid cell, OR the neighbor would cross the window's own boundary -
+  // treating "outside the window" as a hard wall, same as solid terrain,
+  // rather than letting it silently read the window's opposite face as
+  // if it were touching. This is what actually stops flow from wrapping
+  // around the grid: divergence.comp/pressureSolve.comp only soften the
+  // coupling to zero-gradient, but the velocity FACE itself needs an
+  // explicit closed/open decision, and "open" would mean fabricating a
+  // connection to data that was never there.
   ivec3 nx = p - ivec3(1, 0, 0);
-  if (!(isSolid(p, pc.cellCount) || isSolid(nx, pc.cellCount))) {
-    float pRight = getPressure(p, pc.cellCount);
-    float pLeft = getPressure(nx, pc.cellCount);
-    setVelX(p, pc.cellCount, getVel(p, pc.cellCount).x - K * (pRight - pLeft));
+  if (!isSolid(p, dims) && !crossesWindowBoundary(nx, p, gridOrigin, dims) &&
+      !isSolid(nx, dims)) {
+    float pRight = getPressure(p, dims);
+    float pLeft = getPressure(nx, dims);
+    setVelX(p, dims, getVel(p, dims).x - K * (pRight - pLeft));
   } else {
-    setVelX(p, pc.cellCount, 0.0);
+    setVelX(p, dims, 0.0);
   }
 
   ivec3 ny = p - ivec3(0, 1, 0);
-  if (!(isSolid(p, pc.cellCount) || isSolid(ny, pc.cellCount))) {
-    float pTop = getPressure(p, pc.cellCount);
-    float pBottom = getPressure(ny, pc.cellCount);
-    setVelY(p, pc.cellCount, getVel(p, pc.cellCount).y - K * (pTop - pBottom));
+  if (!isSolid(p, dims) && !crossesWindowBoundary(ny, p, gridOrigin, dims) &&
+      !isSolid(ny, dims)) {
+    float pTop = getPressure(p, dims);
+    float pBottom = getPressure(ny, dims);
+    setVelY(p, dims, getVel(p, dims).y - K * (pTop - pBottom));
   } else {
-    setVelY(p, pc.cellCount, 0.0);
+    setVelY(p, dims, 0.0);
   }
 
   ivec3 nz = p - ivec3(0, 0, 1);
-  if (!(isSolid(p, pc.cellCount) || isSolid(nz, pc.cellCount))) {
-    float pFront = getPressure(p, pc.cellCount);
-    float pBack = getPressure(nz, pc.cellCount);
-    setVelZ(p, pc.cellCount, getVel(p, pc.cellCount).z - K * (pFront - pBack));
+  if (!isSolid(p, dims) && !crossesWindowBoundary(nz, p, gridOrigin, dims) &&
+      !isSolid(nz, dims)) {
+    float pFront = getPressure(p, dims);
+    float pBack = getPressure(nz, dims);
+    setVelZ(p, dims, getVel(p, dims).z - K * (pFront - pBack));
   } else {
-    setVelZ(p, pc.cellCount, 0.0);
+    setVelZ(p, dims, 0.0);
   }
 }

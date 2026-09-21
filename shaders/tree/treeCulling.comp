@@ -1,0 +1,87 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+struct GPUInstanceData {
+    mat4 modelMatrix;
+    mat4 normalMatrix;
+    vec3 aabbMin;
+    int textureIndex;
+    vec3 aabbMax;
+    int metallicRoughnessTextureIndex;
+    float roughnessFactor;
+    float metallicFactor;
+    float windPhase;
+    uint flags;
+    uint groupIndex;
+    float _pad0;
+};
+
+struct DrawIndexedIndirectCommand {
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+};
+
+layout(set = 0, binding = 0) uniform CullingUbo {
+    vec4 frustumPlanes[6];
+    uint totalInstances;
+    uint totalCommands;
+} ubo;
+
+layout(set = 0, binding = 1) readonly buffer InstanceBuffer {
+    GPUInstanceData instances[];
+} rawInstances;
+
+layout(set = 0, binding = 2) buffer CompactedInstanceBuffer {
+    GPUInstanceData instances[];
+} compacted;
+
+layout(set = 0, binding = 3) readonly buffer GroupFirstInstanceBuffer {
+    uint firstInstance[];
+} groupFirst;
+
+layout(set = 0, binding = 4) buffer GroupVisibleCountBuffer {
+    uint count[];
+} groupVisible;
+
+layout(set = 0, binding = 5) readonly buffer CommandGroupIndexBuffer {
+    uint groupIndex[];
+} cmdGroup;
+
+layout(set = 0, binding = 6) buffer IndirectBuffer {
+    DrawIndexedIndirectCommand cmds[];
+} indirect;
+
+// Standard AABB-vs-frustum test: an AABB is culled only if it lies fully
+// outside at least one plane (the negative side, where plane.xyz points
+// outward and plane.w is the offset) - the same "most-positive-corner"
+// trick as the grass system's own culling.
+bool aabbInFrustum(vec3 mn, vec3 mx) {
+    for (int i = 0; i < 6; i++) {
+        vec3 n = ubo.frustumPlanes[i].xyz;
+        float d = ubo.frustumPlanes[i].w;
+        vec3 p = vec3(n.x >= 0.0 ? mx.x : mn.x,
+                      n.y >= 0.0 ? mx.y : mn.y,
+                      n.z >= 0.0 ? mx.z : mn.z);
+        if (dot(n, p) + d < 0.0)
+            return false;
+    }
+    return true;
+}
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= ubo.totalInstances)
+        return;
+
+    GPUInstanceData inst = rawInstances.instances[idx];
+    if (!aabbInFrustum(inst.aabbMin, inst.aabbMax))
+        return;
+
+    uint slot = atomicAdd(groupVisible.count[inst.groupIndex], 1u);
+    uint dest = groupFirst.firstInstance[inst.groupIndex] + slot;
+    compacted.instances[dest] = inst;
+}

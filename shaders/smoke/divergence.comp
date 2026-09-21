@@ -6,25 +6,44 @@ layout(push_constant) uniform PushConstants {
   int rb;
   float cellSize;
   float dt;
-  ivec3 cellCount;
+  ivec4 cellCount;      // xyz used
+  // dyeDecay/velocityDecay unused here - present only so gridOrigin below
+  // lands at the correct byte offset (48), matching
+  // SmokeSys::ComputePushConstants.
+  float dyeDecay;
+  float velocityDecay;
+  ivec4 gridOrigin;     // xyz used
 } pc;
 
 #include "common.glsl"
 
 void main() {
+  ivec3 dims = pc.cellCount.xyz;
   ivec3 p = ivec3(gl_GlobalInvocationID);
-  if (p.x >= pc.cellCount.x || p.y >= pc.cellCount.y || p.z >= pc.cellCount.z)
+  if (p.x >= dims.x || p.y >= dims.y || p.z >= dims.z)
     return;
 
   float dtRhoSize = (density * pc.cellSize / pc.dt);
 
-  if (isSolid(p, pc.cellCount)) {
-    setDiv(p, pc.cellCount, 0.0);
+  if (isSolid(p, dims)) {
+    setDiv(p, dims, 0.0);
     return;
   }
 
-  float div = getVel(p + ivec3(1, 0, 0), pc.cellCount).x - getVel(p, pc.cellCount).x +
-              getVel(p + ivec3(0, 1, 0), pc.cellCount).y - getVel(p, pc.cellCount).y +
-              getVel(p + ivec3(0, 0, 1), pc.cellCount).z - getVel(p, pc.cellCount).z;
-  setDiv(p, pc.cellCount, div * dtRhoSize);
+  // Neighbor face velocities, clamped to the currently active window
+  // (see common.glsl's clampToWindow) rather than raw-wrapped: a bare
+  // wrapCoord() here would let p+1 alias the window's OPPOSITE face
+  // whenever p itself sits on the window's far face - a physically
+  // distant cell, not a true neighbor. Clamping instead substitutes p's
+  // own velocity at that face (zero-gradient/free-slip wall), so the
+  // window boundary no longer contributes spurious divergence from a
+  // phantom link to the far side.
+  ivec3 gridOrigin = pc.gridOrigin.xyz;
+  vec3 velHere = getVel(p, dims);
+  vec3 velXp = getVel(clampToWindow(p + ivec3(1, 0, 0), p, gridOrigin, dims), dims);
+  vec3 velYp = getVel(clampToWindow(p + ivec3(0, 1, 0), p, gridOrigin, dims), dims);
+  vec3 velZp = getVel(clampToWindow(p + ivec3(0, 0, 1), p, gridOrigin, dims), dims);
+
+  float div = velXp.x - velHere.x + velYp.y - velHere.y + velZp.z - velHere.z;
+  setDiv(p, dims, div * dtRhoSize);
 }

@@ -14,7 +14,6 @@ const float maxForce =
 const float separationRange = 2.f; // tight personal-space bubble
 const float alignmentRange = 6.f;
 const float cohesionRange = 6.f;
-const float idealDistanceToManor = 0.4f;
 
 extern std::vector<Boid> boids;
 

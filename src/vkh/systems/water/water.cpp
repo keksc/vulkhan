@@ -8,22 +8,61 @@
 #include "../../pipeline.hpp"
 #include "../../sceneBuilder.hpp"
 #include "../../swapChain.hpp"
+#include "../planarReflectionSys.hpp"
 
 namespace vkh {
 
-WaterSys::WaterSys(EngineContext &context, SkySys &skySys)
-    : System{context}, modelTess{context}, skySys{skySys} {
+WaterSys::WaterSys(EngineContext &context, SkySys &skySys, WSTessendorf &tess,
+                   const WaterCreateInfo &info)
+    : System{context}, skySys{skySys}, modelTess{tess}, createInfo{info} {
+  vertexUBO.scale = createInfo.waveScale;
+  vertexUBO.uvRepeat = createInfo.uvRepeat;
+  vertexUBO.chopScale = createInfo.chopScale;
+
   createDescriptorSetLayout();
+  createSampler();
   createPipeline();
   createMesh();
   createRenderData();
-  prepare();
 }
 
 WaterSys::~WaterSys() {
   if (context.vulkan.device) {
     context.vulkan.device.destroyDescriptorSetLayout(setLayout, nullptr);
+    context.vulkan.device.destroySampler(repeatSampler, nullptr);
   }
+}
+
+void WaterSys::createSampler() {
+  // The shared displacement/foam image is one WSTessendorf tile. A small
+  // lake patch samples it multiple times across its surface (see
+  // WaterCreateInfo::uvRepeat), which needs address mode eRepeat rather
+  // than context.vulkan.defaultSampler's presumed clamp-to-edge - clamping
+  // would smear the tile's edge texels across the rest of the lake
+  // instead of tiling the wave pattern.
+  vk::SamplerCreateInfo samplerInfo{};
+  samplerInfo.magFilter = vk::Filter::eLinear;
+  samplerInfo.minFilter = vk::Filter::eLinear;
+  samplerInfo.addressModeU = vk::SamplerAddressMode::eRepeat;
+  samplerInfo.addressModeV = vk::SamplerAddressMode::eRepeat;
+  samplerInfo.addressModeW = vk::SamplerAddressMode::eRepeat;
+  samplerInfo.mipmapMode = vk::SamplerMipmapMode::eLinear;
+  samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
+  // Now that displacementFoamMap actually has a mip chain (see
+  // WSTessendorf::recordGenerateMips()), anisotropic filtering helps with
+  // the grazing-angle minification a flat water plane sees a lot of -
+  // trilinear alone still isotropically blurs across a squarish footprint,
+  // which is a poor match for the very elongated (steep-angle) texture
+  // footprint most on-screen water pixels actually have.
+  samplerInfo.anisotropyEnable = VK_TRUE;
+  samplerInfo.maxAnisotropy =
+      context.vulkan.physicalDeviceProperties.limits.maxSamplerAnisotropy;
+
+  repeatSampler = context.vulkan.device.createSampler(samplerInfo);
+  debug::setObjName(
+      context, vk::ObjectType::eSampler,
+      reinterpret_cast<uint64_t>(static_cast<VkSampler>(repeatSampler)),
+      "water repeat sampler");
 }
 
 void WaterSys::createMesh() {
@@ -36,7 +75,7 @@ void WaterSys::createMesh() {
 
 void WaterSys::createPipeline() {
   PipelineCreateInfo pipelineInfo{};
-  std::array<vk::DescriptorSetLayout, 3> setLayouts = {
+  std::array<vk::DescriptorSetLayout, 2> setLayouts = {
       context.vulkan.globalDescriptorSetLayout, setLayout};
 
   pipelineInfo.layoutInfo.setLayoutCount =
@@ -89,22 +128,19 @@ void WaterSys::createRenderData() {
   createDescriptorSets(imageCount);
 }
 
+// A fixed unit quad in XZ (-0.5..0.5), so every WaterSys (lake) instance
+// can share this same generation logic; per-patch world
+// size/position is applied later purely via the model matrix (see
+// update()), not by regenerating geometry.
 std::vector<WaterSys::Vertex> WaterSys::createGridVertices() {
   std::vector<Vertex> vertices;
   vertices.reserve(totalVertexCount);
 
-  const int32_t halfSize = tileResolution / 2;
-
-  for (int32_t y = -halfSize; y <= halfSize; ++y) {
-    for (int32_t x = -halfSize; x <= halfSize; ++x) {
-      vertices.emplace_back(
-          // Position
-          glm::vec3(static_cast<float>(x), 0.0f, static_cast<float>(y)) *
-              vertexDistance,
-          // Texcoords
-          glm::vec2(static_cast<float>(x + halfSize),
-                    static_cast<float>(y + halfSize)) /
-              static_cast<float>(tileResolution));
+  for (uint32_t y = 0; y <= tileResolution; ++y) {
+    for (uint32_t x = 0; x <= tileResolution; ++x) {
+      glm::vec2 uv{static_cast<float>(x) / tileResolution,
+                  static_cast<float>(y) / tileResolution};
+      vertices.emplace_back(glm::vec3(uv.x - 0.5f, 0.0f, uv.y - 0.5f), uv);
     }
   }
 
@@ -115,8 +151,31 @@ std::vector<uint32_t> WaterSys::createGridIndices() {
   const uint32_t vertexCount = tileResolution + 1;
   std::vector<uint32_t> indices;
   indices.reserve(tileResolution * tileResolution * 4);
+
+  // See WaterCreateInfo::cellMask's comment. Empty mask = old behavior
+  // (fill the whole rectangle) - the common case for anything without an
+  // actual basin shape to provide.
+  const bool useMask = !createInfo.cellMask.empty();
+  // A malformed mask (wrong resolution, or non-empty but too short for
+  // its claimed resolution) renders NOTHING rather than reading out of
+  // bounds or silently misaligning cells with the wrong meaning - see
+  // WaterCreateInfo::cellMask's comment on failing safe/visibly. An empty
+  // lake is an obvious, debuggable problem; an out-of-bounds read or a
+  // subtly shifted mask is not.
+  const bool maskValid =
+      !useMask ||
+      (createInfo.maskResolution.x == tileResolution &&
+       createInfo.maskResolution.y == tileResolution &&
+       createInfo.cellMask.size() ==
+           static_cast<size_t>(tileResolution) * tileResolution);
+  if (useMask && !maskValid)
+    return indices; // empty - see comment above
+
   for (uint32_t y = 0; y < tileResolution; ++y) {
     for (uint32_t x = 0; x < tileResolution; ++x) {
+      if (useMask && !createInfo.cellMask[y * tileResolution + x])
+        continue; // outside this lake's actual footprint - see cellMask
+
       uint32_t v0 = y * vertexCount + x;
       uint32_t v1 = y * vertexCount + (x + 1);
       uint32_t v2 = (y + 1) * vertexCount + (x + 1);
@@ -138,15 +197,34 @@ void WaterSys::updateDescriptorSet(vk::DescriptorSet set) {
   bufferInfos[0].offset = 0;
   bufferInfos[0].range = sizeof(VertexUBO);
 
-  // Binding 1: Displacement Map
+  // Binding 1: Displacement Map - sampled through repeatSampler (see
+  // createSampler()) rather than context.vulkan.defaultSampler, so small
+  // lake patches can tile the wave texture via WaterCreateInfo::uvRepeat
+  // instead of stretching or clamping it across their whole surface.
   VkDescriptorImageInfo imageInfo{};
-  imageInfo = modelTess.getDisplacementFoamImage().getDescriptorInfo(
-      context.vulkan.defaultSampler);
+  imageInfo = modelTess.getDisplacementFoamImage().getDescriptorInfo(repeatSampler);
   imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+  // Binding 2: Planar reflection color target. Must ALWAYS be a valid,
+  // currently-readable image, even when this instance's vertexUBO.
+  // reflectionMode is 0 (SSR) and water.frag never actually samples it
+  // for this draw - the descriptor set layout declares the binding
+  // statically for every draw using this pipeline, and leaving it
+  // pointing at a destroyed/nonexistent image is a validation error (and
+  // undefined behavior without validation layers) regardless of whether
+  // the shader's dynamic branch happens to skip reading it. When there's
+  // no real planar reflection source (planarReflection == nullptr, or
+  // Planar mode was never actually requested for this instance - see
+  // update()), fall back to re-binding the displacement map: already
+  // guaranteed valid/in the right layout every frame, and harmless since
+  // it's never sampled through this binding when reflectionMode == 0.
+  VkDescriptorImageInfo planarReflInfo =
+      planarReflection ? getPlanarReflectionImageInfo() : imageInfo;
 
   DescriptorWriter writer(context);
   writer.writeBuffer(0, bufferInfos[0], vk::DescriptorType::eUniformBuffer);
   writer.writeImage(1, imageInfo, vk::DescriptorType::eCombinedImageSampler);
+  writer.writeImage(2, planarReflInfo, vk::DescriptorType::eCombinedImageSampler);
   writer.updateSet(set);
 }
 
@@ -171,7 +249,15 @@ void WaterSys::createDescriptorSetLayout() {
           1, vk::DescriptorType::eCombinedImageSampler, 1,
           vk::ShaderStageFlagBits::eTessellationEvaluation |
               vk::ShaderStageFlagBits::eFragment,
-          nullptr}};
+          nullptr},
+      // Binding 2: Planar reflection color target - see
+      // getPlanarReflectionImageInfo()'s comment in updateDescriptorSet()
+      // for why this is always bound to SOMETHING, even in SSR mode.
+      // eFragment only: water.frag is the only stage that samples it
+      // (water.tese only computes the UV it'll be sampled at).
+      vk::DescriptorSetLayoutBinding{
+          2, vk::DescriptorType::eCombinedImageSampler, 1,
+          vk::ShaderStageFlagBits::eFragment, nullptr}};
 
   setLayout = buildDescriptorSetLayout(context, bindings);
   debug::setObjName(
@@ -180,28 +266,35 @@ void WaterSys::createDescriptorSetLayout() {
       "water set layout");
 }
 
-void WaterSys::prepare() {
-  auto cmd = beginSingleTimeCommands(context);
-  modelTess.recordComputeWaves(cmd,
-                               static_cast<float>(glfwGetTime()) * animSpeed);
-  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
-}
-
-void WaterSys::update() {
-  glm::vec3 camPos = context.camera.position;
-  const float snapStep = vertexDistance;
-
-  float snappedX = std::floor(camPos.x / snapStep) * snapStep;
-  float snappedZ = std::floor(camPos.z / snapStep) * snapStep;
-
+void WaterSys::update(bool driveSimulation) {
+  // Every WaterSys instance is now a static patch fixed at its own world
+  // center/height and sized to its own bounding box - this is what lets
+  // several lakes each sit at a different Y. There's no camera-follow
+  // mode anymore (that was only ever useful for an infinite ocean tile,
+  // which this engine no longer spawns).
   vertexUBO.model =
-      glm::translate(glm::mat4(1.0f), glm::vec3(snappedX, 0.0f, snappedZ));
+      glm::translate(glm::mat4(1.0f), createInfo.center) *
+      glm::scale(glm::mat4(1.0f),
+                glm::vec3(createInfo.size.x, 1.f, createInfo.size.y));
+  // Drives water.frag's wind-scrolled foam offset. Deliberately its own
+  // wall-clock read rather than reusing the `t` passed to
+  // modelTess.recordComputeWaves() below - that time belongs to the
+  // shared WSTessendorf sim (multiplied by createInfo.animSpeed) and
+  // stops advancing for this instance whenever driveSimulation is false
+  // (see the class doc comment on why only one WaterSys instance per
+  // shared tess should drive it) - wind should keep drifting for every
+  // lake regardless of which one happens to own that responsibility.
+  vertexUBO.time = static_cast<float>(glfwGetTime());
+
+  vertexUBO.reflViewProj = getPlanarReflectionViewProj();
 
   updateUniformBuffer();
   updateDescriptorSet(sets[context.frameInfo.frameIndex]);
-  if (playAnimation) {
-    modelTess.recordComputeWaves(context.frameInfo.cmd,
-                                 static_cast<float>(glfwGetTime()) * animSpeed);
+
+  if (driveSimulation && playAnimation) {
+    modelTess.recordComputeWaves(
+        context.frameInfo.cmd,
+        static_cast<float>(glfwGetTime()) * createInfo.animSpeed);
   }
 }
 
@@ -225,6 +318,14 @@ void WaterSys::render() {
 
 void WaterSys::downloadDisplacementAtWorldPos() {
   modelTess.getDisplacementFoamImage();
+}
+
+VkDescriptorImageInfo WaterSys::getPlanarReflectionImageInfo() const {
+  return planarReflection->getReflectionImageInfo();
+}
+
+glm::mat4 WaterSys::getPlanarReflectionViewProj() const {
+  return planarReflection->getReflViewProj();
 }
 
 } // namespace vkh

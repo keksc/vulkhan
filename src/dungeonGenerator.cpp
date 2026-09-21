@@ -240,11 +240,6 @@ struct WFC {
   }
 
   bool runAttempt() {
-    // size_t center = getIdx({(int)N / 2, (int)N / 2});
-    // grid[center].reset();
-    // grid[center].set(Tile::Floor);
-    // stack.push(center);
-
     if (!propagatePossibilities())
       return false;
 

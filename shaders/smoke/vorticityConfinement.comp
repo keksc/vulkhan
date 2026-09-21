@@ -1,0 +1,99 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(push_constant) uniform PushConstants {
+  int rb;
+  float cellSize;
+  float dt;
+  ivec4 cellCount;
+  float dyeDecay;
+  float velocityDecay;
+  ivec4 gridOrigin;
+  float edgeFadeCells;
+  // Confinement force multiplier - see SmokeSys::vorticityStrength. 0
+  // disables the effect entirely (velocity passes through unchanged).
+  float vorticityStrength;
+} pc;
+
+#include "common.glsl"
+
+// Central-difference curl of the velocity field at cell p, one cellSize
+// (h) apart on each axis. `p` is this call's own "self" for boundary
+// clamping - see common.glsl's clampToWindow: a window-edge cell reads
+// its own velocity back for whichever neighbor(s) would otherwise have
+// wrapped to the grid's opposite face, instead of computing curl from a
+// physically distant, unrelated cell.
+vec3 curlAt(ivec3 p, ivec3 gridOrigin, ivec3 dims, float h) {
+  vec3 vxp = getVel(clampToWindow(p + ivec3(1, 0, 0), p, gridOrigin, dims), dims);
+  vec3 vxn = getVel(clampToWindow(p - ivec3(1, 0, 0), p, gridOrigin, dims), dims);
+  vec3 vyp = getVel(clampToWindow(p + ivec3(0, 1, 0), p, gridOrigin, dims), dims);
+  vec3 vyn = getVel(clampToWindow(p - ivec3(0, 1, 0), p, gridOrigin, dims), dims);
+  vec3 vzp = getVel(clampToWindow(p + ivec3(0, 0, 1), p, gridOrigin, dims), dims);
+  vec3 vzn = getVel(clampToWindow(p - ivec3(0, 0, 1), p, gridOrigin, dims), dims);
+
+  float dVzdy = (vyp.z - vyn.z) / (2.0 * h);
+  float dVydz = (vzp.y - vzn.y) / (2.0 * h);
+  float dVxdz = (vzp.x - vzn.x) / (2.0 * h);
+  float dVzdx = (vxp.z - vxn.z) / (2.0 * h);
+  float dVydx = (vxp.y - vxn.y) / (2.0 * h);
+  float dVxdy = (vyp.x - vyn.x) / (2.0 * h);
+
+  return vec3(dVzdy - dVydz, dVxdz - dVzdx, dVydx - dVxdy);
+}
+
+// Pushes flow along the gradient of |curl|, re-injecting the small-scale
+// rotational detail that semi-Lagrangian advection's trilinear
+// interpolation smooths away every step - see the chat notes on vorticity
+// confinement (Fedkiw et al. 2001).
+//
+// Reads ONLY from velocities (this frame's post-pressure-projection
+// field, untouched by this pass) and writes the confined result into
+// targetVelocities. It deliberately does NOT write velocities in place:
+// each invocation reads its 6 neighbours' velocities to compute curl, so
+// an in-place write would race against neighbouring invocations that
+// haven't read the old value yet. SmokeSys::update() copies
+// targetVelocityImage back into velocityImage (a plain GPU-side image
+// copy) right after this dispatch, before advection reads velocities.
+void main() {
+  ivec3 dims = pc.cellCount.xyz;
+  ivec3 gridOrigin = pc.gridOrigin.xyz;
+  ivec3 p = ivec3(gl_GlobalInvocationID);
+  if (p.x >= dims.x || p.y >= dims.y || p.z >= dims.z)
+    return;
+
+  vec3 vel = getVel(p, dims);
+
+  if (isSolid(p, dims)) {
+    imageStore(targetVelocities, p, vec4(0.0));
+    return;
+  }
+
+  if (pc.vorticityStrength <= 0.0) {
+    imageStore(targetVelocities, p, vec4(vel, 0.0));
+    return;
+  }
+
+  float h = pc.cellSize;
+  vec3 curl0 = curlAt(p, gridOrigin, dims, h);
+
+  // Each of these nested curlAt() calls uses ITS OWN argument (p±1) as
+  // its own "self" - i.e. clamping is always relative to the cell curl
+  // is actually being evaluated at, two boundary checks away from the
+  // dispatch's own p if p itself is already at the edge. That's correct:
+  // it's the same zero-gradient treatment applied consistently at
+  // whichever cell the stencil currently centers on.
+  float magXp = length(curlAt(clampToWindow(p + ivec3(1, 0, 0), p, gridOrigin, dims), gridOrigin, dims, h));
+  float magXn = length(curlAt(clampToWindow(p - ivec3(1, 0, 0), p, gridOrigin, dims), gridOrigin, dims, h));
+  float magYp = length(curlAt(clampToWindow(p + ivec3(0, 1, 0), p, gridOrigin, dims), gridOrigin, dims, h));
+  float magYn = length(curlAt(clampToWindow(p - ivec3(0, 1, 0), p, gridOrigin, dims), gridOrigin, dims, h));
+  float magZp = length(curlAt(clampToWindow(p + ivec3(0, 0, 1), p, gridOrigin, dims), gridOrigin, dims, h));
+  float magZn = length(curlAt(clampToWindow(p - ivec3(0, 0, 1), p, gridOrigin, dims), gridOrigin, dims, h));
+
+  vec3 gradMag = vec3(magXp - magXn, magYp - magYn, magZp - magZn) / (2.0 * h);
+  vec3 n = gradMag / (length(gradMag) + 1e-5);
+
+  vec3 force = pc.vorticityStrength * h * cross(n, curl0);
+  vec3 newVel = vel + force * pc.dt;
+
+  imageStore(targetVelocities, p, vec4(newVel, 0.0));
+}

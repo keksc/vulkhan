@@ -231,7 +231,13 @@ unsigned int getDeviceScore(EngineContext &context, vk::PhysicalDevice device) {
   if (!(indices.isComplete() && extensionsSupported && swapChainAdequate &&
         supportedFeatures.samplerAnisotropy &&
         supportedFeatures.tessellationShader &&
-        supportedFeatures.fillModeNonSolid))
+        supportedFeatures.fillModeNonSolid &&
+        // Needed for the reflection pass's water-plane clip (entities.vert
+        // writing gl_ClipDistance[0]) - without this, the mirrored camera
+        // used for planar reflections has nothing stopping it from
+        // rendering geometry below the water plane (the lake bed/
+        // underlying terrain) straight into the reflection texture.
+        supportedFeatures.shaderClipDistance))
     return 0; // unsuitable
 
   const auto &props = device.getProperties();
@@ -374,6 +380,9 @@ void createLogicalDevice(EngineContext &context) {
   deviceFeatures.multiDrawIndirect = VK_TRUE;
   deviceFeatures.fillModeNonSolid = VK_TRUE;
   deviceFeatures.samplerAnisotropy = VK_TRUE;
+  // See the isDeviceSuitable() check above for why this is required now -
+  // entities.vert needs it for the reflection pass's water-plane clip.
+  deviceFeatures.shaderClipDistance = VK_TRUE;
 
   vk::PhysicalDeviceFeatures2 deviceFeatures2{};
   deviceFeatures2.pNext = &vulkan12Features;
@@ -593,9 +602,9 @@ void init(EngineContext &context) {
   vk::SamplerCreateInfo samplerInfo{};
   samplerInfo.magFilter = vk::Filter::eLinear;
   samplerInfo.minFilter = vk::Filter::eLinear;
-  samplerInfo.addressModeU = vk::SamplerAddressMode::eRepeat;
-  samplerInfo.addressModeV = vk::SamplerAddressMode::eRepeat;
-  samplerInfo.addressModeW = vk::SamplerAddressMode::eRepeat;
+  samplerInfo.addressModeU = vk::SamplerAddressMode::eClampToEdge;
+  samplerInfo.addressModeV = vk::SamplerAddressMode::eClampToEdge;
+  samplerInfo.addressModeW = vk::SamplerAddressMode::eClampToEdge;
   samplerInfo.anisotropyEnable = VK_TRUE;
   samplerInfo.maxAnisotropy = props.limits.maxSamplerAnisotropy;
   samplerInfo.borderColor = vk::BorderColor::eIntOpaqueBlack;

@@ -31,7 +31,6 @@ glm::vec3 clampLength(const glm::vec3 &v, float maxLen) {
   }
   return v;
 }
-} // namespace
 
 glm::vec3 getClosestPointOnManor(glm::vec3 p) {
   glm::vec3 closest = glm::clamp(p, manorAABBs[0].min, manorAABBs[0].max);
@@ -157,14 +156,13 @@ glm::vec3 manorTangentForce(Boid &b) {
   steering = clampLength(steering, maxForce);
   return steering;
 }
+} // namespace
 
 void initBoids(int count) {
   boids.clear();
   boids.reserve(static_cast<size_t>(count));
 
   vkh::AABB bounds{glm::vec3{-10.f}, glm::vec3{10.f}};
-
-  glm::vec3 direction = glm::sphericalRand(1.0f);
 
   for (int i = 0; i < count; i++) {
     Boid b;

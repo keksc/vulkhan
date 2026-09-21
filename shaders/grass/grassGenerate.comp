@@ -1,0 +1,204 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+#include "../consts.glsl"
+
+struct BladeInstance {
+  vec3 basePos;
+  float bendAngle;
+  float facingAngle;
+  float height;
+  float width;
+  float windPhase;
+  float bendAngle2;
+  float species; // always 0.0 now (flowers removed) - kept only so this
+                  // struct's layout still matches BladeInstance on the
+                  // host side and in grass.vert without touching either.
+  vec2 pad2;
+  vec3 aabbMin;
+  float pad0;
+  vec3 aabbMax;
+  float pad1;
+};
+
+layout(set = 0, binding = 0) uniform GrassUbo {
+  vec4 frustumPlanes[6];
+  vec2 camPos;
+  vec2 heightmapOrigin;
+  vec2 heightmapSize;
+  float tileSize;
+  uint bladesPerTileSide;
+  uint tileCount;
+  float maxDist;
+  float lodNearDist;
+  float flowerChance; // unused now, kept for UBO layout compatibility
+} ubo;
+
+layout(std430, set = 0, binding = 1) readonly buffer TileOriginBuffer {
+  vec2 tileOrigins[];
+};
+
+layout(std430, set = 0, binding = 2) writeonly buffer CompactedInstanceBuffer {
+  BladeInstance compacted[];
+};
+
+layout(std430, set = 0, binding = 3) buffer VisibleCountBuffer {
+  uint visibleCount;
+};
+
+// Terrain heightmap: r = world-space Y height, g = spawn suitability
+// [0,1] (e.g. mountain.cpp's grass-band mask). Only meaningful when
+// ubo.heightmapSize is nonzero - see the sentinel check in main() below.
+layout(set = 0, binding = 5) uniform sampler2D heightmapTex;
+
+// Thomas Wang hash + per-attribute stream derivation.
+uint hashU(uint n) {
+  n = (n ^ 61u) ^ (n >> 16u);
+  n *= 9u;
+  n = n ^ (n >> 4u);
+  n *= 0x27d4eb2du;
+  n = n ^ (n >> 15u);
+  return n;
+}
+float hash01(uint n) { return float(hashU(n)) * (1.0 / 4294967296.0); }
+
+uint hashAttr(uint seed, uint attrId) {
+  return hashU(seed * (2654435761u + attrId * 0x85ebca6bu) + attrId);
+}
+float hash01Attr(uint seed, uint attrId) {
+  return float(hashAttr(seed, attrId)) * (1.0 / 4294967296.0);
+}
+
+// Domain-warp offset (breaks the lattice) and per-rotation-cell angle
+// (breaks straight rows), both keyed off small local domains.
+vec2 warp2D(uint seed) {
+  float a = hash01Attr(seed, 20u) * 6.2831853;
+  float r = hash01Attr(seed, 21u);
+  return vec2(cos(a), sin(a)) * r;
+}
+
+float rotationCellAngle(uint cellX, uint cellZ) {
+  uint s = cellX * 374761393u ^ cellZ * 668265263u;
+  return hash01(s) * 6.2831853;
+}
+
+bool isInFrustum(vec3 minB, vec3 maxB) {
+  vec3 center = (maxB + minB) * 0.5;
+  vec3 extents = (maxB - minB) * 0.5;
+  for (int i = 0; i < 6; i++) {
+    vec4 plane = ubo.frustumPlanes[i];
+    float r = dot(abs(plane.xyz), extents);
+    float d = dot(plane.xyz, center) + plane.w;
+    if (d < -r) return false;
+  }
+  return true;
+}
+
+const int ROTATION_CELL_BLADES = 6;
+const float BASE_OCCUPANCY = 0.80;
+
+void main() {
+  uint bladesPerTile = ubo.bladesPerTileSide * ubo.bladesPerTileSide;
+  uint totalBlades = ubo.tileCount * bladesPerTile;
+
+  uint idx = gl_GlobalInvocationID.x;
+  if (idx >= totalBlades) return;
+
+  uint tileIdx = idx / bladesPerTile;
+  uint bladeLocal = idx % bladesPerTile;
+  vec2 tileOrigin = tileOrigins[tileIdx];
+
+  uint bx = bladeLocal % ubo.bladesPerTileSide;
+  uint bz = bladeLocal / ubo.bladesPerTileSide;
+
+  int worldTileX = int(round(tileOrigin.x / ubo.tileSize));
+  int worldTileZ = int(round(tileOrigin.y / ubo.tileSize));
+  uint seed = worldTileX * 73856093u ^ worldTileZ * 19349663u ^
+              (bx * 83492791u) ^ (bz * 15485867u);
+
+  if (hash01Attr(seed, 23u) > BASE_OCCUPANCY) return;
+
+  float cellSize = ubo.tileSize / float(ubo.bladesPerTileSide);
+  int globalBladeX = int(worldTileX * ubo.bladesPerTileSide + bx);
+  int globalBladeZ = int(worldTileZ * ubo.bladesPerTileSide + bz);
+
+  // Position within the blade's rotation cell, jittered off-lattice.
+  int rotCellX = globalBladeX / ROTATION_CELL_BLADES;
+  int rotCellZ = globalBladeZ / ROTATION_CELL_BLADES;
+  vec2 localBlade = vec2(globalBladeX % ROTATION_CELL_BLADES,
+                          globalBladeZ % ROTATION_CELL_BLADES);
+  vec2 jitter = vec2(hash01Attr(seed, 0u), hash01Attr(seed, 1u));
+
+  float rotCellHalfExtent = cellSize * float(ROTATION_CELL_BLADES) * 0.5;
+  vec2 localPos = (localBlade + jitter) * cellSize - rotCellHalfExtent;
+
+  // NOTE: position is deliberately NOT rotated here. Rotating the whole
+  // square local-position domain about the cell's own center (as this
+  // used to do) sends corner blades past the cell boundary - a square
+  // rotated about its center reaches ~sqrt(2)x its half-extent at the
+  // corners - so they land on top of the neighboring cell while that
+  // cell's own edge-blades rotate away, leaving a gap. The net effect is
+  // overlapping/denser blades right at rotation-cell boundaries and
+  // thinner coverage mid-cell. `rot` is instead applied only to the
+  // blade's own bend/facing below, which still makes each 6x6-blade
+  // clump lean/face a distinct random direction without ever moving a
+  // blade's position out of its own cell.
+  float rot = rotationCellAngle(rotCellX, rotCellZ);
+
+  vec2 rotCellWorldCenter = (vec2(rotCellX, rotCellZ) * float(ROTATION_CELL_BLADES)
+                              + float(ROTATION_CELL_BLADES) * 0.5) * cellSize;
+
+  vec3 basePos;
+  basePos.xz = rotCellWorldCenter + localPos;
+  // Spill multiplier shrunk from 0.6: that value was partly compensating
+  // for the seams the position-rotation used to create. Positions now
+  // stay bounded to their own cell, so a smaller spill is enough to
+  // break the lattice look without reintroducing cross-cell crowding.
+  basePos.xz += warp2D(seed) * cellSize * 0.35;
+
+  if (ubo.heightmapSize.x > 0.0 && ubo.heightmapSize.y > 0.0) {
+    vec2 uv = (basePos.xz - ubo.heightmapOrigin) / ubo.heightmapSize;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return;
+
+    basePos.y = textureLod(heightmapTex, uv, 0.0).r;
+
+    const float maskJitterMeters = 3.0;
+    vec2 maskJitter =
+        (vec2(hash01Attr(seed, 30u), hash01Attr(seed, 31u)) - 0.5) *
+        maskJitterMeters;
+    vec2 maskUv = clamp((basePos.xz + maskJitter - ubo.heightmapOrigin) /
+                            ubo.heightmapSize,
+                        vec2(0.0), vec2(1.0));
+    float grassSuitability = textureLod(heightmapTex, maskUv, 0.0).g;
+
+    if (hash01Attr(seed, 24u) > grassSuitability) return;
+  } else {
+    basePos.y = 0.0;
+  }
+
+  float distToCam = length(basePos.xz - ubo.camPos);
+  if (distToCam > ubo.maxDist) return;
+
+  float keepProbability = 1.0 - smoothstep(ubo.maxDist * 0.3, ubo.maxDist, distToCam);
+  if (hash01Attr(seed, 22u) > keepProbability) return;
+
+  float bendAngle = hash01Attr(seed, 1u) * TWO_PI + rot;
+  float bendAngle2 = bendAngle + mix(-1.9, 1.9, hash01Attr(seed, 7u));
+  float facingAngle = hash01Attr(seed, 2u) * TWO_PI + rot;
+  float height = mix(0.4, 0.9, hash01Attr(seed, 3u));
+  float width = mix(0.04, 0.08, hash01Attr(seed, 4u));
+  float windPhase = hash01Attr(seed, 5u) * TWO_PI;
+
+  float pad = height * 0.6;
+  vec3 aabbMin = basePos - vec3(pad, 0.0, pad);
+  vec3 aabbMax = basePos + vec3(pad, height, pad);
+
+  if (!isInFrustum(aabbMin, aabbMax)) return;
+
+  uint slot = atomicAdd(visibleCount, 1u);
+  compacted[slot] = BladeInstance(
+      basePos, bendAngle, facingAngle, height, width, windPhase,
+      bendAngle2, 0.0, vec2(0.0),
+      aabbMin, 0.0, aabbMax, 0.0);
+}

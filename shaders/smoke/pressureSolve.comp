@@ -6,17 +6,24 @@ layout(push_constant) uniform PushConstants {
   int rb;
   float cellSize;
   float dt;
-  ivec3 cellCount;
+  ivec4 cellCount;      // xyz used
+  // dyeDecay/velocityDecay unused here - present only so gridOrigin below
+  // lands at the correct byte offset (48), matching
+  // SmokeSys::ComputePushConstants.
+  float dyeDecay;
+  float velocityDecay;
+  ivec4 gridOrigin;     // xyz used
 } pc;
 
 #include "common.glsl"
 
 void main() {
+  ivec3 dims = pc.cellCount.xyz;
   ivec3 p = ivec3(gl_GlobalInvocationID);
-  if (p.x >= pc.cellCount.x || p.y >= pc.cellCount.y || p.z >= pc.cellCount.z)
+  if (p.x >= dims.x || p.y >= dims.y || p.z >= dims.z)
     return;
 
-  if (isSolid(p, pc.cellCount))
+  if (isSolid(p, dims))
     return;
 
   // 3D checkerboard parity
@@ -24,12 +31,19 @@ void main() {
   if ((p.x + p.y + p.z) % 2 != pc.rb)
     return;
 
-  float sum = getPressure(p + ivec3(1, 0, 0), pc.cellCount) +
-              getPressure(p + ivec3(-1, 0, 0), pc.cellCount) +
-              getPressure(p + ivec3(0, 1, 0), pc.cellCount) +
-              getPressure(p + ivec3(0, -1, 0), pc.cellCount) +
-              getPressure(p + ivec3(0, 0, 1), pc.cellCount) +
-              getPressure(p + ivec3(0, 0, -1), pc.cellCount);
+  // Neighbor pressures, clamped to the currently active window (see
+  // common.glsl's clampToWindow) instead of raw-wrapped - a cell at the
+  // window's edge reads its own pressure back for the face(s) that would
+  // otherwise have wrapped to the OPPOSITE side of the grid (zero-
+  // gradient/Neumann boundary), rather than solving as if that far,
+  // physically unrelated cell's pressure were relevant here.
+  ivec3 gridOrigin = pc.gridOrigin.xyz;
+  float sum = getPressure(clampToWindow(p + ivec3(1, 0, 0), p, gridOrigin, dims), dims) +
+              getPressure(clampToWindow(p - ivec3(1, 0, 0), p, gridOrigin, dims), dims) +
+              getPressure(clampToWindow(p + ivec3(0, 1, 0), p, gridOrigin, dims), dims) +
+              getPressure(clampToWindow(p - ivec3(0, 1, 0), p, gridOrigin, dims), dims) +
+              getPressure(clampToWindow(p + ivec3(0, 0, 1), p, gridOrigin, dims), dims) +
+              getPressure(clampToWindow(p - ivec3(0, 0, 1), p, gridOrigin, dims), dims);
 
-  setPressure(p, pc.cellCount, (sum - getDiv(p, pc.cellCount)) * scale);
+  setPressure(p, dims, (sum - getDiv(p, dims)) * scale);
 }

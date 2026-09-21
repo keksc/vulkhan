@@ -9,7 +9,6 @@
 #include <memory>
 
 namespace vkh {
-class GraphicsPipeline;
 class Image2D;
 namespace hud {
 class View;
@@ -26,14 +25,10 @@ public:
   SolidColorSys solidColorSys;
 
 private:
-  void createPipeline();
   void addToDraw(hud::Element &element, float &depth,
                  float oneOverElementCount);
   void update();
 
-  std::unique_ptr<GraphicsPipeline> pipeline;
-
-  std::shared_ptr<Image2D> fontAtlas;
   hud::DrawInfo drawInfo;
   hud::View *view{};
 }; // namespace hudSys

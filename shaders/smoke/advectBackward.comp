@@ -1,0 +1,70 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(push_constant) uniform PushConstants {
+  int rb;          // unused here, kept so it shares ComputePushConstants layout
+  float cellSize;
+  float dt;
+  ivec4 cellCount;
+  // dyeDecay/velocityDecay unused here - present only so gridOrigin below
+  // lands at the correct byte offset (48), matching
+  // SmokeSys::ComputePushConstants.
+  float dyeDecay;
+  float velocityDecay;
+  ivec4 gridOrigin;   // xyz used
+} pc;
+
+#include "common.glsl"
+
+// Step 2/3 of MacCormack advection. The forward pass (advect.comp) traced
+// backward along velocity and sampled the original field to get phi_hat.
+// This pass does the reverse: trace FORWARD along the same velocity field
+// (phi_n, i.e. `velocities` - same field the forward pass used, NOT
+// phi_hat) and resample phi_hat itself (held in targetVelocities/
+// targetDye), to get phi_hat_n.
+//
+// Same staggered handling as advect.comp: each velocity component is
+// traced/resampled independently from its own face location - see
+// common.glsl's STAG_X/Y/Z and sampleTargetVelXAtLocalPos/Y/Z.
+//
+// If the forward advect were perfectly accurate, warping phi_hat back
+// this way would reproduce the original field exactly. The gap between
+// phi_hat_n and the true original (phi_n) is used purely as an error
+// estimate in macCormackCombine.comp - phi_hat_n itself is never written
+// back into the simulation.
+//
+// Same clampToWindow treatment as advect.comp - see that file's comment.
+void main() {
+  ivec3 dims = pc.cellCount.xyz;
+  ivec3 gridOrigin = pc.gridOrigin.xyz;
+  ivec3 p = ivec3(gl_GlobalInvocationID);
+  if (p.x >= dims.x || p.y >= dims.y || p.z >= dims.z)
+    return;
+
+  if (isSolid(p, dims)) {
+    imageStore(scratchVelocities, p, vec4(0.0));
+    imageStore(scratchDye, p, vec4(0.0));
+    return;
+  }
+
+  float invH = pc.dt / pc.cellSize;
+
+  vec3 faceX = vec3(p) + STAG_X;
+  vec3 fwdX = faceX + sampleFullVelAtLocalPos(faceX, p, gridOrigin, dims) * invH;
+  float phiHatN_velX = sampleTargetVelXAtLocalPos(clampToWindow(fwdX, p, gridOrigin, dims), p, gridOrigin, dims);
+
+  vec3 faceY = vec3(p) + STAG_Y;
+  vec3 fwdY = faceY + sampleFullVelAtLocalPos(faceY, p, gridOrigin, dims) * invH;
+  float phiHatN_velY = sampleTargetVelYAtLocalPos(clampToWindow(fwdY, p, gridOrigin, dims), p, gridOrigin, dims);
+
+  vec3 faceZ = vec3(p) + STAG_Z;
+  vec3 fwdZ = faceZ + sampleFullVelAtLocalPos(faceZ, p, gridOrigin, dims) * invH;
+  float phiHatN_velZ = sampleTargetVelZAtLocalPos(clampToWindow(fwdZ, p, gridOrigin, dims), p, gridOrigin, dims);
+
+  imageStore(scratchVelocities, p, vec4(phiHatN_velX, phiHatN_velY, phiHatN_velZ, 0.0));
+
+  vec3 cellCenter = vec3(p) + 0.5;
+  vec3 dyeFwdPos = cellCenter + sampleFullVelAtLocalPos(cellCenter, p, gridOrigin, dims) * invH;
+  float phiHatN_dye = sampleTargetDyeAtLocalPos(clampToWindow(dyeFwdPos - vec3(0.5), p, gridOrigin, dims), p, gridOrigin, dims);
+  imageStore(scratchDye, p, vec4(phiHatN_dye, 0.0, 0.0, 0.0));
+}

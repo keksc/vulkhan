@@ -15,7 +15,24 @@ layout(location = 5) flat out int fragMRTexIndex;
 layout(location = 6) flat out float fragRoughness;
 layout(location = 7) flat out float fragMetallic;
 
-#include "globalUbo.glsl"
+// Water-plane clip for PlanarReflectionSys's reflection pass - see
+// EntitySys::render()'s clipPlane parameter. Requires
+// VkPhysicalDeviceFeatures::shaderClipDistance (see init.cpp). Push
+// constant, not part of GlobalUbo, since EntitySys is currently the only
+// consumer - sky/water don't need it, so it doesn't belong in a UBO
+// they'd all have to carry. Written unconditionally, every draw, not
+// just reflection draws - render()'s default value is a plane that never
+// clips (see its own comment), so this is a no-op distance for the main
+// camera's own draws. gl_ClipDistance is a built-in redeclaration, not a
+// regular shader output - no layout(location=...) on it (the compiler
+// reserves its own slot).
+out float gl_ClipDistance[1];
+
+layout(push_constant) uniform PushConstants {
+  vec4 clipPlane;
+} push;
+
+#include "../globalUbo.glsl"
 
 struct ObjectData {
   mat4 model;
@@ -72,6 +89,7 @@ void main() {
   }
 
   gl_Position = ubo.projView * positionWorld;
+  gl_ClipDistance[0] = dot(positionWorld, push.clipPlane);
   fragNormalWorld = normalize(normalWorld);
   fragPosWorld = positionWorld.xyz;
   fragUV = uv;

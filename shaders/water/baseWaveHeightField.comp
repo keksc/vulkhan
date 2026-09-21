@@ -25,6 +25,17 @@ layout(std430, binding = 2) buffer WaveVectorsIn {
 
 layout (constant_id = 0) const uint tileSize = 512;
 
+// Was hardcoded (const vec2 windDir = vec2(1,0); const float windSpeed =
+// 20.f) - now driven from WSTessendorf::recordUpdateSpectrumIfWindChanged(),
+// which maps the engine's global wind direction/strength (see
+// water.hpp's setGlobalWindDirection()/setGlobalWindStrength()) onto an
+// actual physical wind speed for this spectrum. windDir is expected
+// pre-normalized by the caller.
+layout(push_constant) uniform WindPushConstant {
+  vec2 windDir;
+  float windSpeed; // m/s
+} wind;
+
 // Hash function from https://www.shadertoy.com/view/4djSRW
 vec2 uhash22(uvec2 n) {
     n ^= (n.yx >> 1);
@@ -47,8 +58,6 @@ vec2 gaussian(uvec2 seed) {
 
 const float m_A = 3e-7f;
 const float oneOver2sqrt = 0.7071067812;
-const vec2 windDir = vec2(1.0, 0.0);
-const float windSpeed = 20.f;
 const float damping = 0.1;
 const float animationPeriod = 200.f;
 const float baseFreq = 2.0f * 3.14159265359 / animationPeriod;
@@ -58,9 +67,9 @@ float jonswapSpectrum(vec2 unitWaveVec, float k) {
     if (k < 1e-6) return 0.0;
     const float k2 = k * k;
     const float k4 = k2 * k2;
-    float cosFact = dot(unitWaveVec, windDir);
+    float cosFact = dot(unitWaveVec, wind.windDir);
     cosFact = cosFact * cosFact;
-    const float L = windSpeed * windSpeed / g;
+    const float L = wind.windSpeed * wind.windSpeed / g;
     const float k_p = 1.0 / L;
     const float sqrt_k = sqrt(k);
     const float sqrt_k_p = sqrt(k_p);

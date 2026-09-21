@@ -16,6 +16,8 @@
 #include "debug.hpp"
 #include "deviceHelpers.hpp"
 
+#include <print>
+
 namespace vkh {
 
 // ============================== Image (base) ==============================
@@ -155,6 +157,126 @@ void Image::recordTransitionLayout(vk::CommandBuffer cmd,
   cmd.pipelineBarrier(srcStageMask, dstStageMask, vk::DependencyFlags{}, 0,
                       nullptr, 0, nullptr, 1, &imageMemoryBarrier);
   layout = newLayout;
+}
+
+void Image::recordTransitionMipLayout(vk::CommandBuffer cmd,
+                                      vk::ImageLayout oldLayout,
+                                      vk::ImageLayout newLayout,
+                                      uint32_t baseMipLevel,
+                                      uint32_t levelCount) {
+  if (newLayout == oldLayout)
+    return;
+
+  vk::ImageMemoryBarrier imageMemoryBarrier{};
+  imageMemoryBarrier.oldLayout = oldLayout;
+  imageMemoryBarrier.newLayout = newLayout;
+  imageMemoryBarrier.image = img;
+  imageMemoryBarrier.subresourceRange = {aspectMask, baseMipLevel, levelCount,
+                                         0, getLayerCount()};
+
+  // Same oldLayout/newLayout -> access mask/stage mapping as
+  // recordTransitionLayout(cmd, newLayout, subresourceRange) - duplicated
+  // rather than shared because that overload reads its "old" side from the
+  // `layout` member, and this one deliberately takes it as a parameter
+  // instead (see the header comment on why).
+  vk::PipelineStageFlags srcStageMask = vk::PipelineStageFlagBits::eNone;
+  vk::PipelineStageFlags dstStageMask = vk::PipelineStageFlagBits::eNone;
+
+  switch (oldLayout) {
+  case vk::ImageLayout::eUndefined:
+    imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eNone;
+    srcStageMask = vk::PipelineStageFlagBits::eTopOfPipe;
+    break;
+
+  case vk::ImageLayout::eTransferSrcOptimal:
+    imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eTransferRead;
+    srcStageMask = vk::PipelineStageFlagBits::eTransfer;
+    break;
+
+  case vk::ImageLayout::ePreinitialized:
+    imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eHostWrite;
+    srcStageMask = vk::PipelineStageFlagBits::eHost;
+    break;
+
+  case vk::ImageLayout::eTransferDstOptimal:
+    imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+    srcStageMask = vk::PipelineStageFlagBits::eTransfer;
+    break;
+
+  case vk::ImageLayout::eGeneral:
+    imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
+    srcStageMask = vk::PipelineStageFlagBits::eComputeShader;
+    break;
+
+  case vk::ImageLayout::eShaderReadOnlyOptimal:
+    imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
+    srcStageMask = vk::PipelineStageFlagBits::eVertexShader |
+                   vk::PipelineStageFlagBits::eTessellationEvaluationShader |
+                   vk::PipelineStageFlagBits::eFragmentShader;
+    break;
+
+  case vk::ImageLayout::eColorAttachmentOptimal:
+    imageMemoryBarrier.srcAccessMask =
+        vk::AccessFlagBits::eColorAttachmentWrite;
+    srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    break;
+
+  case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+    imageMemoryBarrier.srcAccessMask =
+        vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+    srcStageMask = vk::PipelineStageFlagBits::eEarlyFragmentTests |
+                   vk::PipelineStageFlagBits::eLateFragmentTests;
+    break;
+
+  default:
+    break;
+  }
+
+  switch (newLayout) {
+  case vk::ImageLayout::eGeneral:
+    imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
+    dstStageMask = vk::PipelineStageFlagBits::eComputeShader;
+    break;
+
+  case vk::ImageLayout::eTransferSrcOptimal:
+    imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eTransferRead;
+    dstStageMask = vk::PipelineStageFlagBits::eTransfer;
+    break;
+
+  case vk::ImageLayout::eShaderReadOnlyOptimal:
+    imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+    dstStageMask = vk::PipelineStageFlagBits::eVertexShader |
+                   vk::PipelineStageFlagBits::eTessellationEvaluationShader |
+                   vk::PipelineStageFlagBits::eFragmentShader;
+    break;
+
+  case vk::ImageLayout::eTransferDstOptimal:
+    imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+    dstStageMask = vk::PipelineStageFlagBits::eTransfer;
+    break;
+
+  case vk::ImageLayout::eColorAttachmentOptimal:
+    imageMemoryBarrier.dstAccessMask =
+        vk::AccessFlagBits::eColorAttachmentWrite |
+        vk::AccessFlagBits::eColorAttachmentRead;
+    dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    break;
+
+  case vk::ImageLayout::eDepthStencilAttachmentOptimal:
+    imageMemoryBarrier.dstAccessMask =
+        vk::AccessFlagBits::eDepthStencilAttachmentRead |
+        vk::AccessFlagBits::eDepthStencilAttachmentWrite;
+    dstStageMask = vk::PipelineStageFlagBits::eEarlyFragmentTests |
+                   vk::PipelineStageFlagBits::eLateFragmentTests;
+    break;
+
+  default:
+    break;
+  }
+
+  cmd.pipelineBarrier(srcStageMask, dstStageMask, vk::DependencyFlags{}, 0,
+                      nullptr, 0, nullptr, 1, &imageMemoryBarrier);
+  // Deliberately NOT updating the `layout` member - see header comment.
 }
 
 uint32_t Image::getFormatSize(vk::Format format) {
@@ -551,7 +673,7 @@ void Image2D::createImageFromData(void *pixels, const size_t dataSize,
 
 Image2D::Image2D(EngineContext &context, const ImageCreateInfo_PNGdata &createInfo)
     : Image(context) {
-  format = vk::Format::eR8G8B8A8Srgb;
+  format = createInfo.format;
   numSamples = createInfo.samples;
   mipLevels = createInfo.mipLevels;
   aspectMask = createInfo.aspect;
@@ -560,6 +682,19 @@ Image2D::Image2D(EngineContext &context, const ImageCreateInfo_PNGdata &createIn
   stbi_uc *pixels = stbi_load_from_memory((const stbi_uc *)createInfo.data,
                                           createInfo.dataSize, &w, &h,
                                           &texChannels, STBI_rgb_alpha);
+  if (!pixels) {
+    std::println(stderr,
+                 "[Image2D] FAILED to decode '{}' as PNG/JPEG ({} bytes): "
+                 "{}. If this asset's textures are actually KTX2/Basis-"
+                 "compressed (common in optimized glTF exports), they need "
+                 "to go through Image::loadKtx2()/fromFile(), not "
+                 "ImageCreateInfo_PNGdata's stb_image path.",
+                 createInfo.name, createInfo.dataSize, stbi_failure_reason());
+    throw std::runtime_error(
+        std::format("failed to decode texture image '{}' from memory: {}",
+                    createInfo.name, stbi_failure_reason()));
+  }
+
   size.x = static_cast<unsigned int>(w);
   size.y = static_cast<unsigned int>(h);
   createImageFromData(pixels, size.x * size.y * 4, size);

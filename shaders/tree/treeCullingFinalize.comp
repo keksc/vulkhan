@@ -1,0 +1,41 @@
+#version 450
+
+layout(local_size_x = 64) in;
+
+struct DrawIndexedIndirectCommand {
+    uint indexCount;
+    uint instanceCount;
+    uint firstIndex;
+    int vertexOffset;
+    uint firstInstance;
+};
+
+layout(set = 0, binding = 0) uniform CullingUbo {
+    vec4 frustumPlanes[6];
+    uint totalInstances;
+    uint totalCommands;
+} ubo;
+
+// Bindings 1-3 unused by this pass (kept so both passes share one
+// descriptor set layout - see treeSys.cpp's createFinalizePipeline()).
+
+layout(set = 0, binding = 4) readonly buffer GroupVisibleCountBuffer {
+    uint count[];
+} groupVisible;
+
+layout(set = 0, binding = 5) readonly buffer CommandGroupIndexBuffer {
+    uint groupIndex[];
+} cmdGroup;
+
+layout(set = 0, binding = 6) buffer IndirectBuffer {
+    DrawIndexedIndirectCommand cmds[];
+} indirect;
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= ubo.totalCommands)
+        return;
+
+    uint group = cmdGroup.groupIndex[idx];
+    indirect.cmds[idx].instanceCount = groupVisible.count[group];
+}

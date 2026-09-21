@@ -34,8 +34,15 @@ public:
   ~SkySys();
 
   // This system should be among the first to be rendered, depth testing
-  // disabled
-  void render();
+  // disabled.
+  //
+  // `globalSetOverride`: pass a non-null set to bind INSTEAD of
+  // context.vulkan.globalDescriptorSets[frameIndex] at set 0 - e.g.
+  // PlanarReflectionSys::getReflectionGlobalDescriptorSet() when
+  // rendering the sky into a mirrored-camera reflection target rather
+  // than the real frame. Defaults to nullptr (normal per-frame behavior,
+  // unchanged for every existing caller).
+  void render(vk::DescriptorSet globalSetOverride = nullptr);
 
   // Re-bakes at a new resolution, live, replacing the currently rendered
   // environment. Blocks on vkDeviceWaitIdle first since the GPU may still

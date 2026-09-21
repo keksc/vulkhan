@@ -1,13 +1,18 @@
 #include "mountain.hpp"
 
 #include "vkh/sceneBuilder.hpp"
+#include "vkh/systems/water/water.hpp"
 
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/packing.hpp>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <limits>
+#include <queue>
+#include <utility>
 #include <vector>
 
 namespace vkh::mountain {
@@ -26,8 +31,70 @@ glm::vec2 hash2(glm::vec2 p, uint32_t seed) {
   p = glm::vec2(glm::dot(p, glm::vec2(127.1f, 311.7f)) + seed * 0.0001f,
                 glm::dot(p, glm::vec2(269.5f, 183.3f)) + seed * 0.0003f);
   glm::vec2 s(std::sin(p.x) * 43758.5453f, std::sin(p.y) * 43758.5453f);
-  return glm::vec2(s.x - std::floor(s.x), s.y - std::floor(s.y)) * 2.0f -
-        1.0f;
+  return glm::vec2(s.x - std::floor(s.x), s.y - std::floor(s.y)) * 2.0f - 1.0f;
+}
+
+// Scalar counterpart of hash2, used as the per-lattice-corner value for
+// the base landscape's noise (below).
+float hash1(glm::vec2 p, uint32_t seed) {
+  float h = glm::dot(p, glm::vec2(127.1f, 311.7f)) + seed * 0.0001f;
+  float s = std::sin(h) * 43758.5453f;
+  return s - std::floor(s);
+}
+
+// ---------------------------------------------------------------------
+// Base-landscape noise with analytic derivatives, standing in for the
+// shader's `noised` (used inside its FractalNoise, but only referenced as
+// living in the shader's separate, unshared "Common" tab - not published
+// in what was pasted here, so this isn't a byte-for-byte port of it).
+// This is the standard technique it's almost certainly built on: 2D value
+// noise, quintic-interpolated so the value *and* its derivative are both
+// continuous across cell boundaries (a plain linear/cosine interpolation
+// would give a discontinuous derivative, visible as faceting).
+//
+// Returns (value, dValue/dx, dValue/dy). Both value and derivative are
+// remapped to be zero-centered (value roughly in [-1, 1]) to match how
+// the shader's FractalNoise output is used (e.g. fadeTarget expects a
+// signed, peak/valley-centered signal).
+// ---------------------------------------------------------------------
+glm::vec3 valueNoiseDeriv(glm::vec2 p, uint32_t seed) {
+  glm::vec2 i = glm::floor(p);
+  glm::vec2 f = glm::fract(p);
+
+  float a = hash1(i + glm::vec2(0.f, 0.f), seed);
+  float b = hash1(i + glm::vec2(1.f, 0.f), seed);
+  float c = hash1(i + glm::vec2(0.f, 1.f), seed);
+  float d = hash1(i + glm::vec2(1.f, 1.f), seed);
+
+  // Quintic smoothstep and its derivative (Perlin's improved curve),
+  // so the noise is C1-continuous across cell boundaries.
+  glm::vec2 u = f * f * f * (f * (f * 6.f - 15.f) + 10.f);
+  glm::vec2 du = 30.f * f * f * (f * (f - 2.f) + 1.f);
+
+  float value = a + (b - a) * u.x + (c - a) * u.y + (a - b - c + d) * u.x * u.y;
+  glm::vec2 deriv =
+      du * (glm::vec2(b - a, c - a) + (a - b - c + d) * glm::vec2(u.y, u.x));
+
+  return glm::vec3(value * 2.f - 1.f, deriv.x * 2.f, deriv.y * 2.f);
+}
+
+// Direct analog of the shader's FractalNoise: sums several octaves of the
+// noise above, each higher-frequency and lower-amplitude than the last.
+// Derivatives are scaled by the per-octave frequency (chain rule for
+// noise(p*nf)) exactly as the shader's `vec3(1.0, nf, nf)` multiplier
+// does.
+glm::vec3 fractalNoiseDeriv(glm::vec2 p, float freq, uint32_t octaves,
+                            float lacunarity, float gain, uint32_t seed) {
+  glm::vec3 n(0.f);
+  float nf = freq;
+  float na = 1.f;
+  for (uint32_t i = 0; i < octaves; ++i) {
+    glm::vec3 s = valueNoiseDeriv(p * nf, seed + i * 977u);
+    n += s * na * glm::vec3(1.f, nf, nf);
+    na *= gain;
+    nf *= lacunarity;
+  }
+  return n;
 }
 
 // Utility snippets given verbatim (as pseudocode) in the "Fade approach"
@@ -43,74 +110,180 @@ float powInv(float t, float power) {
   return 1.f - std::pow(1.f - glm::clamp(t, 0.f, 1.f), power);
 }
 
-struct StripeSample {
-  float height{0.f};       // normalized gully height, roughly [-1, 1]
-  glm::vec2 trueGrad{0.f}; // real (non-faked) gradient of the stripe
-  glm::vec2 straightGrad{0.f}; // "straight gullies" faked gradient, using
-                               // sign(sin) instead of sin, so child octaves
-                               // branch off cleanly rather than curling -
-                               // see "Straight gullies" in the post
-};
+// Grass suitability in [0,1], from the same normalized-altitude/slope
+// values used to pick a spot on the color texture (see
+// buildTerrainTexture's altitude columns and slope rows below). Peaks at
+// the grass column's altitude (hNorm == 0.5, matching column index 2 of
+// 5) and at zero slope, fading out toward the dirt/rock altitudes and
+// toward the moderate-slope row. This is a standalone heuristic re-tuned
+// to *look* consistent with the color texture, not a shared calculation
+// with it - if the color bands move, this needs to be revisited too.
+float computeGrassSuitability(float hNorm, float slopeNorm) {
+  // Altitude: full suitability within +-0.15 of the grass column (0.5),
+  // linearly fading to 0 by +-0.35 (roughly the dirt/rock column
+  // neighbors either side).
+  float altitudeScore =
+      1.f - glm::clamp((std::abs(hNorm - 0.5f) - 0.15f) / 0.2f, 0.f, 1.f);
+  // Slope: full suitability on flat ground, fading to 0 by slopeNorm=0.5
+  // (roughly the boundary between the gentle and moderate texture rows) -
+  // notably tighter than rockSlopeAngleDeg itself, since real grass gives
+  // up on a slope well before it's steep enough to count as a cliff face.
+  float slopeScore = 1.f - glm::smoothstep(0.15f, 0.5f, slopeNorm);
+  return glm::clamp(altitudeScore * slopeScore, 0.f, 1.f);
+}
 
-// One octave of directional stripe noise, blended across the 3x3
-// neighborhood of cell pivots (see "Generating stripes"). Implements
-// "Normalized gullies": the cos/sin pair from each cell is treated as a
-// point on a unit circle, blended, then re-normalized to a consistent
-// magnitude using the scale-by-k-then-clamp trick (k=2, so anything with
-// blended length > 0.5 becomes fully normalized) to avoid the loopy
-// artifacts full normalization produces.
-StripeSample sampleStripe(glm::vec2 pos, glm::vec2 dir, float freq,
-                          uint32_t seed) {
-  glm::vec2 tangent(-dir.y, dir.x);
-  glm::vec2 cellPos = pos * freq;
-  glm::vec2 cellId = glm::floor(cellPos);
+// smooth_start / safe_normalize, given verbatim in the "Erosion function"
+// section of the shader.
+float smoothStart(float t, float smoothing) {
+  if (t >= smoothing)
+    return t - 0.5f * smoothing;
+  return 0.5f * t * t / smoothing;
+}
 
-  float cosSum = 0.f, sinSum = 0.f, wSum = 0.f;
+glm::vec2 safeNormalize(glm::vec2 n) {
+  float l = glm::length(n);
+  return (std::abs(l) > 1e-10f) ? (n / l) : n;
+}
 
-  for (int dy = -1; dy <= 1; ++dy) {
-    for (int dx = -1; dx <= 1; ++dx) {
-      glm::vec2 cell = cellId + glm::vec2(float(dx), float(dy));
-      glm::vec2 pivotJitter = hash2(cell, seed) * 0.5f + 0.5f;
-      glm::vec2 pivot = cell + pivotJitter;
+constexpr float kTau = 6.28318530717959f;
 
-      glm::vec2 toP = cellPos - pivot;
-      float dist = glm::length(toP);
-      float w = glm::clamp(1.5f - dist, 0.f, 1.f);
-      if (w <= 0.f)
-        continue;
-      w = w * w * (3.f - 2.f * w); // smoothstep falloff
+// Direct port of the shader's PhacelleNoise. Iterates the 4x4 neighborhood
+// of cell pivots (indices -1..2, matching the shader's loop bounds - the
+// asymmetric range is intentional: the pivot jitter is only ever up to 0.5
+// units off-center, so the 4x4 window is exactly what's needed to
+// guarantee every pivot that could be closest to `p` is included), blends
+// a cosine/sine pair per cell via a bell-shaped weight, and returns the
+// blended, magnitude-normalized wave together with the (already
+// freq/tau-scaled) side direction used to compute derivatives.
+//
+// Returns a vec4: xy = normalized (cos, sin) pair; zw = sideDir, which
+// the caller multiplies onto the sine component to get the gradient of
+// the cosine (chain rule), matching how the shader uses `phacelle.zw`.
+glm::vec4 phacelleNoise(glm::vec2 p, glm::vec2 normDir, float freq,
+                        float offset, float normalization, uint32_t seed) {
+  glm::vec2 sideDir = glm::vec2(-normDir.y, normDir.x) * freq * kTau;
+  offset *= kTau;
 
-      float phase = glm::dot(toP, tangent) * glm::pi<float>();
-      cosSum += std::cos(phase) * w;
-      sinSum += std::sin(phase) * w;
-      wSum += w;
+  glm::vec2 pInt = glm::floor(p);
+  glm::vec2 pFrac = glm::fract(p);
+  glm::vec2 phaseDir(0.f);
+  float weightSum = 0.f;
+
+  for (int i = -1; i <= 2; ++i) {
+    for (int j = -1; j <= 2; ++j) {
+      glm::vec2 gridOffset{float(i), float(j)};
+      glm::vec2 gridPoint = pInt + gridOffset;
+      glm::vec2 randomOffset = hash2(gridPoint, seed) * 0.5f;
+      glm::vec2 vectorFromCellPoint = pFrac - gridOffset - randomOffset;
+
+      float sqrDist = glm::dot(vectorFromCellPoint, vectorFromCellPoint);
+      float weight = std::exp(-sqrDist * 2.f);
+      // Subtract 0.01111 so the weight is exactly 0 at distance 1.5,
+      // avoiding subtle grid-line artifacts - see the shader comment.
+      weight = glm::max(0.f, weight - 0.01111f);
+      weightSum += weight;
+
+      float waveInput = glm::dot(vectorFromCellPoint, sideDir) + offset;
+      phaseDir += glm::vec2(std::cos(waveInput), std::sin(waveInput)) * weight;
     }
   }
 
-  glm::vec2 wave(0.f, 0.f);
-  if (wSum > 1e-5f)
-    wave = glm::vec2(cosSum, sinSum) / wSum;
+  glm::vec2 interpolated =
+      weightSum > 1e-8f ? phaseDir / weightSum : glm::vec2(0.f);
+  float magnitude = glm::length(interpolated);
+  magnitude = glm::max(1.f - normalization, magnitude);
 
-  // Normalized gullies: scale by k=2 then clamp to the unit circle, so
-  // blended lengths above 0.5 become fully normalized, avoiding both
-  // inconsistent magnitude (no normalization) and loopy artifacts (full
-  // normalization).
-  glm::vec2 scaled = wave * 2.f;
-  float len = glm::length(scaled);
-  if (len > 1.f)
-    scaled /= len;
+  return glm::vec4(interpolated / magnitude, sideDir);
+}
 
-  StripeSample result;
-  result.height = scaled.x;
-  float trueSlope = scaled.y;
-  result.trueGrad = tangent * (trueSlope * glm::pi<float>() * freq);
+// Result of running the full multi-octave erosion filter at one point.
+struct ErosionResult {
+  glm::vec3 delta{0.f};  // (height, dHdx, dHdy) delta added by erosion
+  float magnitude{0.f};  // sum of per-octave strengths actually applied
+  float fadeTarget{0.f}; // running fade-target value, post-loop
+};
 
-  // Straight gullies: use the sign of the sine wave rather than its value,
-  // as if the gully were an extruded triangle wave with constant slope
-  // top-to-bottom, so children branch off cleanly.
-  float straightSlope = (scaled.y > 0.f) ? 1.f : (scaled.y < 0.f ? -1.f : 0.f);
-  result.straightGrad = tangent * (straightSlope * glm::pi<float>() * freq);
+// Direct port of the shader's ErosionFilter. `heightAndSlope` is (height,
+// dHdx, dHdy) of the base landscape at this point; `fadeTarget` should be
+// -1 at valleys and +1 at peaks (overshoot is fine). `octaves` is passed
+// in already capped by the caller's Nyquist guard.
+ErosionResult erosionFilter(glm::vec2 p, glm::vec3 heightAndSlope,
+                            float fadeTarget, float strength, float gullyWeight,
+                            float detail, glm::vec4 rounding, glm::vec2 onset,
+                            glm::vec2 assumedSlope, float scale,
+                            uint32_t octaves, float lacunarity, float gain,
+                            float cellScale, float normalization,
+                            uint32_t seed) {
+  // NOTE: the shader multiplies strength by scale here too
+  // ("strength *= scale;"). That's fine in the shader's native UV-space
+  // units, where scale (e.g. 0.15) and strength (e.g. 0.22) are both
+  // small, similarly-scaled numbers. In this world-space port, scale
+  // (erosionScale) is deliberately a large number (e.g. 30) chosen to get
+  // a sane stripe *frequency* for the mesh's actual size - multiplying
+  // that into strength as well would blow height contributions 30x past
+  // the [0,1] range and saturate the final clamp into mesas/cliffs. So
+  // strength and scale are kept independent here; erosionStrength alone
+  // controls height magnitude.
+  fadeTarget = glm::clamp(fadeTarget, -1.f, 1.f);
 
+  glm::vec3 inputHeightAndSlope = heightAndSlope;
+  float freq = 1.f / (scale * cellScale);
+  float slopeLength = glm::max(
+      glm::length(glm::vec2(heightAndSlope.y, heightAndSlope.z)), 1e-10f);
+  float magnitude = 0.f;
+  float roundingMult = 1.f;
+
+  float roundingForInput = glm::mix(rounding.y, rounding.x,
+                                    glm::clamp(fadeTarget + 0.5f, 0.f, 1.f)) *
+                           rounding.z;
+  float combiMask =
+      easeOut(smoothStart(slopeLength * onset.x, roundingForInput * onset.x));
+
+  // Assumed-slope blend for the direction that orients the first octave's
+  // gullies (and is carried forward octave to octave below).
+  glm::vec2 actualSlope(heightAndSlope.y, heightAndSlope.z);
+  glm::vec2 gullySlope = glm::mix(
+      actualSlope, actualSlope / slopeLength * assumedSlope.x, assumedSlope.y);
+
+  ErosionResult result;
+
+  for (uint32_t i = 0; i < octaves; ++i) {
+    glm::vec4 phacelle =
+        phacelleNoise(p * freq, safeNormalize(gullySlope), cellScale, 0.25f,
+                      normalization, seed + i * 977u);
+    // Multiply with freq since p was multiplied with freq; negate since
+    // gullySlope points down.
+    glm::vec2 phacelleDeriv = glm::vec2(phacelle.z, phacelle.w) * -freq;
+
+    float sloping = std::abs(phacelle.y);
+    gullySlope +=
+        glm::sign(phacelle.y) * phacelleDeriv * strength * gullyWeight;
+
+    glm::vec3 gullies(phacelle.x, phacelle.y * phacelleDeriv.x,
+                      phacelle.y * phacelleDeriv.y);
+    glm::vec3 fadedGullies = glm::mix(glm::vec3(fadeTarget, 0.f, 0.f),
+                                      gullies * gullyWeight, combiMask);
+    heightAndSlope += fadedGullies * strength;
+    magnitude += strength;
+
+    fadeTarget = fadedGullies.x;
+
+    float roundingForOctave =
+        glm::mix(rounding.y, rounding.x,
+                 glm::clamp(phacelle.x + 0.5f, 0.f, 1.f)) *
+        roundingMult;
+    float newMask =
+        easeOut(smoothStart(sloping * onset.y, roundingForOctave * onset.y));
+    combiMask = powInv(combiMask, detail) * newMask;
+
+    strength *= gain;
+    freq *= lacunarity;
+    roundingMult *= rounding.w;
+  }
+
+  result.delta = heightAndSlope - inputHeightAndSlope;
+  result.magnitude = magnitude;
+  result.fadeTarget = fadeTarget;
   return result;
 }
 
@@ -120,101 +293,107 @@ StripeSample sampleStripe(glm::vec2 pos, glm::vec2 dir, float freq,
 // running result rather than summing octaves, so that finer octaves can't
 // disturb the ridges/creases already committed by coarser ones.
 float evalHeight(glm::vec2 pos, const MountainCreateInfo &info) {
-  // Smooth base landscape: a couple of broad low-frequency bumps so
-  // there's an actual peak for the erosion to carve into.
-  float baseFreq = 1.2f / glm::max(info.worldSize.x, info.worldSize.y);
-  auto sampleBase = [&](glm::vec2 samplePos) {
-    glm::vec2 pp = samplePos * baseFreq;
-    float h = 0.6f * std::cos(pp.x * glm::two_pi<float>()) *
-                  std::cos(pp.y * glm::two_pi<float>()) +
-              0.3f * std::cos((pp.x + pp.y) * glm::two_pi<float>() * 1.7f +
-                              1.3f);
-    return h * 0.5f + 0.5f;
-  };
-  float baseH = sampleBase(pos);
-
-  float eps = 0.5f / baseFreq * 0.01f;
-  float baseGradX =
-      (sampleBase(pos + glm::vec2(eps, 0.f)) -
-       sampleBase(pos - glm::vec2(eps, 0.f))) /
-      (2.f * eps);
-  float baseGradY =
-      (sampleBase(pos + glm::vec2(0.f, eps)) -
-       sampleBase(pos - glm::vec2(0.f, eps))) /
-      (2.f * eps);
-  glm::vec2 baseGrad(baseGradX, baseGradY);
+  // Turbulent base landscape, direct analog of the shader's
+  // `FractalNoise(pHeight, HEIGHT_FREQUENCY, HEIGHT_OCTAVES,
+  // HEIGHT_LACUNARITY, HEIGHT_GAIN)`. baseFeatureWorldSize is the
+  // absolute world-space wavelength of the *largest* octave and is
+  // intentionally not scaled by worldSize - so growing worldSize tiles
+  // more peaks/valleys across a bigger landscape instead of just
+  // stretching a single bump.
+  //
+  // This matters beyond just "more detail": using a single smooth,
+  // low-frequency bump here (as an earlier version of this function did)
+  // gives the gradient a nearly identical direction over huge contiguous
+  // areas, which makes the erosion gullies - whose orientation is driven
+  // by this gradient - run parallel across wide swaths of terrain instead
+  // of branching and curving locally. That reads as "stretched" rather
+  // than organic. Real multi-octave turbulent noise gives every region
+  // its own locally-varying slope direction, which is what the erosion
+  // filter actually needs to produce natural-looking branching gullies.
+  float baseFreq = 1.f / glm::max(info.baseFeatureWorldSize, 1.f);
+  glm::vec3 baseNoise =
+      fractalNoiseDeriv(pos, baseFreq, info.baseOctaves, info.baseLacunarity,
+                        info.baseGain, info.seed);
+  // Rescale the roughly [-1, 1] noise value into [0, 1] height space
+  // (matching the shader's "n = n * 0.5 + vec3(0.5, 0, 0)"); the
+  // derivative scales by the same 0.5 factor.
+  float baseH = baseNoise.x * 0.5f + 0.5f;
+  glm::vec2 baseGrad(baseNoise.y * 0.5f, baseNoise.z * 0.5f);
 
   // Input fade target: -1 at valleys, +1 at peaks (inverse_lerp from the
   // "The fade approach" section).
   float fadeTarget = inverseLerp(0.f, 1.f, baseH) * 2.f - 1.f;
 
-  // Input mask: opaque (1, "let erosion through") on slopes, closed
-  // (0, "protect the base shape") at flat peaks/valleys of the base
-  // landscape, via the same ease_out shaping used for stacked fading.
-  float baseSlopeNorm =
-      glm::clamp(glm::length(baseGrad) * info.slopeSensitivity, 0.f, 1.f);
-  float mask = easeOut(baseSlopeNorm);
+  // Nyquist guard: once a gully octave's stripe wavelength gets close to
+  // the vertex spacing, it can no longer be resolved by the grid and
+  // instead of gullies you get aliased, chaotic salt-and-pepper noise -
+  // this is a major contributor to terrain reading as "noisy" rather than
+  // mountain-like, especially once worldSize grows without resolution
+  // growing to match. We cap the octave count (rather than looping and
+  // breaking, since ErosionFilter's octave loop is now self-contained)
+  // once a stripe wavelength would need more detail than ~3 vertices can
+  // show.
+  glm::uvec2 gridRes = glm::max(info.resolution, glm::uvec2(2u));
+  glm::vec2 cellSize = info.worldSize / glm::vec2(gridRes - glm::uvec2(1u));
+  float maxSafeFreq = 1.f / (3.f * glm::max(cellSize.x, cellSize.y));
 
-  // Direction/magnitude driving the *next* octave's stripe orientation -
-  // uses the unfaded "straight gullies" gradient, per "Straight gullies".
-  glm::vec2 gullyDirAccum = baseGrad;
-
-  float freq = info.baseFrequency;
-  float amplitude = 1.f;
-
-  for (uint32_t o = 0; o < info.octaves; ++o) {
-    float slopeMag = glm::length(gullyDirAccum);
-    glm::vec2 dir =
-        slopeMag > 1e-5f ? gullyDirAccum / slopeMag : glm::vec2(1.f, 0.f);
-
-    // The frequency approach: stripes get thicker as slope -> 0, so peaks
-    // and valleys always land on a stripe center (ridge) rather than an
-    // arbitrary point. Clamped to minFrequencyScale instead of true
-    // infinity to avoid numerical blowup.
-    float slopeNorm =
-        glm::clamp(slopeMag * info.slopeSensitivity, 0.f, 1.f);
-    float freqScale = glm::mix(info.minFrequencyScale, 1.f, slopeNorm);
-    float effectiveFreq = freq * freqScale;
-
-    StripeSample sample =
-        sampleStripe(pos, dir, effectiveFreq, info.seed + o * 977u);
-
-    // Pointy peaks: scale down the gully contribution (erosionStrength is
-    // expected to compensate by being ~1/gullyWeight).
-    float octH = sample.height * amplitude * info.gullyWeight *
-                info.erosionStrength;
-    glm::vec2 octStraightGrad = sample.straightGrad * amplitude *
-                                info.gullyWeight * info.erosionStrength;
-
-    // Fade approach: this octave's result *replaces* the running fade
-    // target wherever the mask permits, rather than adding to it.
-    fadeTarget = glm::mix(fadeTarget, octH, mask);
-
-    // Stacked fading: build this octave's mask contribution, opaque (0)
-    // at this octave's own creases/ridges (where its stripe is flat, i.e.
-    // |trueGrad| ~ 0) so finer octaves can't disturb them, permissive (1)
-    // on its slopes so finer octaves can still add detail there.
-    float localSlopeNorm = glm::clamp(glm::abs(sample.height), 0.f, 1.f);
-    // sample.height ~ +-1 exactly where the stripe is flat (ridge/crease),
-    // ~0 where it's steepest - so 1 - |height| tracks local slope.
-    float newMaskContribution = easeOut(1.f - localSlopeNorm);
-    mask = powInv(mask, info.detail) * newMaskContribution;
-
-    // Feed the unfaded, straight-gullies gradient forward to orient the
-    // next (finer) octave.
-    gullyDirAccum += octStraightGrad;
-
-    amplitude *= info.gain;
-    freq *= info.lacunarity;
+  float freq0 = 1.f / (info.erosionScale * info.cellScale);
+  uint32_t safeOctaves = 0;
+  {
+    float freq = freq0;
+    for (; safeOctaves < info.octaves; ++safeOctaves) {
+      if (freq > maxSafeFreq)
+        break;
+      freq *= info.lacunarity;
+    }
   }
 
-  return glm::clamp(fadeTarget * 0.5f + 0.5f, 0.f, 1.f);
+  ErosionResult erosion =
+      erosionFilter(pos, glm::vec3(baseH, baseGrad.x, baseGrad.y), fadeTarget,
+                    info.erosionStrength, info.gullyWeight, info.detail,
+                    info.rounding, info.onset, info.assumedSlope,
+                    info.erosionScale, safeOctaves, info.lacunarity, info.gain,
+                    info.cellScale, info.normalization, info.seed);
+
+  // Shader's TERRAIN_HEIGHT_OFFSET: an optional overall bias, scaled by
+  // how much erosion magnitude was actually applied at this point, with
+  // an option to blend toward "only raise valleys / only lower peaks"
+  // behavior instead of a flat shift.
+  float offset =
+      glm::mix(info.heightOffset.x, -erosion.fadeTarget, info.heightOffset.y) *
+      erosion.magnitude;
+
+  float eroded = baseH + erosion.delta.x + offset;
+
+  // NOTE: intentionally not clamped to [0,1] here. The source shader's
+  // Heightmap() never clamps its returned `eroded` value either - it only
+  // clamp01()s the *debug/ridge-map channels* it packs into a texture.
+  // Clamping the actual height flattens the small fraction of vertices
+  // where erosion pushes just past 0 or 1 into hard mesas/cliffs (visible
+  // as the residual clampedLow/clampedHigh percentages in the debug
+  // stats). generate() already separately clamps just the texture UV
+  // (see vert.uv below), which is the one place clamping is needed -
+  // sampling the gradient texture with an out-of-range altitude, not the
+  // mesh's actual geometry, is the only thing that would misbehave.
+  return eroded;
 }
 
-// Builds a small altitude gradient strip: rock (low/steep) -> dirt ->
-// grass -> snow (high), 5 stops, as a 5x1 RGBA8 image. Vertex UV.x encodes
-// normalized altitude so the fragment shader's texture sample effectively
-// looks the color up by height.
+// Builds a small altitude-x-slope terrain-color texture: columns are
+// altitude bands (rock (low) -> dirt -> grass -> rock -> snow (high), 5
+// stops, same as before), rows are slope-steepness bands (flat -> gentle
+// -> moderate -> steep, 4 stops). Vertex UV.x encodes normalized altitude,
+// UV.y encodes normalized slope steepness (see
+// MountainCreateInfo::rockSlopeAngleDeg), so bilinear sampling blends both
+// axes at once - a steep cliff at "grass altitude" samples toward the
+// steep row's rock color instead of green, while a flat area at the same
+// altitude still reads as grass.
+//
+// LIMITATION - reflectivity: this texture only carries base color (RGB) +
+// alpha, with alpha used as an inverse-roughness/"ice-like" mask (see
+// Stop::reflectivity below) rather than true PBR roughness. Snow coverage
+// and its reflectivity both taper off as slope increases (steep faces
+// shed snow), which is handled here by the row data, not by any
+// shader-side slope logic.
 //
 // Stop values below are specified in linear space (i.e. "what color do I
 // actually want this to look like"), then gamma-encoded to bytes here,
@@ -225,27 +404,75 @@ float evalHeight(glm::vec2 pos, const MountainCreateInfo &info) {
 // bytes rather than relying on a hardware sRGB format to do that decode
 // automatically (using Srgb here would cause the shader to linearize an
 // already-linear value a second time).
-std::vector<uint8_t> buildGradientTexture(glm::uvec2 &outSize) {
+//
+// ASSUMPTION: rows are written top-to-bottom in the returned buffer with
+// row 0 (flat) first, matching a standard top-left-origin image layout
+// with V=0 at the first row - if the engine's sampler/image loader treats
+// V=0 as the *bottom* row instead, the slope axis will read backwards
+// (steep-looking terrain on flat ground and vice versa); flip the `rows`
+// array order here if so.
+std::vector<uint8_t> buildTerrainTexture(glm::uvec2 &outSize) {
   struct Stop {
     glm::vec3 linearColor; // 0..1, linear space
+    uint8_t reflectivity;  // 0..255, alpha channel: how "ice-like" /
+                           // reflective this stop should read as.
   };
-  // Ordered low -> high altitude.
-  static constexpr std::array<Stop, 5> stops{{
-      {{0.14f, 0.10f, 0.07f}}, // dark rock / scree at the base
-      {{0.20f, 0.13f, 0.06f}}, // dirt
-      {{0.08f, 0.20f, 0.05f}}, // grass
-      {{0.30f, 0.30f, 0.30f}}, // bare rock near the peak
-      {{0.90f, 0.92f, 0.95f}}, // snow cap
+  // 4 rows (flat -> steep), 5 columns per row (low -> high altitude).
+  static constexpr std::array<std::array<Stop, 5>, 4> rows{{
+      // Flat: full band progression, as the original single-row texture.
+      {{
+          {{0.14f, 0.10f, 0.07f}, 0},   // dark rock / scree at the base
+          {{0.20f, 0.13f, 0.06f}, 0},   // dirt
+          {{0.08f, 0.20f, 0.05f}, 0},   // grass
+          {{0.30f, 0.30f, 0.30f}, 0},   // bare rock near the peak
+          {{0.90f, 0.92f, 0.95f}, 255}, // snow cap - fully reflective
+      }},
+      // Gentle slope: slightly rockier/dirtier, thinner and less
+      // reflective snow.
+      {{
+          {{0.16f, 0.12f, 0.08f}, 0},
+          {{0.22f, 0.15f, 0.08f}, 0},
+          {{0.15f, 0.22f, 0.08f}, 0},
+          {{0.33f, 0.32f, 0.30f}, 0},
+          {{0.85f, 0.87f, 0.90f}, 200},
+      }},
+      // Moderate slope: rock-dominant even at low/mid altitude, only
+      // sparse grass tint, patchy low-reflectivity snow.
+      {{
+          {{0.20f, 0.16f, 0.12f}, 0},
+          {{0.24f, 0.18f, 0.12f}, 0},
+          {{0.28f, 0.24f, 0.18f}, 0},
+          {{0.35f, 0.34f, 0.32f}, 0},
+          {{0.55f, 0.55f, 0.58f}, 120},
+      }},
+      // Steep/vertical: bare rock across the entire altitude range - real
+      // cliffs shed both vegetation and snow - with only a faint
+      // rock/snow mix even at the highest altitude column.
+      {{
+          {{0.22f, 0.19f, 0.16f}, 0},
+          {{0.23f, 0.20f, 0.17f}, 0},
+          {{0.25f, 0.22f, 0.18f}, 0},
+          {{0.32f, 0.31f, 0.29f}, 0},
+          {{0.45f, 0.46f, 0.48f}, 40},
+      }},
   }};
-  outSize = glm::uvec2(static_cast<uint32_t>(stops.size()), 1u);
-  std::vector<uint8_t> pixels(stops.size() * 4);
-  for (size_t i = 0; i < stops.size(); ++i) {
-    glm::vec3 encoded = glm::pow(glm::clamp(stops[i].linearColor, 0.f, 1.f),
-                                 glm::vec3(1.f / 2.2f));
-    pixels[i * 4 + 0] = static_cast<uint8_t>(encoded.r * 255.0f + 0.5f);
-    pixels[i * 4 + 1] = static_cast<uint8_t>(encoded.g * 255.0f + 0.5f);
-    pixels[i * 4 + 2] = static_cast<uint8_t>(encoded.b * 255.0f + 0.5f);
-    pixels[i * 4 + 3] = 255;
+
+  uint32_t cols = static_cast<uint32_t>(rows[0].size());
+  uint32_t rowCount = static_cast<uint32_t>(rows.size());
+  outSize = glm::uvec2(cols, rowCount);
+
+  std::vector<uint8_t> pixels(static_cast<size_t>(cols) * rowCount * 4);
+  for (uint32_t r = 0; r < rowCount; ++r) {
+    for (uint32_t c = 0; c < cols; ++c) {
+      const Stop &stop = rows[r][c];
+      glm::vec3 encoded = glm::pow(glm::clamp(stop.linearColor, 0.f, 1.f),
+                                   glm::vec3(1.f / 2.2f));
+      size_t idx = (static_cast<size_t>(r) * cols + c) * 4;
+      pixels[idx + 0] = static_cast<uint8_t>(encoded.r * 255.0f + 0.5f);
+      pixels[idx + 1] = static_cast<uint8_t>(encoded.g * 255.0f + 0.5f);
+      pixels[idx + 2] = static_cast<uint8_t>(encoded.b * 255.0f + 0.5f);
+      pixels[idx + 3] = stop.reflectivity;
+    }
   }
   return pixels;
 }
@@ -254,7 +481,8 @@ std::vector<uint8_t> buildGradientTexture(glm::uvec2 &outSize) {
 
 std::shared_ptr<Scene<EntitySys::Vertex>>
 generate(EngineContext &context, vk::DescriptorSetLayout texturesSetLayout,
-        const MountainCreateInfo &createInfo) {
+         const MountainCreateInfo &createInfo, MountainHeightmap *outHeightmap,
+         std::vector<Lake> *outLakes, std::vector<TreePlacement> *outTrees) {
   using Vertex = EntitySys::Vertex;
 
   const uint32_t gridX = glm::max(createInfo.resolution.x, 2u);
@@ -267,6 +495,9 @@ generate(EngineContext &context, vk::DescriptorSetLayout texturesSetLayout,
   glm::vec3 boundsMax(std::numeric_limits<float>::lowest());
 
   std::vector<float> heights(static_cast<size_t>(gridX) * gridZ);
+  // Populated in lockstep with `heights` in the vertex loop below, reused
+  // afterward for lake-basin flood filling (see the outLakes block).
+  std::vector<float> slopeNorms(static_cast<size_t>(gridX) * gridZ);
 
   const glm::vec2 halfSize = createInfo.worldSize * 0.5f;
   const float heightRange = createInfo.peakHeight - createInfo.baseHeight;
@@ -293,6 +524,26 @@ generate(EngineContext &context, vk::DescriptorSetLayout texturesSetLayout,
   float cellX = createInfo.worldSize.x / static_cast<float>(gridX - 1);
   float cellZ = createInfo.worldSize.y / static_cast<float>(gridZ - 1);
 
+  // If requested, accumulated in lockstep with the vertex loop below so
+  // the exported heightmap always matches the mesh's own hNorm/slopeNorm
+  // exactly - no separate re-evaluation, no risk of drifting out of sync.
+  //
+  // Stored as packed half-floats (glm::packHalf2x16), one uint32 per
+  // texel, matching an R16G16_SFLOAT image - NOT plain 32-bit floats.
+  // R32G32_SFLOAT is only required by the Vulkan spec to support nearest
+  // filtering; linear filtering on 32-bit float formats is optional and
+  // frequently unsupported, while 16-bit float formats are part of the
+  // mandatory linear-filtering set. Sampling with an unsupported filter
+  // mode is undefined behavior - inconsistent-looking results that don't
+  // match the actual terrain (right shape, wrong place; or a hard seam
+  // partway across an otherwise-uniform area) are exactly what that looks
+  // like in practice. Half-float precision is more than enough here: the
+  // height value maxes out around peakHeight (tens of world units) and
+  // the suitability channel is already clamped to [0,1].
+  std::vector<uint32_t> heightmapPixels;
+  if (outHeightmap)
+    heightmapPixels.resize(static_cast<size_t>(gridX) * gridZ);
+
   for (uint32_t iz = 0; iz < gridZ; ++iz) {
     for (uint32_t ix = 0; ix < gridX; ++ix) {
       glm::vec2 xz = worldPosAt(ix, iz);
@@ -314,15 +565,415 @@ generate(EngineContext &context, vk::DescriptorSetLayout texturesSetLayout,
 
       glm::vec3 normal = glm::normalize(glm::vec3(-dHdx, 1.f, -dHdz));
 
+      // Slope steepness, normalized so 0 = flat and 1 = at-or-beyond
+      // rockSlopeAngleDeg from horizontal. normal.y == cos(angle from
+      // vertical-up), so a flat surface has normal.y == 1 and a surface
+      // at the threshold angle has normal.y == cos(rockSlopeAngleDeg).
+      float thresholdNormalY =
+          std::cos(glm::radians(createInfo.rockSlopeAngleDeg));
+      float slopeNorm = 0.f;
+      if (thresholdNormalY < 1.f - 1e-5f) {
+        slopeNorm =
+            glm::clamp((1.f - normal.y) / (1.f - thresholdNormalY), 0.f, 1.f);
+      }
+
+      slopeNorms[iz * gridX + ix] = slopeNorm;
+
       Vertex vert{};
       vert.pos = glm::vec3(xz.x, y, xz.y);
       vert.normal = normal;
-      vert.uv = glm::vec2(glm::clamp(hNorm, 0.f, 1.f), 0.5f);
+      vert.uv = glm::vec2(glm::clamp(hNorm, 0.f, 1.f), slopeNorm);
       vertices.push_back(vert);
+
+      if (outHeightmap) {
+        size_t pIdx = static_cast<size_t>(iz) * gridX + ix;
+        float suitability =
+            computeGrassSuitability(glm::clamp(hNorm, 0.f, 1.f), slopeNorm);
+        heightmapPixels[pIdx] = glm::packHalf2x16(glm::vec2(y, suitability));
+      }
 
       boundsMin = glm::min(boundsMin, vert.pos);
       boundsMax = glm::max(boundsMax, vert.pos);
     }
+  }
+
+  if (outLakes && createInfo.generateLakes) {
+    // Priority-flood depression filling (the standard terrain/hydrology
+    // technique for this - equivalent to LeetCode's "Trapping Rain Water
+    // II"): flood inward from the map's edge, and for every cell compute
+    // the height water would need to reach for it to escape to the
+    // boundary along the *cheapest* route out. A cell whose terrain sits
+    // below that computed level is genuinely, physically enclosed - no
+    // percentile/slope/rim-margin heuristics needed, because this
+    // directly answers "does this cell hold water" rather than
+    // approximating it with independent per-cell thresholds (which is
+    // what the previous version of this function did, and why it kept
+    // rejecting basins that were visibly enclosed - the heuristic didn't
+    // actually match what "enclosed" means for an irregular basin shape).
+    const size_t cellCount = heights.size();
+    std::vector<float> waterLevel(cellCount, std::numeric_limits<float>::max());
+    std::vector<uint8_t> settled(cellCount, 0);
+
+    using PQEntry = std::pair<float, uint32_t>; // (waterLevel, cellIdx)
+    std::priority_queue<PQEntry, std::vector<PQEntry>, std::greater<>> pq;
+
+    for (uint32_t iz = 0; iz < gridZ; ++iz) {
+      for (uint32_t ix = 0; ix < gridX; ++ix) {
+        if (iz == 0 || iz == gridZ - 1 || ix == 0 || ix == gridX - 1) {
+          size_t idx = static_cast<size_t>(iz) * gridX + ix;
+          waterLevel[idx] = heights[idx];
+          settled[idx] = 1;
+          pq.emplace(heights[idx], static_cast<uint32_t>(idx));
+        }
+      }
+    }
+
+    static const int32_t dx[4] = {-1, 1, 0, 0};
+    static const int32_t dz[4] = {0, 0, -1, 1};
+
+    while (!pq.empty()) {
+      auto [curLevel, idx] = pq.top();
+      pq.pop();
+      uint32_t cx = idx % gridX;
+      uint32_t cz = idx / gridX;
+
+      for (int n = 0; n < 4; ++n) {
+        int32_t nx = static_cast<int32_t>(cx) + dx[n];
+        int32_t nz = static_cast<int32_t>(cz) + dz[n];
+        if (nx < 0 || nz < 0 || nx >= static_cast<int32_t>(gridX) ||
+            nz >= static_cast<int32_t>(gridZ))
+          continue;
+        size_t nIdx = static_cast<size_t>(nz) * gridX + nx;
+        if (settled[nIdx])
+          continue;
+        settled[nIdx] = 1;
+        // This cell can't hold water below whichever is higher: its own
+        // terrain, or the level of the cheapest path found so far - it
+        // can never be lower than the ground it sits on, and it can
+        // never drain below the pour point that got us here.
+        float nLevel = std::max(heights[nIdx], curLevel);
+        waterLevel[nIdx] = nLevel;
+        pq.emplace(nLevel, static_cast<uint32_t>(nIdx));
+      }
+    }
+
+    // Any cell where the computed water level sits above its own terrain
+    // is a genuinely enclosed depression by however much the difference
+    // is - group connected depressed cells into basins.
+    std::vector<uint8_t> visited(cellCount, 0);
+    // Reused per-component membership lookup for the gather-based mask
+    // rasterization below (see the `inBasin` comment further down) -
+    // allocated once here rather than per-lake, and cleared back to 0 for
+    // just this component's `members` after each component is processed
+    // (accepted or not) so it stays all-zero going into the next one.
+    std::vector<uint8_t> inBasin(cellCount, 0);
+    std::vector<uint32_t> stack;
+    uint32_t componentsFound = 0;
+    uint32_t rejectedTooSmall = 0;
+    uint32_t rejectedTooShallow = 0;
+    uint32_t accepted = 0;
+
+    for (uint32_t iz = 0; iz < gridZ; ++iz) {
+      for (uint32_t ix = 0; ix < gridX; ++ix) {
+        size_t startIdx = static_cast<size_t>(iz) * gridX + ix;
+        if (visited[startIdx])
+          continue;
+        float startDepth = waterLevel[startIdx] - heights[startIdx];
+        if (startDepth <= 1e-5f)
+          continue; // dry land - not part of any depression
+
+        stack.clear();
+        stack.push_back(static_cast<uint32_t>(startIdx));
+        visited[startIdx] = 1;
+        ++componentsFound;
+
+        float minSpillLevel = waterLevel[startIdx];
+        float minFloorHeight = heights[startIdx];
+        float minX = std::numeric_limits<float>::max();
+        float maxX = std::numeric_limits<float>::lowest();
+        float minZ = std::numeric_limits<float>::max();
+        float maxZ = std::numeric_limits<float>::lowest();
+        uint32_t memberCount = 0;
+        // Every cell belonging to this component, kept (not just
+        // aggregated into min/max) so it can be rasterized into a
+        // footprint mask below once the final bounding box is known -
+        // see Lake::cellMask's comment for why the bounding box alone
+        // isn't enough.
+        std::vector<uint32_t> members;
+
+        while (!stack.empty()) {
+          uint32_t idx = stack.back();
+          stack.pop_back();
+          uint32_t cx = idx % gridX;
+          uint32_t cz = idx / gridX;
+
+          minSpillLevel = std::min(minSpillLevel, waterLevel[idx]);
+          minFloorHeight = std::min(minFloorHeight, heights[idx]);
+          glm::vec2 xz = worldPosAt(cx, cz);
+          minX = std::min(minX, xz.x);
+          maxX = std::max(maxX, xz.x);
+          minZ = std::min(minZ, xz.y);
+          maxZ = std::max(maxZ, xz.y);
+          ++memberCount;
+          members.push_back(idx);
+          inBasin[idx] = 1;
+
+          for (int n = 0; n < 4; ++n) {
+            int32_t nx = static_cast<int32_t>(cx) + dx[n];
+            int32_t nz = static_cast<int32_t>(cz) + dz[n];
+            if (nx < 0 || nz < 0 || nx >= static_cast<int32_t>(gridX) ||
+                nz >= static_cast<int32_t>(gridZ))
+              continue;
+            size_t nIdx = static_cast<size_t>(nz) * gridX + nx;
+            if (visited[nIdx])
+              continue;
+            float nDepth = waterLevel[nIdx] - heights[nIdx];
+            if (nDepth <= 1e-5f)
+              continue; // dry - not part of this (or any) depression
+            visited[nIdx] = 1;
+            stack.push_back(static_cast<uint32_t>(nIdx));
+          }
+        }
+
+        // Physically, a connected flooded region settles to its single
+        // lowest spill point, not whatever level each cell individually
+        // computed on the way there - use the minimum across the
+        // component as the actual final lake surface.
+        if (memberCount < createInfo.lakeMinCells) {
+          ++rejectedTooSmall;
+          for (uint32_t memberIdx : members)
+            inBasin[memberIdx] = 0;
+          continue;
+        }
+        if (minSpillLevel - minFloorHeight < createInfo.lakeMinDepth) {
+          ++rejectedTooShallow;
+          for (uint32_t memberIdx : members)
+            inBasin[memberIdx] = 0;
+          continue;
+        }
+
+        ++accepted;
+        Lake lake{};
+        float waterY = createInfo.baseHeight + minSpillLevel * heightRange -
+                       createInfo.lakeShoreMargin;
+        lake.worldCenter =
+            glm::vec3((minX + maxX) * 0.5f, waterY, (minZ + maxZ) * 0.5f);
+        lake.worldSize = glm::vec2(maxX - minX, maxZ - minZ);
+
+        // Rasterize this component's actual member cells into a fixed-
+        // resolution mask now that the final bounding box (minX/maxX/
+        // minZ/maxZ) is known - see Lake::cellMask's comment.
+        // vkh::WaterSys::tileResolution is used directly (rather than a
+        // duplicated magic number) so this can't silently drift out of
+        // sync with WaterSys's own grid resolution.
+        constexpr uint32_t maskRes = vkh::WaterSys::tileResolution;
+        lake.maskResolution = glm::uvec2(maskRes, maskRes);
+        lake.cellMask.assign(static_cast<size_t>(maskRes) * maskRes, false);
+        float boxWidth = std::max(maxX - minX, 1e-5f);
+        float boxDepth = std::max(maxZ - minZ, 1e-5f);
+        // GATHER, not scatter: for each mask texel, check whether ANY
+        // terrain grid cell whose footprint falls inside that texel's
+        // world-space extent is a basin member, rather than pushing each
+        // member cell forward onto a single mask texel (scatter) or
+        // point-sampling just one terrain cell per texel.
+        //
+        // Neither of those simpler approaches works across the full
+        // range of lake sizes, because maskRes is a FIXED 32x32
+        // regardless of a lake's bounding box, while the terrain grid is
+        // a fixed 512x512 over the whole level - so which side is finer
+        // flips depending on the lake:
+        //  - Scatter (push each member cell to its nearest mask texel)
+        //    only fills every texel when the mask is coarser than the
+        //    terrain in that axis. For a lake narrower than roughly
+        //    maskRes * (terrain cell spacing) - e.g. a long, narrow
+        //    canyon basin - mask spacing becomes FINER than the terrain
+        //    grid, so whole columns/rows of texels never get hit by any
+        //    source cell and default to false: non-water stripes cutting
+        //    through the lake.
+        //  - Point-sampling one nearest terrain cell per texel (the
+        //    previous fix here) flips that failure for the more common
+        //    case of a lake bigger than that threshold, where the
+        //    terrain grid is finer than the mask: each texel then
+        //    represents a whole PATCH of terrain cells, and checking only
+        //    the one nearest to the texel's center means a texel next to
+        //    a jagged/curved shoreline can land on that one dry cell even
+        //    though most of the patch it stands for is wet - eroding the
+        //    mask inward from the true shoreline (water not reaching the
+        //    edge of the lakebed).
+        // Checking every terrain cell in the texel's actual footprint (OR
+        // together) covers both cases: it degrades to a single nearest
+        // cell when the mask is finer than the terrain (preserving the
+        // stripe fix), and covers the whole patch when the mask is
+        // coarser (fixing the shoreline erosion).
+        auto worldToGridRange = [&](float worldMin, float worldMax,
+                                    float halfExtent, float worldExtent,
+                                    uint32_t gridCount) {
+          float gu0 = (worldMin + halfExtent) / worldExtent;
+          float gu1 = (worldMax + halfExtent) / worldExtent;
+          int32_t g0 = static_cast<int32_t>(std::floor(gu0 * (gridCount - 1)));
+          int32_t g1 = static_cast<int32_t>(std::ceil(gu1 * (gridCount - 1)));
+          g0 = std::clamp(g0, 0, static_cast<int32_t>(gridCount - 1));
+          g1 = std::clamp(g1, 0, static_cast<int32_t>(gridCount - 1));
+          if (g1 < g0)
+            g1 = g0; // texel footprint collapsed to sub-cell width
+          return std::pair{g0, g1};
+        };
+
+        for (uint32_t mz = 0; mz < maskRes; ++mz) {
+          float v0 = static_cast<float>(mz) / static_cast<float>(maskRes);
+          float v1 = static_cast<float>(mz + 1) / static_cast<float>(maskRes);
+          auto [gz0, gz1] =
+              worldToGridRange(minZ + v0 * boxDepth, minZ + v1 * boxDepth,
+                               halfSize.y, createInfo.worldSize.y, gridZ);
+          for (uint32_t mx = 0; mx < maskRes; ++mx) {
+            float u0 = static_cast<float>(mx) / static_cast<float>(maskRes);
+            float u1 = static_cast<float>(mx + 1) / static_cast<float>(maskRes);
+            auto [gx0, gx1] =
+                worldToGridRange(minX + u0 * boxWidth, minX + u1 * boxWidth,
+                                 halfSize.x, createInfo.worldSize.x, gridX);
+
+            bool anyWet = false;
+            for (int32_t gz = gz0; gz <= gz1 && !anyWet; ++gz) {
+              for (int32_t gx = gx0; gx <= gx1; ++gx) {
+                size_t gIdx = static_cast<size_t>(gz) * gridX + gx;
+                if (inBasin[gIdx]) {
+                  anyWet = true;
+                  break;
+                }
+              }
+            }
+            if (anyWet)
+              lake.cellMask[mz * maskRes + mx] = true;
+          }
+        }
+
+        for (uint32_t memberIdx : members)
+          inBasin[memberIdx] = 0;
+
+        outLakes->push_back(lake);
+      }
+    }
+
+    // std::println("[mountain] lake basins: {} connected depressions found ->
+    // {} "
+    //              "accepted, {} rejected (tooSmall={} tooShallow={})",
+    //              componentsFound, accepted,
+    //              rejectedTooSmall + rejectedTooShallow, rejectedTooSmall,
+    //              rejectedTooShallow);
+  }
+
+  if (outTrees && createInfo.generateTrees) {
+    outTrees->clear();
+    // Separate RNG stream from the height/erosion noise (different salt on
+    // the same seed) so tree placement doesn't visibly lock to the phase of
+    // the terrain noise - e.g. trees clustering in a stripe pattern that
+    // matches the erosion gullies would look artificial.
+    std::mt19937 treeRng(createInfo.seed ^ 0x7ee5eedu);
+    std::uniform_real_distribution<float> jitter01(0.f, 1.f);
+    std::uniform_real_distribution<float> yawDist(0.f, glm::two_pi<float>());
+    std::uniform_real_distribution<float> scaleDist(0.8f, 1.3f);
+    std::uniform_int_distribution<uint32_t> variantDist(
+        0, glm::max(1u, createInfo.treeVariantCount) - 1);
+
+    const float cellSize = glm::max(createInfo.treeMinSpacing, 0.1f);
+    const int cellsX =
+        static_cast<int>(std::ceil(createInfo.worldSize.x / cellSize));
+    const int cellsZ =
+        static_cast<int>(std::ceil(createInfo.worldSize.y / cellSize));
+
+    // Nearest-neighbor sample into the already-evaluated heights/slopeNorms
+    // grid - reuses the exact same data the heightmap/grass-suitability
+    // texture above are built from, no re-evaluation of evalHeight().
+    auto sampleGrid = [&](glm::vec2 worldXZ, float &hNormOut,
+                          float &slopeNormOut) {
+      float u = (worldXZ.x + halfSize.x) / createInfo.worldSize.x;
+      float v = (worldXZ.y + halfSize.y) / createInfo.worldSize.y;
+      int ix = glm::clamp(static_cast<int>(u * (gridX - 1) + 0.5f), 0,
+                          static_cast<int>(gridX) - 1);
+      int iz = glm::clamp(static_cast<int>(v * (gridZ - 1) + 0.5f), 0,
+                          static_cast<int>(gridZ) - 1);
+      size_t idx = static_cast<size_t>(iz) * gridX + ix;
+      hNormOut = heights[idx];
+      slopeNormOut = slopeNorms[idx];
+    };
+
+    // Point-in-lake test using the same bounding-box + rasterized cellMask
+    // footprint WaterSys/generateLakeMesh use, so trees never spawn
+    // standing in an irregularly-shaped lake even though its bounding box
+    // is axis-aligned and may cover dry land too.
+    auto insideLake = [&](glm::vec2 worldXZ) {
+      if (!outLakes)
+        return false;
+      for (const Lake &lake : *outLakes) {
+        glm::vec2 half = lake.worldSize * 0.5f;
+        glm::vec2 c(lake.worldCenter.x, lake.worldCenter.z);
+        glm::vec2 rel = worldXZ - (c - half);
+        if (rel.x < 0.f || rel.y < 0.f || rel.x > lake.worldSize.x ||
+            rel.y > lake.worldSize.y)
+          continue;
+        if (lake.maskResolution.x == 0 || lake.maskResolution.y == 0)
+          return true; // no mask - fall back to bounding box only
+        uint32_t mx =
+            glm::clamp(static_cast<uint32_t>(rel.x / lake.worldSize.x *
+                                             lake.maskResolution.x),
+                       0u, lake.maskResolution.x - 1);
+        uint32_t mz =
+            glm::clamp(static_cast<uint32_t>(rel.y / lake.worldSize.y *
+                                             lake.maskResolution.y),
+                       0u, lake.maskResolution.y - 1);
+        if (lake.cellMask[mz * lake.maskResolution.x + mx])
+          return true;
+      }
+      return false;
+    };
+
+    for (int cz = 0; cz < cellsZ; ++cz) {
+      for (int cx = 0; cx < cellsX; ++cx) {
+        // One jittered candidate per cell (jittered-grid dart-throwing).
+        float jx = (static_cast<float>(cx) + jitter01(treeRng)) * cellSize;
+        float jz = (static_cast<float>(cz) + jitter01(treeRng)) * cellSize;
+        glm::vec2 worldXZ(-halfSize.x + jx, -halfSize.y + jz);
+        if (worldXZ.x > halfSize.x || worldXZ.y > halfSize.y)
+          continue;
+
+        float hNorm, slopeNorm;
+        sampleGrid(worldXZ, hNorm, slopeNorm);
+
+        if (hNorm < createInfo.treeMinAltitude ||
+            hNorm > createInfo.treeMaxAltitude)
+          continue;
+        if (slopeNorm > createInfo.treeMaxSlopeNorm)
+          continue;
+
+        // Smooth fade near the altitude/slope limits instead of a hard
+        // cutoff - reads as "forest thins into open rock/treeline" rather
+        // than a fenced-off patch of trees stopping dead at a line.
+        float altitudeFade =
+            glm::smoothstep(createInfo.treeMaxAltitude,
+                            createInfo.treeMaxAltitude * 0.7f, hNorm) *
+            glm::smoothstep(createInfo.treeMinAltitude,
+                            createInfo.treeMinAltitude * 1.5f + 0.02f, hNorm);
+        float slopeFade =
+            1.f - glm::smoothstep(createInfo.treeMaxSlopeNorm * 0.5f,
+                                  createInfo.treeMaxSlopeNorm, slopeNorm);
+        float acceptChance = createInfo.treeDensity * altitudeFade * slopeFade;
+
+        if (jitter01(treeRng) > acceptChance)
+          continue;
+        if (insideLake(worldXZ))
+          continue;
+
+        float y = createInfo.baseHeight + hNorm * heightRange;
+        TreePlacement tree{};
+        tree.position = glm::vec3(worldXZ.x, y, worldXZ.y);
+        tree.yaw = yawDist(treeRng);
+        tree.scale = scaleDist(treeRng);
+        tree.variant = variantDist(treeRng);
+        outTrees->push_back(tree);
+      }
+    }
+
+    // std::println("[mountain] scattered %{} trees", outTrees->size());
   }
 
   std::vector<uint32_t> indices;
@@ -345,7 +996,7 @@ generate(EngineContext &context, vk::DescriptorSetLayout texturesSetLayout,
   }
 
   glm::uvec2 texSize{};
-  std::vector<uint8_t> texPixels = buildGradientTexture(texSize);
+  std::vector<uint8_t> texPixels = buildTerrainTexture(texSize);
 
   SceneCreateInfo<Vertex> sceneInfo{vertices, indices};
   sceneInfo.texturePixels = std::move(texPixels);
@@ -360,6 +1011,87 @@ generate(EngineContext &context, vk::DescriptorSetLayout texturesSetLayout,
   for (auto &mesh : scene->meshes) {
     mesh.aabb.min = boundsMin;
     mesh.aabb.max = boundsMax;
+  }
+
+  if (outHeightmap) {
+    ImageCreateInfo_data imageInfo{};
+    imageInfo.size = glm::uvec2(gridX, gridZ);
+    imageInfo.data = heightmapPixels.data();
+    imageInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+    imageInfo.usage =
+        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
+    // R16G16_SFLOAT, not R32G32_SFLOAT: see the comment on heightmapPixels
+    // above - 32-bit float formats aren't guaranteed to support linear
+    // filtering in Vulkan, 16-bit ones are, and precision is more than
+    // sufficient for a height value + a [0,1] mask here.
+    imageInfo.format = vk::Format::eR16G16Sfloat;
+    imageInfo.name = "mountain heightmap image";
+
+    outHeightmap->image = std::make_shared<Image2D>(context, imageInfo);
+    outHeightmap->worldMin = -halfSize;
+    outHeightmap->worldSize = createInfo.worldSize;
+  }
+
+  return scene;
+}
+
+std::shared_ptr<Scene<EntitySys::Vertex>>
+generateLakeMesh(EngineContext &context,
+                 vk::DescriptorSetLayout texturesSetLayout, const Lake &lake) {
+  using Vertex = EntitySys::Vertex;
+
+  // A single flat quad sized to the basin's bounding box. Basins found by
+  // the flood fill are already axis-aligned blobs of grid cells, so an
+  // axis-aligned quad covers them without needing to match their (often
+  // irregular) outline exactly - a small amount of water clipping into the
+  // surrounding shore is preferable to leaving gaps at the edges.
+  const glm::vec2 half = lake.worldSize * 0.5f;
+  const float y = lake.worldCenter.y;
+  const float cx = lake.worldCenter.x;
+  const float cz = lake.worldCenter.z;
+
+  // Same corner layout/winding as the main terrain grid's quads (i0=(ix,iz),
+  // i1=(ix+1,iz), i2=(ix,iz+1), i3=(ix+1,iz+1), triangulated i0,i2,i1 then
+  // i1,i2,i3) so the lake's front face and normal match the terrain mesh's
+  // convention.
+  std::vector<Vertex> vertices(4);
+  vertices[0].pos = glm::vec3(cx - half.x, y, cz - half.y); // i0
+  vertices[1].pos = glm::vec3(cx + half.x, y, cz - half.y); // i1
+  vertices[2].pos = glm::vec3(cx - half.x, y, cz + half.y); // i2
+  vertices[3].pos = glm::vec3(cx + half.x, y, cz + half.y); // i3
+  for (auto &v : vertices) {
+    v.normal = glm::vec3(0.f, 1.f, 0.f);
+  }
+  vertices[0].uv = glm::vec2(0.f, 0.f);
+  vertices[1].uv = glm::vec2(1.f, 0.f);
+  vertices[2].uv = glm::vec2(0.f, 1.f);
+  vertices[3].uv = glm::vec2(1.f, 1.f);
+
+  std::vector<uint32_t> indices{0, 2, 1, 1, 2, 3};
+
+  // A tiny solid-color texture: a muted, slightly reflective blue - this is
+  // a static stand-in surface, not the animated Tessendorf ocean WaterSys
+  // renders, so no wave/foam detail, just a plausible lake-water tint.
+  glm::vec3 linearColor(0.05f, 0.14f, 0.22f);
+  glm::vec3 encoded =
+      glm::pow(glm::clamp(linearColor, 0.f, 1.f), glm::vec3(1.f / 2.2f));
+  std::vector<uint8_t> texPixels = {
+      static_cast<uint8_t>(encoded.r * 255.0f + 0.5f),
+      static_cast<uint8_t>(encoded.g * 255.0f + 0.5f),
+      static_cast<uint8_t>(encoded.b * 255.0f + 0.5f),
+      120, // reflectivity/alpha - see buildTerrainTexture's Stop comment
+  };
+
+  SceneCreateInfo<Vertex> sceneInfo{vertices, indices};
+  sceneInfo.texturePixels = std::move(texPixels);
+  sceneInfo.textureSize = glm::uvec2(1, 1);
+
+  auto scene =
+      std::make_shared<Scene<Vertex>>(context, sceneInfo, texturesSetLayout);
+
+  for (auto &mesh : scene->meshes) {
+    mesh.aabb.min = glm::vec3(cx - half.x, y, cz - half.y);
+    mesh.aabb.max = glm::vec3(cx + half.x, y, cz + half.y);
   }
 
   return scene;

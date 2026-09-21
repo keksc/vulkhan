@@ -515,16 +515,18 @@ void SkySys::rebake(uint32_t newMilkyWayFaceSize,
                totalMs);
 }
 
-void SkySys::render() {
+void SkySys::render(vk::DescriptorSet globalSetOverride) {
   auto &cmd = context.frameInfo.cmd;
 
   debug::beginLabel(context, cmd, "sky rendering", {.3f, .3f, 1.f, 1.f});
   pipeline->bind(cmd);
 
-  cmd.bindDescriptorSets(
-      vk::PipelineBindPoint::eGraphics, pipeline->getLayout(), 0, 1,
-      &context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex], 0,
-      nullptr);
+  vk::DescriptorSet globalSet =
+      globalSetOverride
+          ? globalSetOverride
+          : context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex];
+  cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
+                         pipeline->getLayout(), 0, 1, &globalSet, 0, nullptr);
   cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
                          pipeline->getLayout(), 1, 1, &bakedSet, 0, nullptr);
 

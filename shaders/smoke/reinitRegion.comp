@@ -1,0 +1,36 @@
+#version 450
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout(push_constant) uniform PushConstants {
+  ivec4 cellCount;  // xyz used
+  ivec4 regionMin;  // xyz = unwrapped world-cell min corner of the box
+  ivec4 regionSize; // xyz = box dimensions along each axis
+} pc;
+
+#include "common.glsl"
+
+// Unconditionally zeroes dye/velocity/pressure/divergence for every cell in
+// the box. Used by SmokeSys::clearSlicesGPU when recenter() exposes a
+// slice that's about to be recycled for a physically different part of the
+// world - without this, that slot's old GPU data (the images are the only
+// copy of sim state; nothing on the CPU mirrors them) would just sit there
+// until something happened to overwrite it, which is what let stale smoke
+// "reappear" on the opposite face of the window after a recenter.
+//
+// No solidity check here, unlike brush.comp: reinit needs to clear a cell
+// regardless of whether it turns out to be solid or open air, since the
+// solid map for this cell is about to be (re)computed separately anyway.
+void main() {
+  ivec3 local = ivec3(gl_GlobalInvocationID);
+  ivec3 size = pc.regionSize.xyz;
+  if (local.x >= size.x || local.y >= size.y || local.z >= size.z)
+    return;
+
+  ivec3 dims = pc.cellCount.xyz;
+  ivec3 p = wrapCoord(pc.regionMin.xyz + local, dims);
+
+  imageStore(velocities, p, vec4(0.0));
+  imageStore(dye, p, vec4(0.0));
+  imageStore(pressures, p, vec4(0.0));
+  imageStore(divergence, p, vec4(0.0));
+}

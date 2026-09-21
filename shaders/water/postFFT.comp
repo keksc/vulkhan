@@ -63,12 +63,20 @@ void main() {
   float currentFoam = imageLoad(displacements, ivec2(gid)).a;
 
   // foam(t) = foam(0) * e^(-decayRate * t)
-  const float decayRate = 4.0; 
+  // Raised from 4.0 - foam fades out noticeably faster now, so it reads
+  // as brief crest-breaking rather than lingering film across the
+  // surface.
+  const float decayRate = 7.0;
   currentFoam *= exp(-decayRate * pc.dt);
 
-  const float foamThreshold = 0.7;
+  // Lowered from 0.7 - only stronger wave convergence triggers foam now
+  // (0.7 was catching a lot of ordinary wave motion, not just breaking
+  // crests), and the growth rate is slower (was 3.0), so what foam does
+  // appear builds up more gradually instead of snapping to full
+  // intensity.
+  const float foamThreshold = 0.42;
   if (J < foamThreshold) {
-    currentFoam += (foamThreshold - J) * 3.0 * pc.dt;
+    currentFoam += (foamThreshold - J) * 1.2 * pc.dt;
     currentFoam = min(currentFoam, 1.0);
   }
   imageStore(displacements, ivec2(gid), vec4(x_FT * lambda, h_FT, z_FT * lambda, currentFoam));

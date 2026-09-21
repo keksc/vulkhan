@@ -2,35 +2,75 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 layout(push_constant) uniform PushConstants {
-  int rb;          // unused here, kept so it shares AdvectPushConstants layout if you want one struct
+  int rb;          // unused here, kept so it shares ComputePushConstants layout
   float cellSize;
   float dt;
-  ivec3 cellCount;
+  // ivec4, not ivec3: see SmokeSys::ComputePushConstants for why. w unused.
+  ivec4 cellCount;
+  // dyeDecay/velocityDecay unused here - present only so gridOrigin below
+  // lands at the correct byte offset (48), matching
+  // SmokeSys::ComputePushConstants.
+  float dyeDecay;
+  float velocityDecay;
+  ivec4 gridOrigin;   // xyz used
 } pc;
 
 #include "common.glsl"
 
+// Step 1/3 of MacCormack advection (see advectBackward.comp and
+// macCormackCombine.comp for the rest): a plain semi-Lagrangian advect,
+// writing the uncorrected forward estimate (phi_hat, in the MacCormack
+// write-up) into targetVelocities/targetDye.
+//
+// Velocity is staggered (MAC): velX/velY/velZ each live at a different
+// physical face, not the cell center - see common.glsl's STAG_X/Y/Z. Each
+// component is therefore traced and resampled independently, using the
+// full velocity field interpolated at THAT component's own face location
+// (not at the cell center, and not from a single shared sample point).
+//
+// No decay/near-edge fade is applied here anymore - previously this pass
+// applied it directly to the (then final) advected value, but now it's an
+// intermediate that macCormackCombine.comp corrects further, so the decay
+// is applied exactly once, in that pass, on the actual final result.
+//
+// The backward-traced position is clamped to the window (clampToWindow),
+// not periodically wrapped (mod) - a fast-moving trace that exits the
+// window now reads back whatever's at the window's own edge instead of
+// aliasing whatever happens to sit at the wrap seam on the array's
+// opposite face. See common.glsl's clampToWindow for the full reasoning.
 void main() {
+  ivec3 dims = pc.cellCount.xyz;
+  ivec3 gridOrigin = pc.gridOrigin.xyz;
   ivec3 p = ivec3(gl_GlobalInvocationID);
-  if (p.x >= pc.cellCount.x || p.y >= pc.cellCount.y || p.z >= pc.cellCount.z)
+  if (p.x >= dims.x || p.y >= dims.y || p.z >= dims.z)
     return;
 
-  if (isSolid(p, pc.cellCount)) {
+  if (isSolid(p, dims)) {
     imageStore(targetVelocities, p, vec4(0.0));
     imageStore(targetDye, p, vec4(0.0));
     return;
   }
 
-  vec3 vel = getVel(p, pc.cellCount);
+  float invH = pc.dt / pc.cellSize;
+
+  vec3 faceX = vec3(p) + STAG_X;
+  vec3 prevX = faceX - sampleFullVelAtLocalPos(faceX, p, gridOrigin, dims) * invH;
+  float newVelX = sampleVelXAtLocalPos(clampToWindow(prevX, p, gridOrigin, dims), p, gridOrigin, dims);
+
+  vec3 faceY = vec3(p) + STAG_Y;
+  vec3 prevY = faceY - sampleFullVelAtLocalPos(faceY, p, gridOrigin, dims) * invH;
+  float newVelY = sampleVelYAtLocalPos(clampToWindow(prevY, p, gridOrigin, dims), p, gridOrigin, dims);
+
+  vec3 faceZ = vec3(p) + STAG_Z;
+  vec3 prevZ = faceZ - sampleFullVelAtLocalPos(faceZ, p, gridOrigin, dims) * invH;
+  float newVelZ = sampleVelZAtLocalPos(clampToWindow(prevZ, p, gridOrigin, dims), p, gridOrigin, dims);
+
+  imageStore(targetVelocities, p, vec4(newVelX, newVelY, newVelZ, 0.0));
+
+  // Dye is collocated at the cell center - advect it using the velocity
+  // field interpolated (from its staggered components) at that center.
   vec3 cellCenter = vec3(p) + 0.5;
-  vec3 prevPos = cellCenter - vel * (pc.dt / pc.cellSize);
-
-  vec3 velSamplePos = mod(prevPos, vec3(pc.cellCount));
-  vec3 dyeSamplePos = mod(prevPos - vec3(0.5), vec3(pc.cellCount));
-
-  vec3 newVel = sampleVelAtLocalPos(velSamplePos, pc.cellCount);
-  float newDye = sampleDyeAtLocalPos(dyeSamplePos, pc.cellCount);
-
-  imageStore(targetVelocities, p, vec4(newVel, 0.0));
+  vec3 dyePrevPos = cellCenter - sampleFullVelAtLocalPos(cellCenter, p, gridOrigin, dims) * invH;
+  float newDye = sampleDyeAtLocalPos(clampToWindow(dyePrevPos - vec3(0.5), p, gridOrigin, dims), p, gridOrigin, dims);
   imageStore(targetDye, p, vec4(newDye, 0.0, 0.0, 0.0));
 }

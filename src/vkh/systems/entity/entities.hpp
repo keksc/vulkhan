@@ -117,7 +117,48 @@ public:
 
   void updateJoints();
   void cull(vk::CommandBuffer cmd);
-  void render();
+  // Re-culls THIS frame's already-built instance/draw-command lists
+  // against an arbitrary view-projection matrix instead of the real
+  // camera's - e.g. a PlanarReflectionSys's mirrored camera (see
+  // PlanarReflectionSys::getReflViewProj()). Overwrites the SAME
+  // compactedInstanceBuffers/indirectDrawBuffers[frameIndex] that cull()
+  // and render() use - there is only one set of these per frame-in-
+  // flight, not one per caller, so whichever of cull()/cullForViewProj()
+  // ran MOST RECENTLY this frame is what the next render() call actually
+  // draws.
+  //
+  // CALLER'S RESPONSIBILITY: call this (paired with its own render() call
+  // for the reflection target) for every planar reflection BEFORE the
+  // real per-frame cull(cmd) call for the frame's actual camera - never
+  // after, or the main scene's render() will silently draw with a
+  // mirrored-camera's culled set. See main.cpp's reflection-pass loop for
+  // the intended ordering.
+  void cullForViewProj(vk::CommandBuffer cmd, const glm::mat4 &viewProj);
+  // `globalSetOverride`: see SkySys::render()'s identical parameter - same
+  // purpose (PlanarReflectionSys's mirrored-camera set), same default
+  // (nullptr -> normal per-frame global set, unchanged for existing
+  // callers).
+  //
+  // `clipPlane`: world-space plane (a,b,c,d) pushed to entities.vert's
+  // gl_ClipDistance[0] = dot(vec4(worldPos,1), clipPlane) - see
+  // PlanarReflectionSys::getClipPlane(). Default (0,1,0,1e9) never clips
+  // anything at any plausible world-space height (dot reduces to
+  // worldPos.y + 1e9, always positive), so ordinary callers don't need to
+  // think about this at all; only the reflection-pass call site in
+  // main.cpp passes a real plane.
+  //
+  // Renders whatever cull()/cullForViewProj() most recently compacted -
+  // this method has no camera awareness itself, it just draws the
+  // current compactedInstanceBuffers/indirectDrawBuffers[frameIndex]. For
+  // a planar reflection's mirrored camera, pair this with a
+  // cullForViewProj(cmd, mirroredViewProj) call immediately before it
+  // (see cullForViewProj()'s own doc comment on ordering) - otherwise
+  // this draws whatever the REAL camera's frustum last culled, which
+  // means anything outside the real camera's frustum but visible from
+  // the MIRRORED one (a mountain range beside/behind the real camera
+  // that the reflection should show) would incorrectly be missing.
+  void render(vk::DescriptorSet globalSetOverride = nullptr,
+             const glm::vec4 &clipPlane = glm::vec4(0.f, 1.f, 0.f, 1e9f));
   void updateBuffers();
 
   Entity *pickEntity(const Ray &ray, float &distance,
@@ -169,13 +210,22 @@ private:
   std::vector<vk::DrawIndexedIndirectCommand> cpuDrawCommands;
   std::vector<glm::mat4> cpuJointData;
   std::vector<uint32_t>
-      cpuGroupFirstInstance; // one entry per (scene,mesh) group
-  std::vector<uint32_t> cpuCommandGroupIndex;      // one entry per draw command
-  std::vector<uint32_t> cpuGroupVisibleCountZeros; // reused zero-fill buffer
+      cpuGroupFirstInstance; // one entry per group (scene,mesh,primitive
+                             // normally, or per LOD level's equivalent -
+                             // see EntitySys::updateBuffers())
+  std::vector<uint32_t> cpuCommandGroupIndex; // one entry per draw command
   std::vector<bool> framesDirty;
   bool structuralDirty = true;
 
   void flushBuffers(int frameIndex);
+
+  // Shared by cull() and cullForViewProj() - the actual
+  // barrier+dispatch+barrier+dispatch+barrier compute sequence, identical
+  // regardless of whose frustum planes are currently in
+  // cullingUboBuffers[frameIndex] (each caller fills that UBO itself
+  // beforehand, since it's a two-line loop not worth its own signature
+  // coupled to camera::getFrustumPlanes()'s exact return type).
+  void dispatchCulling(vk::CommandBuffer cmd, int frameIndex);
 
 public:
   void markStructuralDirty() { structuralDirty = true; }

@@ -154,8 +154,34 @@ void DescriptorWriter::writeImage(uint32_t binding,
   writes.push_back(write);
 }
 
+void DescriptorWriter::writeImageArray(
+    uint32_t binding, const std::vector<vk::DescriptorImageInfo> &imageInfos,
+    vk::DescriptorType type) {
+  // VkWriteDescriptorSet requires descriptorCount > 0 - an empty array
+  // write is a no-op rather than a (spec-invalid) zero-count write.
+  if (imageInfos.empty())
+    return;
+
+  // Own contiguous copy - see the member comment on imageInfoArrays in
+  // descriptors.hpp for why this can't share storage with the
+  // single-image imageInfos deque above.
+  std::vector<vk::DescriptorImageInfo> &infos =
+      imageInfoArrays.emplace_back(imageInfos);
+
+  vk::WriteDescriptorSet write{};
+  write.dstSet = nullptr;
+  write.dstBinding = binding;
+  write.dstArrayElement = 0;
+  write.descriptorCount = static_cast<uint32_t>(infos.size());
+  write.descriptorType = type;
+  write.pImageInfo = infos.data();
+
+  writes.push_back(write);
+}
+
 void DescriptorWriter::clear() {
   imageInfos.clear();
+  imageInfoArrays.clear();
   writes.clear();
   bufferInfos.clear();
 }
