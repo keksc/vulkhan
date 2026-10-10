@@ -14,8 +14,8 @@
 
 #include "../../buffer.hpp"
 #include "../../debug.hpp"
-#include "../../image.hpp"
 #include "../../descriptors.hpp"
+#include "../../image.hpp"
 #include "../../pipeline.hpp"
 
 namespace vkh {
@@ -44,8 +44,22 @@ void TextSys::createBuffers() {
   indexBuffer->map();
 }
 
+void TextSys::prepareFrame(uint32_t frameIndex) {
+  if (frameIndex == activeFrame)
+    return;
+  frameBuffers.at(activeFrame) = {std::move(vertexBuffer),
+                                  std::move(indexBuffer)};
+  vertexBuffer = std::move(frameBuffers.at(frameIndex).vertices);
+  indexBuffer = std::move(frameBuffers.at(frameIndex).indices);
+  activeFrame = frameIndex;
+  if (!vertexBuffer)
+    createBuffers();
+}
+
 void TextSys::ensureCapacity(size_t vertexCount, size_t indexCount) {
-  bool needsRecreation = false;
+  bool needsRecreation =
+      vertexBuffer->getSize() < vertexCount * sizeof(Vertex) ||
+      indexBuffer->getSize() < indexCount * sizeof(uint32_t);
   if (vertexCount > maxVertexCount) {
     maxVertexCount =
         std::max(static_cast<int>(vertexCount), maxVertexCount * 2);
@@ -57,7 +71,7 @@ void TextSys::ensureCapacity(size_t vertexCount, size_t indexCount) {
   }
 
   if (needsRecreation) {
-    context.vulkan.device.waitIdle();
+    // Only the fenced current slot is replaced; other frames retain theirs.
     vertexBuffer = std::make_unique<Buffer<Vertex>>(
         context, vk::BufferUsageFlagBits::eVertexBuffer,
         vk::MemoryPropertyFlagBits::eHostVisible |
@@ -134,6 +148,7 @@ void TextSys::createGlyphs() {
                            static_cast<int>(charInfo.size()),
                            charInfo.data())) {
     stbtt_PackEnd(&packContext);
+    updateGlyphMetrics(context.window.size);
     delete[] atlasData;
     throw std::runtime_error("Failed to pack font");
   }
@@ -152,11 +167,9 @@ void TextSys::createGlyphs() {
     char c = i + 32;
     const stbtt_packedchar &pc = charInfo[i];
 
-    glm::vec2 size = glm::vec2{pc.xoff2 - pc.xoff, pc.yoff2 - pc.yoff} /
-                     static_cast<glm::vec2>(context.window.size) * 2.f;
-    glm::vec2 offset = glm::vec2{pc.xoff, pc.yoff} /
-                       static_cast<glm::vec2>(context.window.size) * 2.f;
-    float advance = pc.xadvance / context.window.size.x * 2.f;
+    glm::vec2 size{pc.xoff2 - pc.xoff, pc.yoff2 - pc.yoff};
+    glm::vec2 offset{pc.xoff, pc.yoff};
+    float advance = pc.xadvance;
     Glyph glyph{.size = size,
                 .offset = offset,
                 .uvOffset = glm::vec2(pc.x0, pc.y0) /
@@ -165,14 +178,30 @@ void TextSys::createGlyphs() {
                             static_cast<glm::vec2>(bitmapExtent),
                 .advance = advance};
 
-    glyphRange.glyphs[c] = glyph;
-    glyphRange.maxSizeY = glm::max(size.y, glyphRange.maxSizeY);
+    pixelGlyphRange.glyphs[c] = glyph;
+    pixelGlyphRange.maxSizeY = glm::max(size.y, pixelGlyphRange.maxSizeY);
   }
+  updateGlyphMetrics(context.window.size);
   delete[] atlasData;
+}
+
+void TextSys::updateGlyphMetrics(glm::ivec2 viewport) {
+  if (viewport.x <= 0 || viewport.y <= 0)
+    return;
+  const glm::vec2 scale = 2.f / glm::vec2(viewport);
+  glyphRange.maxSizeY = pixelGlyphRange.maxSizeY * scale.y;
+  for (const auto &[c, pixels] : pixelGlyphRange.glyphs) {
+    Glyph glyph = pixels;
+    glyph.size *= scale;
+    glyph.offset *= scale;
+    glyph.advance *= scale.x;
+    glyphRange.glyphs[c] = glyph;
+  }
 }
 
 TextSys::TextSys(EngineContext &context) : System(context) {
   createGlyphs();
+  frameBuffers.resize(context.vulkan.maxFramesInFlight);
   createBuffers();
   createDescriptors();
   createPipeline();

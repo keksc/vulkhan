@@ -1,0 +1,33 @@
+#version 450
+#define FUR_SHADE
+#include "furData.glsl"
+#include "../environment.glsl"
+layout(local_size_x=8,local_size_y=8) in;
+layout(set=3,binding=6) uniform sampler2D coatAtlas;
+void main() {
+  ivec2 pixel=ivec2(gl_GlobalInvocationID.xy);
+  if (!furInside(pixel)) return;
+  uint index=furPixel(pixel);
+  uint64_t data=center[index];
+  shades[index]=0u;
+  if (data==EMPTY) return;
+  FurInstance wolf=wolves[furWolf(data)];
+  vec3 p=furPosition(pixel,furDepth(data));
+  vec3 T=furTangent(data);
+  vec3 V=normalize(ubo.inverseView[3].xyz-p);
+  // View-facing fiber normal, with diffuse fiber scattering and broad sheen.
+  // This prototype retains the game's lighting; it is not Chiang's full BSDF.
+  vec3 n=V-T*dot(V,T);
+  vec3 N=normalize(n+vec3(0,.00001,0));
+  vec3 L=sunDirection();
+  vec3 albedo=textureLod(coatAtlas,furCoatUV(data),0.0).rgb;
+  albedo=mix(albedo,vec3(.72,.75,.78),wolf.coat.a)*wolf.coat.rgb*wolf.animation.y;
+  float diffuse=sqrt(max(1.0-dot(T,L)*dot(T,L),0.0));
+  vec3 H=normalize(L+V);
+  float sheen=pow(max(1.0-dot(T,H)*dot(T,H),0.0),18.0);
+  vec3 color=albedo*(hemisphereAmbient(N)*.88 +
+                    sunRadiance()*(diffuse/3.14159+sheen*.06));
+  color+=albedo*localLighting(p,N);
+  color=sceneFog(color,p,V,distance(ubo.inverseView[3].xyz,p));
+  shades[index]=packFurColor(max(color,vec3(0)));
+}

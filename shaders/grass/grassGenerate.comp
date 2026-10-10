@@ -3,7 +3,14 @@
 layout(local_size_x = 64) in;
 
 #include "../consts.glsl"
+#define WORLD_BINDING 6
+#include "../biome.glsl"
 
+// Layout is unchanged from the host's BladeInstance (80 bytes). Fields that
+// used to be dead are repurposed:
+//   species -> clump colour seed [0,1)
+//   pad2.x  -> dryness [0,1] (yellowed patches)
+//   windPhase is now shared per clump (+ small per-blade offset)
 struct BladeInstance {
   vec3 basePos;
   float bendAngle;
@@ -12,12 +19,10 @@ struct BladeInstance {
   float width;
   float windPhase;
   float bendAngle2;
-  float species; // always 0.0 now (flowers removed) - kept only so this
-                  // struct's layout still matches BladeInstance on the
-                  // host side and in grass.vert without touching either.
+  float species;
   vec2 pad2;
   vec3 aabbMin;
-  float pad0;
+  uint pad0;
   vec3 aabbMax;
   float pad1;
 };
@@ -32,7 +37,7 @@ layout(set = 0, binding = 0) uniform GrassUbo {
   uint tileCount;
   float maxDist;
   float lodNearDist;
-  float flowerChance; // unused now, kept for UBO layout compatibility
+  float flowerChance; // unused, kept for UBO layout compatibility
 } ubo;
 
 layout(std430, set = 0, binding = 1) readonly buffer TileOriginBuffer {
@@ -47,9 +52,6 @@ layout(std430, set = 0, binding = 3) buffer VisibleCountBuffer {
   uint visibleCount;
 };
 
-// Terrain heightmap: r = world-space Y height, g = spawn suitability
-// [0,1] (e.g. mountain.cpp's grass-band mask). Only meaningful when
-// ubo.heightmapSize is nonzero - see the sentinel check in main() below.
 layout(set = 0, binding = 5) uniform sampler2D heightmapTex;
 
 // Thomas Wang hash + per-attribute stream derivation.
@@ -70,17 +72,42 @@ float hash01Attr(uint seed, uint attrId) {
   return float(hashAttr(seed, attrId)) * (1.0 / 4294967296.0);
 }
 
-// Domain-warp offset (breaks the lattice) and per-rotation-cell angle
-// (breaks straight rows), both keyed off small local domains.
 vec2 warp2D(uint seed) {
   float a = hash01Attr(seed, 20u) * 6.2831853;
   float r = hash01Attr(seed, 21u);
   return vec2(cos(a), sin(a)) * r;
 }
 
-float rotationCellAngle(uint cellX, uint cellZ) {
-  uint s = cellX * 374761393u ^ cellZ * 668265263u;
-  return hash01(s) * 6.2831853;
+// Low-frequency value noise in [0,1] (height / dryness patches).
+float cellHash(ivec2 c) {
+  return hash01(uint(c.x) * 73856093u ^ uint(c.y) * 19349663u);
+}
+float vnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  ivec2 c = ivec2(i);
+  return mix(mix(cellHash(c), cellHash(c + ivec2(1, 0)), u.x),
+             mix(cellHash(c + ivec2(0, 1)), cellHash(c + ivec2(1, 1)), u.x), u.y);
+}
+
+// Procedural Voronoi clumps (Ghost of Tsushima style): one jittered point per
+// cell, nearest of the 3x3 neighbourhood wins. Every blade inherits facing,
+// height, colour and wind phase from its clump.
+const float CLUMP_SIZE = 0.8; // metres
+void nearestClump(vec2 p, out vec2 center, out uint id) {
+  ivec2 c = ivec2(floor(p / CLUMP_SIZE));
+  float best = 1e9;
+  center = p;
+  id = 0u;
+  for (int j = -1; j <= 1; j++)
+    for (int i = -1; i <= 1; i++) {
+      ivec2 cell = c + ivec2(i, j);
+      uint h = hashU(uint(cell.x) * 73856093u ^ uint(cell.y) * 19349663u);
+      vec2 pt = (vec2(cell) + vec2(hash01(h), hash01(h ^ 0x9e3779b9u))) * CLUMP_SIZE;
+      vec2 d = p - pt;
+      float dd = dot(d, d);
+      if (dd < best) { best = dd; center = pt; id = h; }
+    }
 }
 
 bool isInFrustum(vec3 minB, vec3 maxB) {
@@ -123,39 +150,31 @@ void main() {
   int globalBladeX = int(worldTileX * ubo.bladesPerTileSide + bx);
   int globalBladeZ = int(worldTileZ * ubo.bladesPerTileSide + bz);
 
-  // Position within the blade's rotation cell, jittered off-lattice.
-  int rotCellX = globalBladeX / ROTATION_CELL_BLADES;
-  int rotCellZ = globalBladeZ / ROTATION_CELL_BLADES;
-  vec2 localBlade = vec2(globalBladeX % ROTATION_CELL_BLADES,
-                          globalBladeZ % ROTATION_CELL_BLADES);
-  vec2 jitter = vec2(hash01Attr(seed, 0u), hash01Attr(seed, 1u));
+  ivec2 rotCell = ivec2(floor(vec2(globalBladeX, globalBladeZ) /
+                              float(ROTATION_CELL_BLADES)));
+  int rotCellX = rotCell.x;
+  int rotCellZ = rotCell.y;
+  vec2 localBlade = vec2(ivec2(globalBladeX, globalBladeZ) -
+                         rotCell * ROTATION_CELL_BLADES);
+  // FIX: jitter.y used attr 1u, which bendAngle also used (position/lean
+  // correlation). Now has its own stream.
+  vec2 jitter = vec2(hash01Attr(seed, 0u), hash01Attr(seed, 8u));
 
   float rotCellHalfExtent = cellSize * float(ROTATION_CELL_BLADES) * 0.5;
   vec2 localPos = (localBlade + jitter) * cellSize - rotCellHalfExtent;
-
-  // NOTE: position is deliberately NOT rotated here. Rotating the whole
-  // square local-position domain about the cell's own center (as this
-  // used to do) sends corner blades past the cell boundary - a square
-  // rotated about its center reaches ~sqrt(2)x its half-extent at the
-  // corners - so they land on top of the neighboring cell while that
-  // cell's own edge-blades rotate away, leaving a gap. The net effect is
-  // overlapping/denser blades right at rotation-cell boundaries and
-  // thinner coverage mid-cell. `rot` is instead applied only to the
-  // blade's own bend/facing below, which still makes each 6x6-blade
-  // clump lean/face a distinct random direction without ever moving a
-  // blade's position out of its own cell.
-  float rot = rotationCellAngle(rotCellX, rotCellZ);
-
   vec2 rotCellWorldCenter = (vec2(rotCellX, rotCellZ) * float(ROTATION_CELL_BLADES)
-                              + float(ROTATION_CELL_BLADES) * 0.5) * cellSize;
+                             + float(ROTATION_CELL_BLADES) * 0.5) * cellSize;
 
   vec3 basePos;
   basePos.xz = rotCellWorldCenter + localPos;
-  // Spill multiplier shrunk from 0.6: that value was partly compensating
-  // for the seams the position-rotation used to create. Positions now
-  // stay bounded to their own cell, so a smaller spill is enough to
-  // break the lattice look without reintroducing cross-cell crowding.
   basePos.xz += warp2D(seed) * cellSize * 0.35;
+
+  // ---- Voronoi clump: pull blades toward their clump centre -------------
+  vec2 clumpCenter;
+  uint clumpId;
+  nearestClump(basePos.xz, clumpCenter, clumpId);
+  float pull = 0.02 + 0.12 * hash01Attr(seed, 12u);
+  basePos.xz = mix(basePos.xz, clumpCenter, pull);
 
   if (ubo.heightmapSize.x > 0.0 && ubo.heightmapSize.y > 0.0) {
     vec2 uv = (basePos.xz - ubo.heightmapOrigin) / ubo.heightmapSize;
@@ -172,6 +191,11 @@ void main() {
                         vec2(0.0), vec2(1.0));
     float grassSuitability = textureLod(heightmapTex, maskUv, 0.0).g;
 
+    // Fade an exhausted streaming window before its rectangular boundary.
+    vec2 edgeDistance = min(uv, 1.0 - uv) * ubo.heightmapSize;
+    grassSuitability *= smoothstep(0.0, 24.0,
+                                  min(edgeDistance.x, edgeDistance.y));
+
     if (hash01Attr(seed, 24u) > grassSuitability) return;
   } else {
     basePos.y = 0.0;
@@ -183,14 +207,45 @@ void main() {
   float keepProbability = 1.0 - smoothstep(ubo.maxDist * 0.3, ubo.maxDist, distToCam);
   if (hash01Attr(seed, 22u) > keepProbability) return;
 
-  float bendAngle = hash01Attr(seed, 1u) * TWO_PI + rot;
-  float bendAngle2 = bendAngle + mix(-1.9, 1.9, hash01Attr(seed, 7u));
-  float facingAngle = hash01Attr(seed, 2u) * TWO_PI + rot;
-  float height = mix(0.4, 0.9, hash01Attr(seed, 3u));
-  float width = mix(0.04, 0.08, hash01Attr(seed, 4u));
-  float windPhase = hash01Attr(seed, 5u) * TWO_PI;
+  // ---- Per-clump attributes ---------------------------------------------
+  float clumpAngle  = hash01Attr(clumpId, 40u) * TWO_PI;
+  float clumpHeight = mix(0.9, 1.1, hash01Attr(clumpId, 41u));
+  float clumpColor  = hash01Attr(clumpId, 42u);
+  float clumpPhase  = hash01Attr(clumpId, 43u) * TWO_PI;
+  float dryNoise    = vnoise(basePos.xz * 0.03 + 100.0);
+  float dryness     = smoothstep(0.62, 0.85, dryNoise) *
+                      (0.6 + 0.4 * hash01Attr(clumpId, 44u));
+  // Biome yellowing (steppe etc.); terrain.frag's grassCanopyLit mirrors the mean.
+  WorldProfile bladeProfile=worldProfileXZ(basePos.xz,
+      clamp((basePos.y-world.terrain.x)/world.terrain.y,0.0,1.0));
+  dryness = max(dryness, bladeProfile.controls.z *
+                             (0.75 + 0.25 * hash01Attr(clumpId, 44u)));
+  float heightNoise = vnoise(basePos.xz * 0.05);
 
-  float pad = height * 0.6;
+  // Facing: mostly the clump's direction with per-blade scatter.
+  float randAngle = hash01Attr(seed, 2u) * TWO_PI;
+  vec2 f = normalize(mix(vec2(cos(randAngle), sin(randAngle)),
+                         vec2(cos(clumpAngle), sin(clumpAngle)), 0.65));
+  float facingAngle = atan(f.y, f.x);
+
+  // The blade curves in its own facing plane (the vertex shader builds the
+  // surface normal from tangent x side, so this keeps shading consistent).
+  float bendAngle  = facingAngle + (hash01Attr(seed, 1u) - 0.5) * 0.7;
+  float bendAngle2 = bendAngle + (hash01Attr(seed, 7u) - 0.5) * 0.8;
+
+  float height = mix(0.4, 0.8, hash01Attr(seed, 3u))
+             * mix(0.9, 1.1, hash01Attr(clumpId, 41u))
+             * mix(0.9, 1.1, heightNoise);
+  height *= mix(1.0, 0.8, dryness);
+
+  // Thinner blades (raise bladesPerTileSide on the host to compensate), and
+  // widen as the far-field is thinned so distant grass doesn't turn see-through.
+  float width = mix(0.03, 0.055, hash01Attr(seed, 4u));
+  width *= min(1.0 / pow(max(keepProbability, 0.1), 0.6), 2.5);
+
+  float windPhase = clumpPhase + (hash01Attr(seed, 5u) - 0.5) * 0.8;
+
+  float pad = height * 0.9;
   vec3 aabbMin = basePos - vec3(pad, 0.0, pad);
   vec3 aabbMax = basePos + vec3(pad, height, pad);
 
@@ -199,6 +254,6 @@ void main() {
   uint slot = atomicAdd(visibleCount, 1u);
   compacted[slot] = BladeInstance(
       basePos, bendAngle, facingAngle, height, width, windPhase,
-      bendAngle2, 0.0, vec2(0.0),
-      aabbMin, 0.0, aabbMax, 0.0);
+      bendAngle2, clumpColor, vec2(dryness, 0.0),
+      aabbMin, packUnorm4x8(vec4(bladeProfile.grass.rgb,1)), aabbMax, 0.0);
 }

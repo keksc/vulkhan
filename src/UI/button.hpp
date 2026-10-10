@@ -7,11 +7,14 @@ class Text;
 class RectImg;
 class Button : public Clickable {
 public:
-  Button(vkh::hud::View &view, Element *parent, glm::vec2 position, glm::vec2 size,
-         size_t imageIndex,
+  Button(vkh::hud::View &view, Element *parent, glm::vec2 position,
+         glm::vec2 size, size_t imageIndex,
          std::function<void(int button, int action, int mods)> onClick,
          const std::string &label);
 
+  void animate(float time);
+  std::shared_ptr<RectImg> outline;
+  size_t normalImage = 0, hoverImage = 0, pressedImage = 0;
   std::shared_ptr<RectImg> bg;
   std::shared_ptr<Text> label;
 };

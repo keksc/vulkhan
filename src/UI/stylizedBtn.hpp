@@ -23,40 +23,13 @@ public:
   std::shared_ptr<Text> label;
 
   void animate(float t);
+  bool isPositionInside(const glm::vec2 &position) override;
 
 private:
+  size_t customImage = 0;
   const std::vector<Polygon::Vertex> outerVertices = {
-      Polygon::Vertex{
-          .pos = glm::vec2{0.05f, 0.08f},
-      },
-      Polygon::Vertex{
-          .pos = glm::vec2{0.95f, 0.05f},
-      },
-      Polygon::Vertex{
-          .pos = glm::vec2{0.97f, 0.92f},
-      },
-      Polygon::Vertex{
-          .pos = glm::vec2{0.08f, 0.97f},
-      },
-  };
-  const std::vector<Polygon::Vertex> innerVertices = {
-      Polygon::Vertex{
-          .pos = glm::vec2{.10f, .12f},
-          .uv = glm::vec2{.1f, .1f},
-      },
-      Polygon::Vertex{
-          .pos = glm::vec2{.90f, .10f},
-          .uv = glm::vec2{.1f, .1f},
-      },
-      Polygon::Vertex{
-          .pos = glm::vec2{.92f, .88f},
-          .uv = glm::vec2{.1f, .1f},
-      },
-      Polygon::Vertex{
-          .pos = glm::vec2{.13f, .92f},
-          .uv = glm::vec2{.1f, .1f},
-      },
-  };
+      {{.04f, .12f}}, {{.90f, .12f}}, {{.96f, .28f}}, {{.96f, .76f}},
+      {{.90f, .88f}}, {{.10f, .88f}}, {{.04f, .72f}}};
 };
 
 void animateBubbly(vkh::EngineContext &context, vkh::hud::Element &element);

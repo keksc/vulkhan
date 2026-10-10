@@ -23,6 +23,7 @@ find_package(glfw3 3.3 REQUIRED)
 find_package(OpenAL REQUIRED)
 # find_package(CURL REQUIRED)
 find_package(simdjson REQUIRED)
+find_package(tomlplusplus CONFIG REQUIRED)
 find_package(fastgltf REQUIRED)
 find_package(glslang REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -43,7 +44,8 @@ link_directories(3rdparty/lib)
 include_directories(3rdparty/include PUBLIC
                     ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/vkFFT/)
 
-file(GLOB_RECURSE SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/src/*.cpp)
+set_source_files_properties(src/main.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
   set(FLAGS WIN32)
@@ -73,6 +75,7 @@ target_link_libraries(
   glfw
   OpenAL::OpenAL
   fastgltf::fastgltf
+  tomlplusplus::tomlplusplus
   # CURL::libcurl
   glslang
   VkFFT
@@ -128,8 +131,9 @@ foreach(GLSL ${GLSL_SOURCE_FILES})
   add_custom_command(
     OUTPUT ${SPIRV}
     COMMAND ${GLSLC} ${GLSL} -o ${SPIRV} --target-env=vulkan1.1
-            -DUSE_SUBGROUP_OPS ${GLSL_DEBUG_FLAGS}
+            -DUSE_SUBGROUP_OPS ${GLSL_DEBUG_FLAGS} -MD -MF ${SPIRV}.d
     DEPENDS ${GLSL}
+    DEPFILE ${SPIRV}.d
     COMMENT "Compiling shader ${RELATIVE_GLSL_PATH}")
   list(APPEND SPIRV_BINARY_FILES ${SPIRV})
 endforeach()
@@ -142,6 +146,7 @@ file(COPY "${PROJECT_SOURCE_DIR}/models" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/fonts" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/sounds" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/textures" DESTINATION "${PROJECT_BINARY_DIR}")
+file(COPY "${PROJECT_SOURCE_DIR}/config" DESTINATION "${PROJECT_BINARY_DIR}")
 file(COPY "${PROJECT_SOURCE_DIR}/flamegraph.sh"
      DESTINATION "${PROJECT_BINARY_DIR}")
 make_directory(${PROJECT_BINARY_DIR}/mods)
@@ -160,6 +165,7 @@ endif()
 install(DIRECTORY ${PROJECT_BINARY_DIR}/shaders ${PROJECT_BINARY_DIR}/fonts
                   ${PROJECT_BINARY_DIR}/sounds ${PROJECT_BINARY_DIR}/models
                   ${PROJECT_BINARY_DIR}/textures ${MODS_INSTALL_DIR} DESTINATION bin)
+install(DIRECTORY ${PROJECT_BINARY_DIR}/config DESTINATION bin)
 
 
 if(NOT DEFINED ENV{WASM_CLANG} OR NOT DEFINED ENV{WASM_CLANGXX})

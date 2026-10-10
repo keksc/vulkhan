@@ -3,9 +3,11 @@
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
-#include "globalUbo.glsl"
+#include "../globalUbo.glsl"
+#include "../environment.glsl"
+#include "../worldData.glsl"
 
-layout(set = 1, binding = 0, rgba8) uniform writeonly image2D outputImage;
+layout(set = 1, binding = 0) uniform writeonly image2D outputImage;
 layout(set = 1, binding = 1) uniform sampler2D sceneColor;
 layout(set = 1, binding = 2) uniform sampler2D sceneDepth;
 // Smoke dye volume - periodic, sampled with a dedicated REPEAT-mode
@@ -33,7 +35,7 @@ layout(std430, set = 1, binding = 4) readonly buffer PointLightsSsbo {
 // pc.shadowedLightCount entries have a valid written descriptor (see
 // SmokeCompositeEffect::writeAdditionalDescriptors) and only those are
 // ever sampled - see sampleTransmittance() below.
-#define TRANSMITTANCE_CAPACITY 64
+#define TRANSMITTANCE_CAPACITY 16
 layout(set = 1, binding = 5) uniform sampler3D transmittanceVolumes[TRANSMITTANCE_CAPACITY];
 
 layout(push_constant) uniform SmokePush {
@@ -53,6 +55,11 @@ layout(push_constant) uniform SmokePush {
   // sample. Lights at index >= shadowedLightCount are still lit, just
   // unshadowed (trans = 1.0 implicitly, no texture sample).
   int shadowedLightCount;
+  // inverse(ubo.projView), computed once per frame on the CPU
+  // (SmokeCompositeEffect::makePushConstants). This used to be
+  // `inverse(ubo.projView)` evaluated per pixel - a full 4x4 inverse for
+  // every one of ~2M pixels, every frame. Offset 48 (mat4 is 16-aligned).
+  mat4 invProjView;
 } pc;
 
 const int MAX_STEPS = 128;
@@ -112,6 +119,19 @@ float sampleTransmittance(vec3 worldPos, int lightIndex, float smokeCellSize) {
   return texture(transmittanceVolumes[lightIndex], uvw).r;
 }
 
+// How much light `lp` contributes given its distance from the grid's AABB:
+// 1 near, smoothly fading to 0 over the last quarter of pc.maxLightDistance.
+// Evaluated inline (a clamp, a length and a smoothstep) rather than cached in
+// a per-thread float[TRANSMITTANCE_CAPACITY] array: that array was indexed
+// dynamically inside the march loop, which forces it into scratch memory
+// (256 B/thread) and cuts occupancy for a saving of a few ALU ops.
+float lightFade(vec3 lp, vec3 boxMinWorld, vec3 boxMaxWorld) {
+  vec3 closest = clamp(lp, boxMinWorld, boxMaxWorld);
+  float dist = length(lp - closest);
+  float fadeStart = pc.maxLightDistance * 0.75;
+  return 1.0 - smoothstep(fadeStart, pc.maxLightDistance, dist);
+}
+
 void main() {
   ivec2 outSize = imageSize(outputImage);
   ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
@@ -123,7 +143,7 @@ void main() {
   float depth = texture(sceneDepth, uv).r;
 
   vec3 camPos = ubo.inverseView[3].xyz;
-  mat4 invProjView = inverse(ubo.projView);
+  mat4 invProjView = pc.invProjView;
   vec2 ndc = uv * 2.0 - 1.0;
 
   vec4 nearP = invProjView * vec4(ndc, 1.0, 1.0); // reversed-Z: near = 1
@@ -144,12 +164,12 @@ void main() {
   // tonemap. Coarse-to-fine adaptive stepping: strides at COARSE_FACTOR *
   // stepSize by default, only dropping to full stepSize resolution once
   // density is found (empty-space skipping).
-  {
+  if (pc.cellCount.w != 0) {
     float smokeCellSize = pc.boxMin.w;
     vec3 boxMinWorld = pc.boxMin.xyz;
     vec3 boxMaxWorld = boxMinWorld + vec3(pc.cellCount.xyz) * smokeCellSize;
 
-    vec3 invDir = 1.0 / rayDir;
+    vec3 invDir = 1.0 / (mix(vec3(-1.0), vec3(1.0), greaterThanEqual(rayDir, vec3(0.0))) * max(abs(rayDir), vec3(1e-6)));
     vec3 t0v = (boxMinWorld - camPos) * invDir;
     vec3 t1v = (boxMaxWorld - camPos) * invDir;
     vec3 tminV = min(t0v, t1v);
@@ -170,24 +190,6 @@ void main() {
       // (0.002), since this just decides when to slow down, not when to
       // skip shading.
       const float EMPTY_DENSITY_EPS = 0.001;
-
-      // Precomputed once per pixel (not per march step): how much each
-      // shadowed-capacity light contributes given its distance from the
-      // grid's AABB. Capped at TRANSMITTANCE_CAPACITY entries - lights
-      // beyond pc.shadowedLightCount (up to TRANSMITTANCE_CAPACITY, which
-      // is itself pc.lightCount's ceiling for this cache) fall through to
-      // an inline computation in the per-step loop below instead of
-      // being cached here, so this array never needs to be sized to the
-      // full (potentially much larger) pc.lightCount.
-      float lightFade[TRANSMITTANCE_CAPACITY];
-      int fadeCacheCount = min(pc.lightCount, TRANSMITTANCE_CAPACITY);
-      for (int l = 0; l < fadeCacheCount; l++) {
-        vec3 lp = lightsBuf.lights[l].positionAndRadius.xyz;
-        vec3 closest = clamp(lp, boxMinWorld, boxMaxWorld);
-        float dist = length(lp - closest);
-        float fadeStart = pc.maxLightDistance * 0.75;
-        lightFade[l] = 1.0 - smoothstep(fadeStart, pc.maxLightDistance, dist);
-      }
 
       float jitter = hash(vec2(pixel)); // [0,1)
 
@@ -222,22 +224,13 @@ void main() {
         // - shouldn't pay the full per-light cost below).
         float a = clamp(density * stepSize * 0.5, 0.0, 1.0);
         if (a > 0.002) {
-          vec3 litColor = vec3(0.02);
+          vec3 litColor = ubo.skyAmbient.rgb * 0.12 +
+              sunRadiance() * phase(dot(rayDir, sunDirection()),
+                                    ubo.fogParams.w) * 0.10;
 
           for (int l = 0; l < pc.lightCount; l++) {
-            float fade;
-            if (l < fadeCacheCount) {
-              fade = lightFade[l];
-            } else {
-              // Beyond the fade cache (only possible if pc.lightCount >
-              // TRANSMITTANCE_CAPACITY) - compute inline instead of
-              // caching. Same math as the cache-fill loop above.
-              vec3 lp = lightsBuf.lights[l].positionAndRadius.xyz;
-              vec3 closest = clamp(lp, boxMinWorld, boxMaxWorld);
-              float dist = length(lp - closest);
-              float fadeStart = pc.maxLightDistance * 0.75;
-              fade = 1.0 - smoothstep(fadeStart, pc.maxLightDistance, dist);
-            }
+            float fade = lightFade(lightsBuf.lights[l].positionAndRadius.xyz,
+                                   boxMinWorld, boxMaxWorld);
             if (fade <= 0.0)
               continue;
 
@@ -276,6 +269,46 @@ void main() {
       }
       finalColor = mix(finalColor, accum.rgb, accum.a);
     }
+  }
+
+  // Distant ash is bounded, wind-driven, and independent of the local fluid grid.
+  for(uint i=0u;i<world.counts.z;++i) {
+    WorldVolcano v=world.volcanoes[i];
+    if(v.shape.w<0.5) continue;
+    vec3 base=v.positionRadius.xyz+vec3(0,2,0);
+    float H=v.plume.w;
+    float width=32.0*v.positionRadius.w/200.0;
+    vec2 drift=ubo.wind.xy*ubo.wind.z*18.0;
+    vec3 mn=base-vec3(width,0,width)+vec3(min(drift.x,0.0),0,min(drift.y,0.0));
+    vec3 mx=base+vec3(width,H,width)+vec3(max(drift.x,0.0),0,max(drift.y,0.0));
+    vec3 safeDir=mix(vec3(-1.0),vec3(1.0),greaterThanEqual(rayDir,vec3(0.0)))*max(abs(rayDir),vec3(1e-6));
+    vec3 t0=(mn-camPos)/safeDir, t1=(mx-camPos)/safeDir;
+    vec3 nearT=min(t0,t1),farT=max(t0,t1);
+    float begin=max(max(nearT.x,nearT.y),max(nearT.z,0.0));
+    float end=min(min(farT.x,farT.y),min(farT.z,sceneDist));
+    if(end<=begin) continue;
+    const int PLUME_STEPS=20;
+    float ds=(end-begin)/float(PLUME_STEPS);
+    vec4 ash=vec4(0);
+    for(int s=0;s<PLUME_STEPS && ash.a<0.98;++s) {
+      vec3 p=camPos+rayDir*(begin+(float(s)+0.5)*ds);
+      float h=clamp((p.y-base.y)/H,0.0,1.0);
+      vec2 centre=base.xz+drift*h*h;
+      float radius=(5.0+26.0*h)*(v.positionRadius.w/200.0);
+      vec2 q=(p.xz-centre)/max(radius,1.0);
+      if(dot(q,q)>4.0) continue;
+      float billow=weatherNoise((p.xz-ubo.wind.xy*ubo.time*2.0+p.y*0.3)*0.055);
+      float density=exp(-dot(q,q)*2.0)*(0.4+1.1*billow)*
+        smoothstep(0.0,0.06,h)*(1.0-smoothstep(0.65,1.0,h));
+      float a=1.0-exp(-density*ds*0.045);
+      vec3 normal=normalize(vec3(q.x,0.4,q.y));
+      vec3 lit=v.plume.rgb*(ubo.skyAmbient.rgb+sunRadiance()*
+                            (0.3+0.7*max(dot(normal,sunDirection()),0.0)));
+      lit+=vec3(0.28,0.025,0.002)*exp(-h*12.0);
+      ash.rgb+=(1.0-ash.a)*a*lit;
+      ash.a+=(1.0-ash.a)*a;
+    }
+    finalColor=finalColor*(1.0-ash.a)+ash.rgb;
   }
 
   // Ordered/random dither to break up 8-bit quantization banding.

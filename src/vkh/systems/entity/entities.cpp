@@ -1,12 +1,143 @@
 #include "entities.hpp"
+#include "batchOrder.hpp"
 
 #include "../../camera.hpp"
 #include "../../debug.hpp"
 #include "../../pipeline.hpp"
+#include "../../sceneBuilder.hpp"
 #include <print>
 #include <vulkan/vulkan.hpp>
 
 namespace vkh {
+
+std::shared_ptr<EntitySys::Model>
+EntitySys::loadScene(const std::filesystem::path &path, bool disableMaterial) {
+  const std::string key = std::filesystem::weakly_canonical(path).string() +
+                          (disableMaterial ? "|plain" : "|materials");
+  if (auto existing = sceneCache[key].lock())
+    return existing;
+  auto scene = std::make_shared<Model>(context, path, disableMaterial);
+  scene->uploadModelGPU(texturesSetLayout);
+  sceneCache[key] = scene;
+  return scene;
+}
+EntitySys::Handle EntitySys::spawn(const std::shared_ptr<Model> &scene,
+                                   const Transform &transform) {
+  if (!scene)
+    throw std::invalid_argument("Cannot spawn a null scene");
+  if (!scene->isUploaded())
+    scene->uploadModelGPU(texturesSetLayout);
+  auto meshes = scene->instanceMeshes();
+  if (meshes.empty())
+    throw std::invalid_argument("Scene has no renderable meshes");
+  for (auto mesh : meshes)
+    if (mesh >= scene->meshes.size())
+      throw std::invalid_argument("Invalid scene mesh");
+  entities.reserve(entities.size() + meshes.size());
+  Instance instance{transform, {}};
+  instance.meshEntities.reserve(meshes.size());
+  for (size_t i = 0; i < meshes.size(); ++i)
+    instance.meshEntities.push_back(entities.size() + i);
+  const auto handle = instances.insert(std::move(instance));
+  for (auto mesh : meshes) {
+    Entity entity;
+    entity.transform = transform;
+    entity.scene = scene;
+    entity.meshIndex = mesh;
+    entity.ownerSlot = handle.slot;
+    entities.push_back(std::move(entity));
+  }
+  markStructuralDirty();
+  return handle;
+}
+bool EntitySys::isAlive(Handle handle) const {
+  return instances.get(handle) != nullptr;
+}
+std::optional<EntitySys::Transform>
+EntitySys::getTransform(Handle handle) const {
+  if (auto instance = instances.get(handle))
+    return instance->transform;
+  return std::nullopt;
+}
+bool EntitySys::setTransform(Handle handle, const Transform &transform) {
+  auto instance = instances.get(handle);
+  if (!instance)
+    return false;
+  instance->transform = transform;
+  for (auto index : instance->meshEntities)
+    entities[index].transform = transform;
+  return true;
+}
+bool EntitySys::setColor(Handle handle, glm::vec4 color) {
+  auto instance = instances.get(handle);
+  if (!instance)
+    return false;
+  for (auto index : instance->meshEntities)
+    entities[index].color = color;
+  return true;
+}
+bool EntitySys::setId(Handle handle, uint32_t id) {
+  auto instance = instances.get(handle);
+  if (!instance)
+    return false;
+  for (auto index : instance->meshEntities)
+    entities[index].id = id;
+  return true;
+}
+bool EntitySys::destroy(Handle handle) {
+  auto instance = instances.get(handle);
+  if (!instance)
+    return false;
+  while (!instance->meshEntities.empty()) {
+    const auto index = instance->meshEntities.back();
+    instance->meshEntities.pop_back();
+    const auto last = entities.size() - 1;
+    if (index != last) {
+      entities[index] = std::move(entities[last]);
+      if (auto moved =
+              instances.get(instances.handle(entities[index].ownerSlot))) {
+        for (auto &stored : moved->meshEntities)
+          if (stored == last) {
+            stored = index;
+            break;
+          }
+      }
+    }
+    entities.pop_back();
+  }
+  instances.erase(handle);
+  markStructuralDirty();
+  return true;
+}
+EntitySys::Handle EntitySys::pickInstance(const Ray &ray, float &distance,
+                                          float maxDistance) {
+  Handle result;
+  float closest = maxDistance;
+  for (const auto &entity : entities) {
+    const auto handle = instances.handle(entity.ownerSlot);
+    if (!isAlive(handle))
+      continue;
+    auto testPart = [&](const Entity &part) {
+      if (auto hit = ray.intersects(part.getWorldAABB());
+          hit && *hit < closest) {
+        closest = *hit;
+        result = handle;
+      }
+    };
+    if (entity.scene->lodMeshGroups.empty()) {
+      testPart(entity);
+    } else {
+      for (auto mesh : entity.scene->lodMeshGroups.front()) {
+        Entity part = entity;
+        part.meshIndex = mesh;
+        testPart(part);
+      }
+    }
+  }
+  if (isAlive(result))
+    distance = closest;
+  return result;
+}
 
 void EntitySys::createSetLayouts() {
   {
@@ -74,19 +205,20 @@ void EntitySys::createPipeline() {
   pipelineInfo.multisampleInfo.rasterizationSamples =
       static_cast<vk::SampleCountFlagBits>(context.vulkan.msaaSamples);
 
+  pipelineInfo.rasterizationInfo.cullMode = vk::CullModeFlagBits::eFront;
+
   pipeline =
       std::make_unique<GraphicsPipeline>(context, pipelineInfo, "entities");
 }
 
 void EntitySys::createCullingPipeline() {
   // Bindings shared by both culling passes:
-  //  0 CullingUbo                 1 InstanceBuffer (raw, CPU-authored)
+  // Camera parameters use push constants; binding 0 is unused.
+  //  1 InstanceBuffer (raw, CPU-authored)
   //  2 CompactedInstanceBuffer    3 GroupFirstInstanceBuffer
   //  4 GroupVisibleCountBuffer    5 CommandGroupIndexBuffer
   //  6 IndirectBuffer (draw commands)
   std::vector<vk::DescriptorSetLayoutBinding> bindings = {
-      vk::DescriptorSetLayoutBinding{0, vk::DescriptorType::eUniformBuffer, 1,
-                                     vk::ShaderStageFlagBits::eCompute},
       vk::DescriptorSetLayoutBinding{1, vk::DescriptorType::eStorageBuffer, 1,
                                      vk::ShaderStageFlagBits::eCompute},
       vk::DescriptorSetLayoutBinding{2, vk::DescriptorType::eStorageBuffer, 1,
@@ -105,6 +237,10 @@ void EntitySys::createCullingPipeline() {
   vk::PipelineLayoutCreateInfo layoutInfo{};
   layoutInfo.setLayoutCount = 1;
   layoutInfo.pSetLayouts = &cullingSetLayout;
+  const vk::PushConstantRange cameraRange{vk::ShaderStageFlagBits::eCompute, 0,
+                                          sizeof(CullingPush)};
+  layoutInfo.pushConstantRangeCount = 1;
+  layoutInfo.pPushConstantRanges = &cameraRange;
 
   cullingPipeline = std::make_unique<ComputePipeline>(
       context, "shaders/entity/culling.comp.spv", layoutInfo,
@@ -112,22 +248,18 @@ void EntitySys::createCullingPipeline() {
 
   uint32_t framesInFlight = context.vulkan.maxFramesInFlight;
   cullingDescriptorSets.resize(framesInFlight);
-  cullingUboBuffers.resize(framesInFlight);
-  for (uint32_t i = 0; i < framesInFlight; i++) {
-    cullingUboBuffers[i] = std::make_unique<Buffer<CullingUbo>>(
-        context, vk::BufferUsageFlagBits::eUniformBuffer,
-        vk::MemoryPropertyFlagBits::eHostVisible |
-            vk::MemoryPropertyFlagBits::eHostCoherent,
-        1);
-  }
 }
 
 void EntitySys::createFinalizePipeline() {
   // Reuses cullingSetLayout - same bindings, just a different shader that
-  // only touches bindings 0, 4, 5, 6.
+  // only touches bindings 4, 5, 6 and the camera push constants.
   vk::PipelineLayoutCreateInfo layoutInfo{};
   layoutInfo.setLayoutCount = 1;
   layoutInfo.pSetLayouts = &cullingSetLayout;
+  const vk::PushConstantRange cameraRange{vk::ShaderStageFlagBits::eCompute, 0,
+                                          sizeof(CullingPush)};
+  layoutInfo.pushConstantRangeCount = 1;
+  layoutInfo.pPushConstantRanges = &cameraRange;
 
   finalizePipeline = std::make_unique<ComputePipeline>(
       context, "shaders/entity/cullingFinalize.comp.spv", layoutInfo,
@@ -150,6 +282,7 @@ EntitySys::EntitySys(EngineContext &context) : System(context) {
   groupVisibleCountBuffers.resize(framesInFlight);
   instanceDescriptorSets.resize(framesInFlight, nullptr);
   framesDirty.resize(framesInFlight, false);
+  frameScenes.resize(framesInFlight);
 }
 
 EntitySys::~EntitySys() {
@@ -163,36 +296,10 @@ EntitySys::~EntitySys() {
 }
 
 void EntitySys::updateJoints() {
-  if (entities.empty())
-    return;
-
-  int frameIndex = context.frameInfo.frameIndex;
-
-  flushBuffers(frameIndex);
-
-  if (jointBuffers.empty() || !jointBuffers[frameIndex])
-    return;
-
-  std::vector<glm::mat4> jointData;
-  for (auto &entity : entities) {
-    auto &mesh = entity.getMesh();
-    if (mesh.skinIndex.has_value()) {
-      auto &skin = entity.scene->skins[mesh.skinIndex.value()];
-      for (size_t i = 0; i < skin.joints.size(); ++i) {
-        glm::mat4 jointMatrix =
-            entity.scene->nodes[skin.joints[i]].globalTransform *
-            skin.inverseBindMatrices[i];
-        jointData.push_back(jointMatrix);
-      }
-    }
-  }
-
-  if (!jointData.empty()) {
-    jointBuffers[frameIndex]->map();
-    jointBuffers[frameIndex]->write(jointData.data(),
-                                    jointData.size() * sizeof(glm::mat4));
-    jointBuffers[frameIndex]->unmap();
-  }
+  // updateBuffers builds joint matrices in exactly the draw-group order.
+  // flushBuffers already uploads them; a second entity-order upload corrupts
+  // offsets when skins are shared or LOD groups expand into multiple meshes.
+  flushBuffers(context.frameInfo.frameIndex);
 }
 
 void EntitySys::updateBuffers() {
@@ -261,14 +368,30 @@ void EntitySys::updateBuffers() {
       .metallicFactor = glm::vec4(0.f),
   };
 
-  for (size_t i = 0; i < entities.size();) {
-    auto currentScene = entities[i].scene;
+  if (structuralDirty || renderOrder.size() != entities.size())
+    buildEntityRenderOrder(entities, renderOrder);
+  struct OrderedEntities {
+    std::vector<Entity> &source;
+    const std::vector<size_t> &order;
+    size_t size() const { return order.size(); }
+    Entity &operator[](size_t index) { return source[order[index]]; }
+  } ordered{entities, renderOrder};
+
+  frameEntityData.resize(ordered.size());
+  for (size_t e = 0; e < ordered.size(); ++e) {
+    frameEntityData[e].modelMatrix = ordered[e].transform.mat4();
+    frameEntityData[e].normalMatrix =
+        glm::mat4(ordered[e].transform.normalMatrix());
+  }
+
+  for (size_t i = 0; i < ordered.size();) {
+    auto currentScene = ordered[i].scene;
     uint32_t firstDrawOffset = static_cast<uint32_t>(cpuDrawCommands.size());
     uint32_t drawCount = 0;
 
     size_t sceneRunEnd = i;
-    while (sceneRunEnd < entities.size() &&
-           entities[sceneRunEnd].scene == currentScene)
+    while (sceneRunEnd < ordered.size() &&
+           ordered[sceneRunEnd].scene == currentScene)
       ++sceneRunEnd;
 
     if (!currentScene->lodMeshGroups.empty()) {
@@ -281,7 +404,7 @@ void EntitySys::updateBuffers() {
 
       // Culling AABB for this scene's entities is computed from LOD0 (the
       // most detailed level) directly, via lodMeshGroups[0] - NOT via
-      // entities[e].getWorldAABB() (which indexes scene->meshes using the
+      // ordered[e].getWorldAABB() (which indexes scene->meshes using the
       // entity's own fixed meshIndex field, see entity.cpp). That field's
       // value for these entities depends entirely on whatever main.cpp
       // happened to pass at entity-creation time, which this code has no
@@ -329,10 +452,14 @@ void EntitySys::updateBuffers() {
         return worldAABB;
       };
 
+      for (size_t e = i; e < sceneRunEnd; ++e)
+        frameEntityData[e].worldAABB =
+            computeLod0WorldAABB(frameEntityData[e].modelMatrix);
+
       std::vector<std::vector<size_t>> entitiesPerLevel(
           currentScene->lodMeshGroups.size());
       for (size_t e = i; e < sceneRunEnd; ++e) {
-        float dist = glm::distance(camPos, entities[e].transform.position);
+        float dist = glm::distance(camPos, ordered[e].transform.position);
         size_t level = currentScene->lodMeshGroups.size() - 1; // default:
                                                                // least
                                                                // detailed
@@ -401,15 +528,13 @@ void EntitySys::updateBuffers() {
               // of which level is actually being drawn for this instance,
               // and doesn't depend on entity.meshIndex being set to
               // anything in particular.
-              AABB worldAABB =
-                  computeLod0WorldAABB(entities[entIdx].transform.mat4());
+              const auto &cached = frameEntityData[entIdx];
+              const AABB &worldAABB = cached.worldAABB;
 
               GPUInstanceData data;
-              data.modelMatrix =
-                  entities[entIdx].transform.mat4() * mesh.transform;
-              data.normalMatrix =
-                  glm::mat4(entities[entIdx].transform.normalMatrix());
-              data.color = entities[entIdx].color * mat->baseColorFactor;
+              data.modelMatrix = cached.modelMatrix * mesh.transform;
+              data.normalMatrix = cached.normalMatrix;
+              data.color = ordered[entIdx].color * mat->baseColorFactor;
               data.aabbMin = worldAABB.min;
               data.aabbMax = worldAABB.max;
               data.textureIndex = texIdx;
@@ -439,16 +564,19 @@ void EntitySys::updateBuffers() {
       continue;
     }
 
+    for (size_t e = i; e < sceneRunEnd; ++e)
+      frameEntityData[e].worldAABB = ordered[e].getWorldAABB();
+
     size_t j = i;
-    while (j < entities.size() && entities[j].scene == currentScene) {
+    while (j < ordered.size() && ordered[j].scene == currentScene) {
       size_t k = j;
-      while (k < entities.size() && entities[k].scene == currentScene &&
-             entities[k].meshIndex == entities[j].meshIndex) {
+      while (k < ordered.size() && ordered[k].scene == currentScene &&
+             ordered[k].meshIndex == ordered[j].meshIndex) {
         k++;
       }
 
       uint32_t instanceCount = static_cast<uint32_t>(k - j);
-      auto &entity = entities[j];
+      auto &entity = ordered[j];
       auto &mesh = entity.getMesh();
 
       // Gather this MESH's joint matrices exactly once here (not once per
@@ -522,13 +650,13 @@ void EntitySys::updateBuffers() {
         int32_t mrTexIdx = mat->metallicRoughnessTextureIndex.value_or(-1);
 
         for (size_t inst = j; inst < k; ++inst) {
-          AABB worldAABB = entities[inst].getWorldAABB();
+          const auto &cached = frameEntityData[inst];
+          const AABB &worldAABB = cached.worldAABB;
 
           GPUInstanceData data;
-          data.modelMatrix = entities[inst].transform.mat4() * mesh.transform;
-          data.normalMatrix =
-              glm::mat4(entities[inst].transform.normalMatrix());
-          data.color = entities[inst].color * mat->baseColorFactor;
+          data.modelMatrix = cached.modelMatrix * mesh.transform;
+          data.normalMatrix = cached.normalMatrix;
+          data.color = ordered[inst].color * mat->baseColorFactor;
           data.aabbMin = worldAABB.min;
           data.aabbMax = worldAABB.max;
           data.textureIndex = texIdx;
@@ -572,7 +700,7 @@ void EntitySys::updateBuffers() {
   if (structuralDirty) {
     // std::println("[EntitySys] rebuilt: {} entities -> {} groups, {} draw "
     //              "command(s), {} scene batch(es)",
-    //              entities.size(), cpuGroupFirstInstance.size(),
+    //              ordered.size(), cpuGroupFirstInstance.size(),
     //              cpuDrawCommands.size(), sceneBatches.size());
     for (size_t g = 0; g < cpuGroupFirstInstance.size(); ++g) {
       uint32_t firstInst = cpuGroupFirstInstance[g];
@@ -593,19 +721,6 @@ void EntitySys::updateBuffers() {
     }
   }
 
-  int frameIndex = context.frameInfo.frameIndex;
-  auto planes = camera::getFrustumPlanes(context.camera.projectionMatrix *
-                                         context.camera.viewMatrix);
-  CullingUbo ubo{};
-  for (int i = 0; i < 6; i++)
-    ubo.frustumPlanes[i] = planes[i];
-  ubo.totalInstances = static_cast<uint32_t>(cpuInstanceData.size());
-  ubo.totalCommands = static_cast<uint32_t>(cpuDrawCommands.size());
-
-  cullingUboBuffers[frameIndex]->map();
-  cullingUboBuffers[frameIndex]->write(&ubo, sizeof(CullingUbo));
-  cullingUboBuffers[frameIndex]->unmap();
-
   structuralDirty = false;
   for (size_t i = 0; i < framesDirty.size(); ++i)
     framesDirty[i] = true;
@@ -614,6 +729,9 @@ void EntitySys::updateBuffers() {
 void EntitySys::flushBuffers(int frameIndex) {
   if (!framesDirty[frameIndex])
     return;
+  frameScenes[frameIndex].clear();
+  for (const auto &batch : sceneBatches)
+    frameScenes[frameIndex].push_back(batch.scene);
 
   vk::DeviceSize instanceBufferSize =
       cpuInstanceData.size() * sizeof(GPUInstanceData);
@@ -737,8 +855,6 @@ void EntitySys::flushBuffers(int frameIndex) {
           context.vulkan.globalDescriptorAllocator->allocate(cullingSetLayout);
     }
     DescriptorWriter cWriter(context);
-    vk::DescriptorBufferInfo uInfo =
-        cullingUboBuffers[frameIndex]->descriptorInfo();
     vk::DescriptorBufferInfo rawInfo =
         instanceBuffers[frameIndex]->descriptorInfo();
     vk::DescriptorBufferInfo compactedInfo =
@@ -752,7 +868,6 @@ void EntitySys::flushBuffers(int frameIndex) {
     vk::DescriptorBufferInfo indirectInfo =
         indirectDrawBuffers[frameIndex]->descriptorInfo();
 
-    cWriter.writeBuffer(0, uInfo, vk::DescriptorType::eUniformBuffer);
     cWriter.writeBuffer(1, rawInfo, vk::DescriptorType::eStorageBuffer);
     cWriter.writeBuffer(2, compactedInfo, vk::DescriptorType::eStorageBuffer);
     cWriter.writeBuffer(3, groupFirstInfo, vk::DescriptorType::eStorageBuffer);
@@ -823,25 +938,8 @@ void EntitySys::flushBuffers(int frameIndex) {
 }
 
 void EntitySys::cull(vk::CommandBuffer cmd) {
-  if (sceneBatches.empty())
-    return;
-
-  int frameIndex = context.frameInfo.frameIndex;
-  flushBuffers(frameIndex);
-
-  auto planes = camera::getFrustumPlanes(context.camera.projectionMatrix *
-                                         context.camera.viewMatrix);
-  CullingUbo ubo{};
-  for (int i = 0; i < 6; i++)
-    ubo.frustumPlanes[i] = planes[i];
-  ubo.totalInstances = static_cast<uint32_t>(cpuInstanceData.size());
-  ubo.totalCommands = static_cast<uint32_t>(cpuDrawCommands.size());
-
-  cullingUboBuffers[frameIndex]->map();
-  cullingUboBuffers[frameIndex]->write(&ubo, sizeof(CullingUbo));
-  cullingUboBuffers[frameIndex]->unmap();
-
-  dispatchCulling(cmd, frameIndex);
+  cullForViewProj(cmd,
+                  context.camera.projectionMatrix * context.camera.viewMatrix);
 }
 
 void EntitySys::cullForViewProj(vk::CommandBuffer cmd,
@@ -856,119 +954,26 @@ void EntitySys::cullForViewProj(vk::CommandBuffer cmd,
   // totalCommands describe the CURRENT frame's entity set, which is the
   // same regardless of which camera is doing the culling.
   auto planes = camera::getFrustumPlanes(viewProj);
-  CullingUbo ubo{};
+  CullingPush ubo{};
   for (int i = 0; i < 6; i++)
     ubo.frustumPlanes[i] = planes[i];
   ubo.totalInstances = static_cast<uint32_t>(cpuInstanceData.size());
   ubo.totalCommands = static_cast<uint32_t>(cpuDrawCommands.size());
 
-  cullingUboBuffers[frameIndex]->map();
-  cullingUboBuffers[frameIndex]->write(&ubo, sizeof(CullingUbo));
-  cullingUboBuffers[frameIndex]->unmap();
-
-  dispatchCulling(cmd, frameIndex);
+  dispatchCulling(cmd, frameIndex, ubo);
 }
 
-void EntitySys::dispatchCulling(vk::CommandBuffer cmd, int frameIndex) {
+void EntitySys::dispatchCulling(vk::CommandBuffer cmd, int frameIndex,
+                                const CullingPush &view) {
   debug::beginLabel(context, cmd, "Culling Dispatch", {.3f, .8f, .3f, 1.f});
-
-  // Reset every group's visible-instance counter to 0 on the GPU timeline,
-  // immediately before THIS dispatch's pass 1 - see flushBuffers()'s
-  // comment on why this can no longer be a one-time CPU-side write.
-  // cull()/cullForViewProj() can each run several times per frame (once
-  // per visible lake's reflection, plus once more for the real camera),
-  // all sharing this same per-frame-in-flight buffer; each call's pass 1
-  // must start its atomicAdd-based compaction from a genuinely fresh
-  // zero, or it accumulates on top of whatever the previous dispatch this
-  // frame already left behind.
-  vk::DeviceSize groupVisibleCountSize =
-      groupVisibleCountBuffers[frameIndex]->getSize();
-  if (groupVisibleCountSize > 0) {
-    // Earlier reads/atomic-writes (this dispatch's own pass 1/2 from a
-    // PREVIOUS call this frame, or last frame's, now safely retired via
-    // this frame's fences) must finish before the fill overwrites them,
-    // and the fill itself must finish before this dispatch's pass 1 reads
-    // it again below.
-    vk::BufferMemoryBarrier preFillBarrier{};
-    preFillBarrier.srcAccessMask =
-        vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
-    preFillBarrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
-    preFillBarrier.buffer = *groupVisibleCountBuffers[frameIndex];
-    preFillBarrier.size = groupVisibleCountSize;
-
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                        vk::PipelineStageFlagBits::eTransfer,
-                        vk::DependencyFlags(), nullptr, preFillBarrier,
-                        nullptr);
-
-    cmd.fillBuffer(*groupVisibleCountBuffers[frameIndex], 0,
-                   groupVisibleCountSize, 0u);
-
-    vk::BufferMemoryBarrier postFillBarrier{};
-    postFillBarrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-    postFillBarrier.dstAccessMask =
-        vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite;
-    postFillBarrier.buffer = *groupVisibleCountBuffers[frameIndex];
-    postFillBarrier.size = groupVisibleCountSize;
-
-    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                        vk::PipelineStageFlagBits::eComputeShader,
-                        vk::DependencyFlags(), nullptr, postFillBarrier,
-                        nullptr);
-  }
-
-  // Pass 2 below overwrites every command's instanceCount outright (not an
-  // accumulation), so the CPU-uploaded value doesn't matter - but we still
-  // need last frame's indirect-command reads and this frame's host upload
-  // to complete before pass 2's shader write can safely land.
-  vk::BufferMemoryBarrier indirectBarrier{};
-  indirectBarrier.srcAccessMask =
-      vk::AccessFlagBits::eIndirectCommandRead | vk::AccessFlagBits::eHostWrite;
-  indirectBarrier.dstAccessMask = vk::AccessFlagBits::eShaderWrite;
-  indirectBarrier.buffer = *indirectDrawBuffers[frameIndex];
-  indirectBarrier.size = indirectDrawBuffers[frameIndex]->getSize();
-
-  cmd.pipelineBarrier(vk::PipelineStageFlagBits::eDrawIndirect |
-                          vk::PipelineStageFlagBits::eHost,
-                      vk::PipelineStageFlagBits::eComputeShader,
-                      vk::DependencyFlags(), nullptr, indirectBarrier, nullptr);
-
-  cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                         cullingPipeline->getLayout(), 0, 1,
-                         &cullingDescriptorSets[frameIndex], 0, nullptr);
-
-  // Pass 1: frustum-cull instances, compact survivors, accumulate each
-  // group's visible count via atomics.
-  cullingPipeline->bind(cmd);
-  uint32_t instanceGroupCount =
-      (static_cast<uint32_t>(cpuInstanceData.size()) + 63) / 64;
-  if (instanceGroupCount > 0) {
-    cmd.dispatch(instanceGroupCount, 1, 1);
-  }
-
-  // Pass 2 reads what pass 1 wrote (compacted buffer + visible counts).
-  vk::MemoryBarrier computeBarrier{vk::AccessFlagBits::eShaderWrite,
-                                   vk::AccessFlagBits::eShaderRead};
-  cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                      vk::PipelineStageFlagBits::eComputeShader,
-                      vk::DependencyFlags(), computeBarrier, nullptr, nullptr);
-
-  // Pass 2: broadcast each group's final visible count into its indirect
-  // draw command(s).
-  finalizePipeline->bind(cmd);
-  uint32_t commandGroupCount =
-      (static_cast<uint32_t>(cpuCommandGroupIndex.size()) + 63) / 64;
-  if (commandGroupCount > 0) {
-    cmd.dispatch(commandGroupCount, 1, 1);
-  }
-
-  indirectBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
-  indirectBarrier.dstAccessMask = vk::AccessFlagBits::eIndirectCommandRead;
-
-  cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
-                      vk::PipelineStageFlagBits::eDrawIndirect,
-                      vk::DependencyFlags(), nullptr, indirectBarrier, nullptr);
-
+  recordCulling(
+      cmd, view,
+      {static_cast<vk::Pipeline>(*cullingPipeline),
+       static_cast<vk::Pipeline>(*finalizePipeline),
+       cullingPipeline->getLayout(), cullingDescriptorSets[frameIndex],
+       *compactedInstanceBuffers[frameIndex], *indirectDrawBuffers[frameIndex],
+       *groupVisibleCountBuffers[frameIndex],
+       static_cast<uint32_t>(cpuGroupFirstInstance.size())});
   debug::endLabel(context, cmd);
 }
 

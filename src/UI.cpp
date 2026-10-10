@@ -1,4 +1,5 @@
 #include "UI.hpp"
+#include "UI/layout.hpp"
 
 #include <GLFW/glfw3.h>
 #include <cstddef>
@@ -11,10 +12,10 @@
 #include <utility>
 
 #include "network/network.hpp"
-#include "vkh/engineContext.hpp"
-#include "vkh/input.hpp"
 #include "settings.hpp"
 #include "skyResolutionPresets.hpp"
+#include "vkh/engineContext.hpp"
+#include "vkh/input.hpp"
 #include "vkh/systems/hud/hud.hpp"
 #include "vkh/systems/hud/view.hpp"
 
@@ -23,9 +24,13 @@
 #include "UI/canvas.hpp"
 #include "UI/rectImg.hpp"
 #include "UI/scrollable.hpp"
+#include "UI/slider.hpp"
 #include "UI/stylizedBtn.hpp"
 #include "UI/text.hpp"
 #include "UI/textInput.hpp"
+#include "UI/theme.hpp"
+#include "graphicsPresets.hpp"
+#include <cctype>
 
 namespace {
 
@@ -51,8 +56,8 @@ void applyFullscreen(vkh::EngineContext &context, bool enabled) {
     glfwSetWindowMonitor(context.window, monitor, 0, 0, mode->width,
                          mode->height, mode->refreshRate);
   } else {
-    glfwSetWindowMonitor(context.window, nullptr, windowedPos.x,
-                         windowedPos.y, windowedSize.x, windowedSize.y, 0);
+    glfwSetWindowMonitor(context.window, nullptr, windowedPos.x, windowedPos.y,
+                         windowedSize.x, windowedSize.y, 0);
   }
 }
 
@@ -71,10 +76,15 @@ struct GameUI::Impl {
   vkh::hud::View worldView;
   vkh::hud::View pauseView;
   vkh::hud::View settingsView;
+  vkh::hud::View controlsView;
   vkh::hud::View canvasView;
 
   std::unique_ptr<Network> network;
 
+  glm::ivec2 layoutViewport{};
+  std::shared_ptr<UI::RectImg> crosshair;
+  std::vector<std::pair<vkh::hud::View *, std::shared_ptr<UI::RectImg>>>
+      backdrops;
   std::shared_ptr<UI::RectImg> fpsRect;
   std::shared_ptr<UI::Text> fpsText;
   std::shared_ptr<UI::Text> orientationTxt;
@@ -82,217 +92,226 @@ struct GameUI::Impl {
   std::shared_ptr<UI::BindEdit> selectedButton;
 
   GameUI::SkyResolutionHandler skyResolutionHandler;
+  GameUI::GraphicsSettingsHandler graphicsSettingsHandler;
 
-  // Cursor/camera state stashed when entering the pause menu so escaping
-  // back out restores exactly where the player was looking/pointing.
-  glm::dvec2 worldCursorPos{};
+  // Preserve the view direction across pause pages and cursor-mode changes.
   glm::vec2 worldYawAndPitch{};
 
   explicit Impl(vkh::EngineContext &context)
       : hudSys(context), worldView(context, hudSys), pauseView(context, hudSys),
-        settingsView(context, hudSys), canvasView(context, hudSys)
-         {
-    hudSys.solidColorSys.addTextureFromFile(
-        "textures/hud.png"); // Will be default texture since at index 0
-
-    // Apply settings that need to take effect immediately at launch (the
-    // ones only ever read on a toggle, like useCachedSkyBake, don't need
-    // this -- they're picked up next time whoever reads them runs).
+        settingsView(context, hudSys), controlsView(context, hudSys),
+        canvasView(context, hudSys) {
+    UI::theme::initialize(pauseView);
     applyFullscreen(context, vkh::settings::current().fullscreen);
+    auto page = [this](vkh::hud::View &view, const std::string &title) {
+      auto background = view.container.addChild<UI::RectImg>(
+          glm::vec2{}, glm::vec2{1},
+          UI::theme::color(view, UI::theme::background));
+      backdrops.emplace_back(&view, background);
+      view.container.addChild<UI::RectImg>(
+          glm::vec2{.08f, .10f}, glm::vec2{.84f, .80f},
+          UI::theme::color(view, UI::theme::panel));
+      view.container.addChild<UI::Text>(glm::vec2{.12f, .145f}, title,
+                                        glm::vec3{1.f}, 1.15f);
+    };
+    page(pauseView, "VULKHAN");
+    page(settingsView, "Graphics");
+    page(controlsView, "Controls");
+    pauseView.container.addChild<UI::Text>(glm::vec2{.13f, .215f}, "Paused",
+                                           glm::vec3{.7f}, .75f);
+    auto canvasBackdrop = canvasView.container.addChild<UI::RectImg>(
+        glm::vec2{}, glm::vec2{1.f},
+        UI::theme::color(canvasView, UI::theme::background));
+    backdrops.emplace_back(&canvasView, canvasBackdrop);
+    canvasView.container.addChild<UI::Canvas>(
+        glm::vec2{}, glm::vec2{1},
+        UI::theme::color(canvasView, UI::theme::panel));
+    pauseView.container.addChild<UI::StylizedBtn>(
+        glm::vec2{.10f, .29f}, glm::vec2{.44f, .11f}, 0,
+        [this, &context](int, int, int) { resume(context); }, "Resume game");
+    pauseView.container.addChild<UI::Button>(
+        glm::vec2{.13f, .43f}, glm::vec2{.38f, .075f}, 0,
+        [this](int, int, int) { hudSys.setView(&settingsView); },
+        "Graphics settings");
+    pauseView.container.addChild<UI::Button>(
+        glm::vec2{.13f, .53f}, glm::vec2{.38f, .075f}, 0,
+        [this](int, int, int) { hudSys.setView(&controlsView); }, "Controls");
+    pauseView.container.addChild<UI::Button>(
+        glm::vec2{.13f, .63f}, glm::vec2{.38f, .075f}, 0,
+        [this](int, int, int) { hudSys.setView(&canvasView); },
+        "Drawing canvas");
+    pauseView.container.addChild<UI::Text>(
+        glm::vec2{.13f, .79f}, "ESC resumes play", glm::vec3{.7f}, .7f);
 
-    auto canvas = canvasView.container.addChild<UI::Canvas>(glm::vec2{},
-                                                            glm::vec2{1.f}, 0);
-
-    auto canvasBtn = pauseView.container.addChild<UI::StylizedBtn>(
-        glm::vec2{.8f, 0.f}, glm::vec2{.2f, .2f}, 0,
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            hudSys.setView(&canvasView);
-          }
-        },
-        "Go to canvas");
-    auto settingsBtn = pauseView.container.addChild<UI::Button>(
-        glm::vec2{}, glm::vec2{.2f, .2f}, 0,
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            hudSys.setView(&settingsView);
-          }
-        },
-        "Edit settings");
-
-    float y = 0.f;
-
-    // Persistent settings toggles. Each one flips a bool in
-    // vkh::settings::current() and immediately persists the whole struct
-    // to settings.bin via vkh::settings::save(), so changes survive a
-    // crash rather than only a clean exit.
-    //
-    // These reuse UI::BindEdit purely as "a button with a label whose
-    // text/callback can be changed after construction" (that's the only
-    // widget in this file exposing setCallback()/label publicly). Their
-    // `action` field is never touched, and they're never assigned to
-    // `selectedButton`, so they never enter the keybind-rebinding flow
-    // that field is normally used for.
-    {
-      struct ToggleDef {
-        const char *label;
-        bool vkh::Settings::*field;
+    auto addToggle = [this, &context](vkh::hud::View &view, glm::vec2 position,
+                                      const char *name,
+                                      bool vkh::Settings::*field) {
+      auto label = [](const std::string &name, bool value) {
+        return name + ": " + (value ? "On" : "Off");
       };
-      static const ToggleDef toggles[] = {
-          {"V-Sync", &vkh::Settings::vsync},
-          {"Show FPS", &vkh::Settings::showFps},
-          {"Invert Y axis", &vkh::Settings::invertYAxis},
-          {"Fullscreen", &vkh::Settings::fullscreen},
-          {"Cache sky bake", &vkh::Settings::useCachedSkyBake},
+      auto btn = view.container.addChild<UI::Button>(
+          position, glm::vec2{.35f, &view == &settingsView ? .055f : .075f}, 0,
+          [](int, int, int) {}, label(name, vkh::settings::current().*field));
+      btn->setCallback([this, &context, weak = std::weak_ptr(btn), field,
+                        name = std::string(name), label](int, int, int) {
+        auto &settings = vkh::settings::current();
+        settings.*field = !(settings.*field);
+        vkh::settings::save();
+        if (auto button = weak.lock())
+          button->label->content = label(name, settings.*field);
+        if (graphicsSettingsHandler)
+          graphicsSettingsHandler(settings);
+        if (field == &vkh::Settings::fullscreen)
+          applyFullscreen(context, settings.fullscreen);
+        if (field == &vkh::Settings::vsync)
+          context.window.framebufferResized = true;
+      });
+    };
+    auto addCycle = [this](glm::vec2 position, const std::string &name,
+                           uint32_t vkh::Settings::*field,
+                           std::vector<uint32_t> values,
+                           std::vector<std::string> labels, bool sky = false) {
+      auto text = [name, values, labels](uint32_t value) {
+        auto found = std::find(values.begin(), values.end(), value);
+        size_t index = found == values.end() ? 0 : found - values.begin();
+        return name + ": " + labels[index];
       };
-
-      auto labelFor = [](const char *name, bool value) {
-        return std::string(name) + ": " + (value ? "On" : "Off");
+      auto button = settingsView.container.addChild<UI::Button>(
+          position, glm::vec2{.35f, .055f}, 0, [](int, int, int) {},
+          text(vkh::settings::current().*field));
+      button->setCallback([this, weak = std::weak_ptr(button), field, values,
+                           text, sky](int, int, int) {
+        auto &settings = vkh::settings::current();
+        auto found = std::find(values.begin(), values.end(), settings.*field);
+        size_t index = found == values.end()
+                           ? 0
+                           : (found - values.begin() + 1) % values.size();
+        settings.*field = values[index];
+        vkh::settings::save();
+        if (auto button = weak.lock())
+          button->label->content = text(settings.*field);
+        if (graphicsSettingsHandler)
+          graphicsSettingsHandler(settings);
+        if (sky && skyResolutionHandler)
+          skyResolutionHandler(settings.skyMilkyWayFaceSize,
+                               settings.skyDiscTurbulenceSize);
+      });
+    };
+    addToggle(settingsView, {.12f, .24f}, "V-Sync", &vkh::Settings::vsync);
+    addToggle(settingsView, {.12f, .31f}, "Fullscreen",
+              &vkh::Settings::fullscreen);
+    addToggle(settingsView, {.12f, .38f}, "Show FPS", &vkh::Settings::showFps);
+    addCycle({.12f, .52f}, "Grass distance", &vkh::Settings::grassDistance,
+             {40, 80, 120}, {"Near", "Medium", "Far"});
+    addCycle({.12f, .59f}, "Terrain shadows",
+             &vkh::Settings::terrainShadowSteps, {0, 8, 16, 24},
+             {"Off", "Low", "Medium", "High"});
+    addToggle(settingsView, {.12f, .45f}, "Grass", &vkh::Settings::drawGrass);
+    auto addSlider = [this](glm::vec2 position, const std::string &name,
+                            uint32_t vkh::Settings::*field, glm::vec2 range,
+                            const std::string &unit) {
+      auto label = settingsView.container.addChild<UI::Text>(
+          position,
+          std::format("{}: {}{}", name, vkh::settings::current().*field, unit),
+          glm::vec3{1.f}, .6f);
+      auto slider = settingsView.container.addChild<UI::Slider>(
+          position + glm::vec2{0, .027f}, glm::vec2{.35f, .028f}, range,
+          float(vkh::settings::current().*field));
+      slider->onChange = [this, field, weak = std::weak_ptr(label), name,
+                          unit](float value) {
+        auto &settings = vkh::settings::current();
+        settings.*field = uint32_t(value);
+        if (auto text = weak.lock())
+          text->content = std::format("{}: {}{}", name, settings.*field, unit);
+        if (graphicsSettingsHandler)
+          graphicsSettingsHandler(settings);
       };
-
-      for (const auto &toggle : toggles) {
-        auto toggleBtn = settingsView.container.addChild<UI::BindEdit>(
-            glm::vec2{0.6f, y}, glm::vec2{.1f}, 0, [](int, int, int) {},
-            labelFor(toggle.label, vkh::settings::current().*toggle.field));
-        // Size the button to fit its label instead of a guessed fixed
-        // size -- getAbsoluteSize()/setAbsoluteSize() work in pixel space
-        // (same pattern as fpsRect below), so this holds regardless of
-        // this container's relative scale, unlike getSize()/setSize().
-        toggleBtn->setAbsoluteSize(toggleBtn->label->getAbsoluteSize());
-
-        toggleBtn->setCallback([&, toggleBtn, field = toggle.field,
-                                name = toggle.label](int button, int action,
-                                                     int) {
-          if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
-            return;
-          auto &s = vkh::settings::current();
-          s.*field = !(s.*field);
-          vkh::settings::save();
-          toggleBtn->label->content = labelFor(name, s.*field);
-          toggleBtn->setAbsoluteSize(toggleBtn->label->getAbsoluteSize());
-
-          // Most settings are just read wherever they're needed (e.g.
-          // useCachedSkyBake, read once in main.cpp at SkySys
-          // construction) and don't need anything here. Fullscreen is the
-          // exception: it has to take effect on the already-running
-          // window right away.
-          if (field == &vkh::Settings::fullscreen)
-            applyFullscreen(context, s.fullscreen);
-        });
-        y += 0.1f;
+      slider->onCommit = [](float) { vkh::settings::save(); };
+    };
+    addSlider({.12f, .66f}, "Field of view", &vkh::Settings::fieldOfView,
+              {70, 120}, " deg");
+    addToggle(settingsView, {.53f, .52f}, "Post effects",
+              &vkh::Settings::postEffects);
+    addSlider({.53f, .59f}, "Light shafts", &vkh::Settings::lightShaftStrength,
+              {0, 150}, "%");
+    std::vector<uint32_t> samples;
+    std::vector<std::string> sampleLabels;
+    const auto &limits = context.vulkan.physicalDeviceProperties.limits;
+    uint32_t supported =
+        static_cast<uint32_t>(limits.framebufferColorSampleCounts &
+                              limits.framebufferDepthSampleCounts);
+    for (auto count : vkh::msaaPresets)
+      if (supported & count) {
+        samples.push_back(count);
+        sampleLabels.push_back(count == 1 ? "Off"
+                                          : std::format("{}x MSAA", count));
       }
-    }
-
-    // Sky bake resolution: two independent cycling buttons (milky way
-    // cubemap face size, disc turbulence texture size -- see
-    // skyResolutionPresets.hpp), each persisting its own setting.
-    // skyResolutionHandler always gets called with *both* current values
-    // together, since SkySys::rebake() takes both at once -- so changing
-    // one button re-sends the other setting's already-current value
-    // unchanged.
-    {
-      auto fireRebake = [&] {
-        auto &s = vkh::settings::current();
-        if (skyResolutionHandler)
-          skyResolutionHandler(s.skyMilkyWayFaceSize, s.skyDiscTurbulenceSize);
-      };
-
-      auto &s0 = vkh::settings::current();
-      auto milkyWayBtn = settingsView.container.addChild<UI::BindEdit>(
-          glm::vec2{0.6f, y}, glm::vec2{.1f}, 0, [](int, int, int) {},
-          std::format("Milky way res: {}", s0.skyMilkyWayFaceSize));
-      milkyWayBtn->setAbsoluteSize(milkyWayBtn->label->getAbsoluteSize());
-      milkyWayBtn->setCallback([&, milkyWayBtn, fireRebake](int button,
-                                                            int action, int) {
-        if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
-          return;
-        auto &s = vkh::settings::current();
-        size_t current =
-            indexOfPreset(vkh::milkyWayFaceSizePresets, s.skyMilkyWayFaceSize);
-        size_t next = (current + 1) % std::size(vkh::milkyWayFaceSizePresets);
-        s.skyMilkyWayFaceSize = vkh::milkyWayFaceSizePresets[next];
-        vkh::settings::save();
-
-        milkyWayBtn->label->content =
-            std::format("Milky way res: {}", s.skyMilkyWayFaceSize);
-        milkyWayBtn->setAbsoluteSize(milkyWayBtn->label->getAbsoluteSize());
-
-        fireRebake();
+    addCycle({.53f, .24f}, "Antialiasing (restart)",
+             &vkh::Settings::msaaSamples, samples, sampleLabels);
+    addToggle(settingsView, {.53f, .31f}, "Cache sky (restart)",
+              &vkh::Settings::useCachedSkyBake);
+    auto sizes = [](std::span<const uint32_t> presets) {
+      std::vector<std::string> labels;
+      for (auto value : presets)
+        labels.push_back(std::to_string(value));
+      return labels;
+    };
+    addCycle({.53f, .38f}, "Milky way resolution",
+             &vkh::Settings::skyMilkyWayFaceSize,
+             {std::begin(vkh::milkyWayFaceSizePresets),
+              std::end(vkh::milkyWayFaceSizePresets)},
+             sizes(vkh::milkyWayFaceSizePresets), true);
+    addCycle({.53f, .45f}, "Disc resolution",
+             &vkh::Settings::skyDiscTurbulenceSize,
+             {std::begin(vkh::discTurbulenceSizePresets),
+              std::end(vkh::discTurbulenceSizePresets)},
+             sizes(vkh::discTurbulenceSizePresets), true);
+    settingsView.container.addChild<UI::Text>(
+        glm::vec2{.12f, .745f},
+        "Saved automatically. AA/cache need restart; shafts need post effects.",
+        glm::vec3{.7f}, .65f);
+    settingsView.container.addChild<UI::Button>(
+        glm::vec2{.12f, .82f}, glm::vec2{.20f, .055f}, 0,
+        [this](int, int, int) { hudSys.setView(&pauseView); }, "Back");
+    settingsView.container.addChild<UI::Button>(
+        glm::vec2{.67f, .82f}, glm::vec2{.20f, .055f}, 0,
+        [this](int, int, int) { hudSys.setView(&controlsView); }, "Controls");
+    addToggle(controlsView, {.12f, .24f}, "Invert Y axis",
+              &vkh::Settings::invertYAxis);
+    size_t i = 0;
+    for (auto &[action, bind] : vkh::input::keybinds) {
+      const float x = i < 5 ? .12f : .53f, y = .35f + .075f * (i % 5);
+      auto button = controlsView.container.addChild<UI::BindEdit>(
+          glm::vec2{x, y}, glm::vec2{.35f, .06f}, 0, [](int, int, int) {},
+          bindingLabel(action));
+      button->action = action;
+      button->setCallback([this, weak = std::weak_ptr(button)](int, int, int) {
+        if (selectedButton)
+          selectedButton->label->content = bindingLabel(selectedButton->action);
+        selectedButton = weak.lock();
+        if (selectedButton)
+          selectedButton->label->content = "Press a key... (ESC cancels)";
       });
-      y += 0.1f;
-
-      auto discBtn = settingsView.container.addChild<UI::BindEdit>(
-          glm::vec2{0.6f, y}, glm::vec2{.1f}, 0, [](int, int, int) {},
-          std::format("Disc turbulence res: {}", s0.skyDiscTurbulenceSize));
-      discBtn->setAbsoluteSize(discBtn->label->getAbsoluteSize());
-      discBtn->setCallback([&, discBtn, fireRebake](int button, int action,
-                                                     int) {
-        if (button != GLFW_MOUSE_BUTTON_LEFT || action != GLFW_PRESS)
-          return;
-        auto &s = vkh::settings::current();
-        size_t current = indexOfPreset(vkh::discTurbulenceSizePresets,
-                                       s.skyDiscTurbulenceSize);
-        size_t next =
-            (current + 1) % std::size(vkh::discTurbulenceSizePresets);
-        s.skyDiscTurbulenceSize = vkh::discTurbulenceSizePresets[next];
-        vkh::settings::save();
-
-        discBtn->label->content =
-            std::format("Disc turbulence res: {}", s.skyDiscTurbulenceSize);
-        discBtn->setAbsoluteSize(discBtn->label->getAbsoluteSize());
-
-        fireRebake();
-      });
-      y += 0.1f;
+      ++i;
     }
-
-    glm::vec2 keyBtnSize{.1f};
-
-    auto settingsScroll = settingsView.container.addChild<UI::Scrollable>(
-        glm::vec2{}, glm::vec2{1.f}, glm::vec2{0.f, .25f}, glm::vec2{0.f},
-        glm::vec2{-1.f + static_cast<float>(vkh::input::keybinds.size()) *
-                             keyBtnSize});
-    settingsScroll->addChild<UI::Text>(glm::vec2{}, "Keybinds");
-
-    unsigned short i = 0;
-    for (auto &[action, bind] : vkh::input::keybinds | std::views::reverse) {
-      auto kbEdit = settingsScroll->addChild<UI::BindEdit>(
-          glm::vec2{0.5f, 0.f + .1f * i}, keyBtnSize, 0,
-          [&](int button, int action, int) {},
-          std::string(magic_enum::enum_name(action)) + ":" +
-              vkh::input::getKeyName(bind));
-      kbEdit->setCallback([&, kbEdit](int button, int action, int) {
-        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-          selectedButton = kbEdit;
-        }
-      });
-      kbEdit->action = action;
-      kbEdit->setAbsoluteSize(kbEdit->label->getAbsoluteSize());
-      i++;
-    }
-
-    settingsScroll->addEventHandler<vkh::input::EventType::Key>(
-        [&](int key, int scancode, int action, int mods) {
+    controlsView.container.addChild<UI::Text>(
+        glm::vec2{.12f, .76f}, "Click a binding to change it. ESC cancels.",
+        glm::vec3{.7f}, .65f);
+    controlsView.container.addChild<UI::Button>(
+        glm::vec2{.12f, .82f}, glm::vec2{.20f, .055f}, 0,
+        [this](int, int, int) {
+          cancelBinding();
+          hudSys.setView(&pauseView);
+        },
+        "Back");
+    controlsView.container.addEventHandler<vkh::input::EventType::Key>(
+        [this](int key, int, int action, int) {
           if (action != GLFW_PRESS)
             return false;
           if (selectedButton) {
-            if (key == GLFW_KEY_ESCAPE) {
-              selectedButton->label->content =
-                  static_cast<std::string>(
-                      magic_enum::enum_name(selectedButton->action)) +
-                  ":" + vkh::input::getKeyName(GLFW_KEY_UNKNOWN);
-              selectedButton->setAbsoluteSize(selectedButton->label->getAbsoluteSize());
-              vkh::input::keybinds[selectedButton->action] = GLFW_KEY_UNKNOWN;
-              selectedButton = nullptr;
-              return true;
-            }
-            selectedButton->label->content =
-                static_cast<std::string>(
-                    magic_enum::enum_name(selectedButton->action)) +
-                ":" + vkh::input::getKeyName(key);
-            selectedButton->setAbsoluteSize(selectedButton->label->getAbsoluteSize());
-            vkh::input::keybinds[selectedButton->action] = key;
-            selectedButton = nullptr;
+            if (key != GLFW_KEY_ESCAPE && key != GLFW_KEY_UNKNOWN)
+              vkh::input::keybinds[selectedButton->action] = key;
+            cancelBinding();
             return true;
           }
           if (key == GLFW_KEY_ESCAPE) {
@@ -301,49 +320,58 @@ struct GameUI::Impl {
           }
           return false;
         });
-
-    auto addr = pauseView.container.addChild<UI::TextInput>(
-        glm::vec2{0.f, 0.5f}, "server address");
+    settingsView.container.addEventHandler<vkh::input::EventType::Key>(
+        [this](int key, int, int action, int) {
+          if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+            hudSys.setView(&pauseView);
+            return true;
+          }
+          return false;
+        });
+    pauseView.container.addChild<UI::Text>(glm::vec2{.56f, .31f}, "Multiplayer",
+                                           glm::vec3{1.f}, .85f);
+    pauseView.container.addChild<UI::RectImg>(
+        glm::vec2{.56f, .38f}, glm::vec2{.30f, .065f},
+        UI::theme::color(pauseView, UI::theme::button));
+    auto address = pauseView.container.addChild<UI::TextInput>(
+        glm::vec2{.575f, .397f}, "127.0.0.1");
+    address->setSizeMultiplicator(.8f);
+    auto status = pauseView.container.addChild<UI::Text>(
+        glm::vec2{.56f, .58f}, "Not connected", glm::vec3{.7f}, .7f);
     pauseView.container.addChild<UI::Button>(
-        glm::vec2{0.f, 0.6f}, glm::vec2{.2f}, 0,
-        [&, addr](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
-            try {
-              network = std::make_unique<Network>(addr->content.c_str());
-            } catch (const std::exception &e) {
-              std::println("{}", e.what());
-            }
+        glm::vec2{.56f, .47f}, glm::vec2{.14f, .075f}, 0,
+        [this, address, status](int, int, int) {
+          try {
+            network = std::make_unique<Network>(address->content.c_str());
+            status->content = "Connected";
+          } catch (const std::exception &error) {
+            std::println("{}", error.what());
+            status->content = "Connection failed";
+          }
         },
         "Connect");
     pauseView.container.addChild<UI::Button>(
-        glm::vec2{.2f, 0.6f}, glm::vec2{.2f}, 0,
-        [&](int button, int action, int) {
-          if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
-            network = nullptr;
+        glm::vec2{.72f, .47f}, glm::vec2{.14f, .075f}, 0,
+        [this, status](int, int, int) {
+          network = nullptr;
+          status->content = "Disconnected";
         },
-        "Disonnect");
+        "Disconnect");
 
     pauseView.container.addEventHandler<vkh::input::EventType::Key>(
         [&](int key, int scancode, int action, int mods) {
           if (!(action == GLFW_PRESS && key == GLFW_KEY_ESCAPE))
             return false;
-          vkh::input::lastPos = worldCursorPos;
-          glfwSetCursorPos(context.window, worldCursorPos.x, worldCursorPos.y);
-          context.camera.yaw = worldYawAndPitch.x;
-          context.camera.pitch = worldYawAndPitch.y;
-          glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-          hudSys.setView(&worldView);
+          resume(context);
           return true;
         });
 
     worldView.container.addEventHandler<vkh::input::EventType::Key>(
         [&](int key, int scancode, int action, int mods) {
           if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-            glfwGetCursorPos(context.window, &worldCursorPos.x,
-                             &worldCursorPos.y);
-            vkh::input::lastPos = worldCursorPos;
             worldYawAndPitch = {context.camera.yaw, context.camera.pitch};
             glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            vkh::input::resetMouseLook();
             hudSys.setView(&pauseView);
             return true;
           }
@@ -363,31 +391,85 @@ struct GameUI::Impl {
       size_t id =
           hudSys.solidColorSys.addTextureFromFile("textures/crosshair.png");
       const float sizeOver2 = 0.02f;
-      auto crosshair = worldView.container.addChild<UI::RectImg>(
+      crosshair = worldView.container.addChild<UI::RectImg>(
           glm::vec2{.5f - sizeOver2}, glm::vec2{sizeOver2 * 2}, id);
     }
 
-    fpsRect = worldView.container.addChild<UI::RectImg>(glm::vec2{},
-                                                        glm::vec2{.3f, .3f}, 0);
+    fpsRect = worldView.container.addChild<UI::RectImg>(
+        glm::vec2{}, glm::vec2{.3f, .3f},
+        UI::theme::color(worldView, UI::theme::panel));
     fpsText = fpsRect->addChild<UI::Text>(glm::vec2{});
 
     orientationTxt =
         worldView.container.addChild<UI::Text>(glm::vec2{1.f, -1.f});
+    resize(context.window.size);
+  }
+
+  static std::string bindingLabel(vkh::input::Action action) {
+    std::string name;
+    for (char c : magic_enum::enum_name(action)) {
+      if (!name.empty() && std::isupper(static_cast<unsigned char>(c)))
+        name += ' ';
+      name += c;
+    }
+    return name + ": " + vkh::input::getKeyName(vkh::input::keybinds[action]);
+  }
+  void cancelBinding() {
+    if (selectedButton)
+      selectedButton->label->content = bindingLabel(selectedButton->action);
+    selectedButton = nullptr;
+  }
+  void resume(vkh::EngineContext &context) {
+    cancelBinding();
+    context.camera.yaw = worldYawAndPitch.x;
+    context.camera.pitch = worldYawAndPitch.y;
+    glfwSetInputMode(context.window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    vkh::input::resetMouseLook();
+    hudSys.setView(&worldView);
+  }
+
+  static void refreshText(vkh::hud::Element &element) {
+    if (auto *text = dynamic_cast<UI::Text *>(&element))
+      text->refreshLayout();
+    for (auto &child : element.children)
+      refreshText(*child);
+  }
+  void resize(glm::ivec2 viewport) {
+    if (viewport.x <= 0 || viewport.y <= 0)
+      return;
+    layoutViewport = viewport;
+    hudSys.textSys.updateGlyphMetrics(viewport);
+    const auto layout = UI::fitCanvas(viewport);
+    for (auto &[view, background] : backdrops) {
+      view->layoutScale = layout.scale;
+      view->container.setAbsoluteSize(layout.size);
+      view->container.setAbsolutePosition(layout.position);
+      background->setAbsolutePosition(glm::vec2{-1.f});
+      background->setAbsoluteSize(glm::vec2{2.f});
+    }
+    for (auto *view :
+         {&pauseView, &settingsView, &controlsView, &worldView, &canvasView})
+      refreshText(view->container);
+    const glm::vec2 size = glm::vec2{32.f} / glm::vec2(viewport) * 2.f;
+    crosshair->setAbsoluteSize(size);
+    crosshair->setAbsolutePosition(-size / 2.f);
   }
 
   void update(vkh::EngineContext &context, float frameTime) {
+    if (layoutViewport != context.window.size)
+      resize(context.window.size);
     UI::animateBubbly(context, hudSys.getView()->container);
 
-    fpsText->content = vkh::settings::current().showFps
-                           ? std::format("FPS: {}",
-                                        static_cast<int>(1.f / frameTime))
-                           : "";
+    fpsText->content =
+        vkh::settings::current().showFps
+            ? std::format("FPS: {}", static_cast<int>(1.f / frameTime))
+            : "";
     fpsRect->setAbsoluteSize(fpsText->getAbsoluteSize());
 
-    orientationTxt->setPosition(1.f -
-                                glm::vec2{orientationTxt->getSize().x, 0.f});
     orientationTxt->content = std::format(
         "Yaw: {}\nPitch:{}", context.camera.yaw, context.camera.pitch);
+    orientationTxt->setAbsolutePosition(
+        glm::vec2{1.f - orientationTxt->getAbsoluteSize().x, -1.f});
   }
 };
 
@@ -418,4 +500,10 @@ void GameUI::addWorldViewFocusHandler(FocusHandler handler) {
 
 void GameUI::setSkyResolutionHandler(SkyResolutionHandler handler) {
   impl->skyResolutionHandler = std::move(handler);
+}
+
+void GameUI::setGraphicsSettingsHandler(GraphicsSettingsHandler handler) {
+  impl->graphicsSettingsHandler = std::move(handler);
+  if (impl->graphicsSettingsHandler)
+    impl->graphicsSettingsHandler(vkh::settings::current());
 }

@@ -4,6 +4,7 @@
     "glm",
     "stb",
     "openal-soft",
-    "curl"
+    "curl",
+    "tomlplusplus"
   ]
 }

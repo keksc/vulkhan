@@ -29,6 +29,9 @@ void HudSys::addToDraw(hud::Element &element, float &depth,
 }
 
 void HudSys::update() {
+  // beginFrame has already waited for this slot's fence.
+  textSys.prepareFrame(context.frameInfo.frameIndex);
+  solidColorSys.prepareFrame(context.frameInfo.frameIndex);
   drawInfo.solidColorTriangleVertices.clear();
   drawInfo.solidColorTriangleIndices.clear();
   drawInfo.textVertices.clear();

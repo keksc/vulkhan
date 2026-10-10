@@ -10,7 +10,14 @@ public:
   TextInput(vkh::hud::View &view, Element *parent, glm::vec2 position,
             const std::string &content = "", bool selected = false);
 
+  ~TextInput() override;
   bool selected{false};
+  bool isPositionInside(const glm::vec2 &position) override;
+  void addToDrawInfo(vkh::hud::DrawInfo &info, float depth) override;
+  void refreshLayout() override {
+    Text::refreshLayout();
+    setCursor(currentCursorPos);
+  }
 
 private:
   bool handleCharacter(unsigned int codepoint) override;
@@ -20,8 +27,6 @@ private:
 
   size_t currentCursorPos = 0;
   void setCursor(size_t newPos);
-
-  std::vector<size_t> newlineLocations;
 
   std::shared_ptr<Line> cursor;
 };

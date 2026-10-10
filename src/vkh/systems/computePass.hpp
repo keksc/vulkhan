@@ -20,7 +20,11 @@ namespace vkh {
 //   binding 0: storage image (output)         - swapchain image, or an
 //                                                effect-chain intermediate
 //                                                image (see OutputTarget)
-//   binding 1: combined image sampler (input) - resolved scene color
+//   binding 1: combined image sampler (input) - resolved scene color, or
+//                                                the previous stage's
+//                                                hand-off image when
+//                                                chained (see
+//                                                InputTargetProvider)
 //   binding 2: combined image sampler (input) - resolved depth
 // An effect's own bindings are additional to these and must start at
 // kFixedBindingCount.
@@ -39,6 +43,19 @@ struct ComputePassOutputTarget {
 // ComputePass. Indexed the same way descriptorSets/imageIndex are
 // everywhere else in this class.
 using OutputTargetProvider = std::function<ComputePassOutputTarget(uint32_t)>;
+
+// Lets a ComputePass sample binding 1 (see kFixedBindingCount) from
+// somewhere other than the resolved scene color - namely, the previous
+// stage's hand-off image, so a chained pass actually builds on the prior
+// stage's result instead of every stage independently reprocessing the
+// same original scene color. Must return a descriptor already carrying
+// the right sampler and vk::ImageLayout::eGeneral (matching how
+// intermediate hand-off images are always laid out - see
+// PostProcessingSys::makeDescInfos). Indexed the same way
+// descriptorSets/imageIndex are everywhere else in this class. Null means
+// "read the real resolved scene color" - the default, and always correct
+// for whichever pass is first in a chain (or the only pass).
+using InputTargetProvider = std::function<vk::DescriptorImageInfo(uint32_t)>;
 
 // Contract a compute shader must satisfy to plug into ComputePass<PushT>.
 //
@@ -96,7 +113,7 @@ public:
   // Optional per-frame precompute hook. Called once per frame from
   // ComputePass::run(), on the same command buffer and for the same
   // swapchain imageIndex ComputePass will use for its own dispatch, right
-  // before the fixed barrier transitions and main dispatch. Default no-op
+  // after input transitions and before the main dispatch. Default no-op
   // - only effects that need to write into their own auxiliary resources
   // before the main shader reads them (e.g. a lighting precompute volume)
   // override this. imageIndex is passed through so such an effect can key
@@ -156,9 +173,16 @@ public:
 // ePresentSrcKHR instead lands the image back in eGeneral so a
 // second, chained ComputePass can sample it as an input). Leave it null
 // for whichever pass is last in the chain - that one still owns the
-// present-layout transition exactly as before. See PostProcessingSys for
-// how a chain of these is assembled and run generically via IComputePass
-// above.
+// present-layout transition exactly as before. Symmetrically, pass a
+// non-null `inputTarget` to make this instance read binding 1 from the
+// previous stage's hand-off image instead of the real resolved scene
+// color - leave it null for whichever pass is first in the chain (or the
+// only pass), which should still see the real scene color. Without a
+// non-null inputTarget on every stage but the first, a chain still runs
+// but each stage independently reprocesses the original scene color
+// rather than building on the previous stage's result, and only the last
+// stage's output is ever visible. See PostProcessingSys for how a chain
+// of these is assembled and run generically via IComputePass above.
 template <typename PushT>
 class ComputePass : public IComputePass, public System {
 public:
@@ -181,9 +205,11 @@ public:
   ComputePass(EngineContext &context,
               std::unique_ptr<ComputeEffect<PushT>> effect,
               OutputTargetProvider outputTarget = nullptr,
+              InputTargetProvider inputTarget = nullptr,
               bool skipInputTransitions = false)
       : System(context), effect{std::move(effect)},
         outputTarget{std::move(outputTarget)},
+        inputTarget{std::move(inputTarget)},
         skipInputTransitions{skipInputTransitions} {
     createDescriptors();
     createPipeline();
@@ -225,8 +251,6 @@ public:
     }
 
     auto &cmd = context.frameInfo.cmd;
-
-    effect->beforeDispatch(cmd, imageIndex);
 
     // Resolve the output target once up front: either the real swapchain
     // image (default) or this instance's chained intermediate image.
@@ -305,21 +329,25 @@ public:
     // barriers[1..2] included only when relevant.
     cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe |
                             vk::PipelineStageFlagBits::eEarlyFragmentTests |
+                            vk::PipelineStageFlagBits::eLateFragmentTests |
                             vk::PipelineStageFlagBits::eColorAttachmentOutput |
                             vk::PipelineStageFlagBits::eComputeShader,
                         vk::PipelineStageFlagBits::eComputeShader,
                         vk::DependencyFlags{}, 0, nullptr, 0, nullptr,
                         1 + inputBarrierCount, barriers);
 
+    // Auxiliary dispatches may sample scene inputs too. Transition them
+    // before the hook, including when this is the first chain stage.
+    effect->beforeDispatch(cmd, imageIndex);
+
     pipeline->bind(cmd);
 
     std::vector<vk::DescriptorSet> sets = {
         context.vulkan.globalDescriptorSets[context.frameInfo.frameIndex],
         descriptorSets[imageIndex]};
-    cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                           pipeline->getLayout(), 0,
-                           static_cast<uint32_t>(sets.size()), sets.data(), 0,
-                           nullptr);
+    cmd.bindDescriptorSets(
+        vk::PipelineBindPoint::eCompute, pipeline->getLayout(), 0,
+        static_cast<uint32_t>(sets.size()), sets.data(), 0, nullptr);
 
     PushT push = effect->makePushConstants();
     cmd.pushConstants(pipeline->getLayout(), vk::ShaderStageFlagBits::eCompute,
@@ -362,8 +390,8 @@ private:
     std::vector<vk::DescriptorSetLayoutBinding> allBindings = {
         // Binding 0: Storage Image (Output) — swapchain image, or a
         // chained intermediate image (see outputTarget)
-        vk::DescriptorSetLayoutBinding{0, vk::DescriptorType::eStorageImage,
-                                       1, vk::ShaderStageFlagBits::eCompute,
+        vk::DescriptorSetLayoutBinding{0, vk::DescriptorType::eStorageImage, 1,
+                                       vk::ShaderStageFlagBits::eCompute,
                                        nullptr},
         // Binding 1: Scene Color Sampler (Input) — resolved 1x color
         vk::DescriptorSetLayoutBinding{
@@ -414,16 +442,15 @@ private:
       // normal exception-on-failure path (buildDescriptorSetLayout uses
       // the throwing overload, not the vk::Result-returning one) if it
       // isn't.
-      setLayout = buildDescriptorSetLayout(
-          context, allBindings, vk::DescriptorSetLayoutCreateFlags{},
-          &flagsInfo);
+      setLayout = buildDescriptorSetLayout(context, allBindings,
+                                           vk::DescriptorSetLayoutCreateFlags{},
+                                           &flagsInfo);
     }
 
-    debug::setObjName(
-        context, vk::ObjectType::eDescriptorSetLayout,
-        reinterpret_cast<uint64_t>(
-            static_cast<VkDescriptorSetLayout>(setLayout)),
-        effect->debugName());
+    debug::setObjName(context, vk::ObjectType::eDescriptorSetLayout,
+                      reinterpret_cast<uint64_t>(
+                          static_cast<VkDescriptorSetLayout>(setLayout)),
+                      effect->debugName());
 
     allocateAndWriteDescriptorSets();
   }
@@ -447,10 +474,20 @@ private:
       }
       swapImageInfo.imageLayout = vk::ImageLayout::eGeneral;
 
+      // Binding 1 normally reads the real resolved scene color, but a
+      // chained stage (non-null inputTarget) instead reads the previous
+      // stage's hand-off image, so its effect actually builds on the
+      // prior stage's result rather than independently reprocessing the
+      // original scene - see InputTargetProvider's doc comment.
       vk::DescriptorImageInfo sceneColorInfo{};
-      sceneColorInfo.sampler = context.vulkan.defaultSampler;
-      sceneColorInfo.imageView = context.vulkan.swapChain->getSceneColorView(i);
-      sceneColorInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+      if (inputTarget) {
+        sceneColorInfo = inputTarget(static_cast<uint32_t>(i));
+      } else {
+        sceneColorInfo.sampler = context.vulkan.defaultSampler;
+        sceneColorInfo.imageView =
+            context.vulkan.swapChain->getSceneColorView(i);
+        sceneColorInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+      }
 
       vk::DescriptorImageInfo depthImageInfo{};
       depthImageInfo.sampler = context.vulkan.defaultSampler;
@@ -485,9 +522,8 @@ private:
     layoutInfo.pushConstantRangeCount = 1;
     layoutInfo.pPushConstantRanges = &pcRange;
 
-    pipeline = std::make_unique<ComputePipeline>(context, effect->shaderPath(),
-                                                 layoutInfo,
-                                                 effect->debugName());
+    pipeline = std::make_unique<ComputePipeline>(
+        context, effect->shaderPath(), layoutInfo, effect->debugName());
   }
 
 public:
@@ -576,6 +612,7 @@ private:
 
   std::unique_ptr<ComputeEffect<PushT>> effect;
   OutputTargetProvider outputTarget;
+  InputTargetProvider inputTarget;
   bool skipInputTransitions;
 
   std::unique_ptr<ComputePipeline> pipeline;
@@ -585,4 +622,4 @@ private:
   SwapChain *savedSwapChain{};
 };
 
-} // namespace vkh // namespace vkh
+} // namespace vkh

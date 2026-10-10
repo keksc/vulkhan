@@ -64,17 +64,26 @@ public:
     }
   };
 
+  void updateGlyphMetrics(glm::ivec2 viewport);
   void render(size_t indicesSize);
   void ensureCapacity(size_t vertexCount, size_t indexCount);
+  void prepareFrame(uint32_t frameIndex);
 
   std::unique_ptr<Buffer<Vertex>> vertexBuffer;
   std::unique_ptr<Buffer<uint32_t>> indexBuffer;
 
 private:
+  struct FrameBuffers {
+    std::unique_ptr<Buffer<Vertex>> vertices;
+    std::unique_ptr<Buffer<uint32_t>> indices;
+  };
+  std::vector<FrameBuffers> frameBuffers;
+  uint32_t activeFrame = 0;
   void createBuffers();
   void createDescriptors();
   void createPipeline();
   void createGlyphs();
+  GlyphRange pixelGlyphRange;
 
   int maxVertexCount = 4000;
   int maxIndexCount = 6000;

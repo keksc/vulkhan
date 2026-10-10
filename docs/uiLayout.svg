@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="620" viewBox="0 0 1600 620">
+<rect x="0" y="0" width="800" height="600" fill="#070707" />
+<rect x="64" y="60" width="672" height="480" fill="#151515" />
+<text x="96" y="113" font-size="36" fill="#ffffff" text-anchor="start">VULKHAN</text>
+<rect x="800" y="0" width="800" height="600" fill="#070707" />
+<rect x="864" y="60" width="672" height="480" fill="#151515" />
+<text x="896" y="113" font-size="36" fill="#ffffff" text-anchor="start">Graphics</text>
+<text x="104" y="151" font-size="22" fill="#b3b3b3" text-anchor="start">Paused</text>
+<polygon points="94.08,181.92 396.8,181.92 417.91999999999996,192.48 417.91999999999996,224.16 396.8,232.07999999999998 115.2,232.07999999999998 94.08,221.51999999999998" fill="#441414" stroke="#e63b3b" stroke-width="2"/>
+<text x="256" y="215" font-size="28" fill="#e6f0f5" text-anchor="middle">Resume game</text>
+<rect x="104" y="258" width="304" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="256.0" y="287.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Graphics settings</text>
+<rect x="104" y="318" width="304" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="256.0" y="347.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Controls</text>
+<rect x="104" y="378" width="304" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="256.0" y="407.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Drawing canvas</text>
+<text x="104" y="488" font-size="20" fill="#b3b3b3" text-anchor="start">ESC resumes play</text>
+<text x="448" y="208" font-size="27" fill="#e6f0f5" text-anchor="start">Multiplayer</text>
+<rect x="448" y="228" width="240" height="39" fill="#202020" />
+<text x="460" y="255" font-size="24" fill="#e6f0f5" text-anchor="start">127.0.0.1</text>
+<rect x="448" y="282" width="112" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="504.0" y="311.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Connect</text>
+<rect x="576" y="282" width="112" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="632.0" y="311.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Disconnect</text>
+<text x="448" y="365" font-size="21" fill="#b3b3b3" text-anchor="start">Not connected</text>
+<rect x="896" y="144" width="280" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="1036.0" y="173.5" font-size="25" fill="#e6f0f5" text-anchor="middle">V-Sync: On</text>
+<rect x="896" y="204" width="280" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="1036.0" y="233.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Fullscreen: Off</text>
+<rect x="896" y="264" width="280" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="1036.0" y="293.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Show FPS: On</text>
+<rect x="896" y="324" width="280" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="1036.0" y="353.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Grass distance: Far</text>
+<rect x="896" y="384" width="280" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="1036.0" y="413.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Terrain shadows: High</text>
+<rect x="1224" y="144" width="280" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="1364.0" y="173.5" font-size="20.527859237536656" fill="#e6f0f5" text-anchor="middle">Antialiasing (restart): 4x MSAA</text>
+<rect x="1224" y="204" width="280" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="1364.0" y="233.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Cache sky (restart): On</text>
+<rect x="1224" y="264" width="280" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="1364.0" y="293.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Milky way resolution: 512</text>
+<rect x="1224" y="324" width="280" height="45" fill="#202020" stroke="#4a4a4a"/>
+<text x="1364.0" y="353.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Disc resolution: 256</text>
+<text x="896" y="461" font-size="18" fill="#b3b3b3" text-anchor="start">Settings save automatically. AA and sky cache apply after restart.</text>
+<rect x="896" y="492" width="160" height="33" fill="#202020" stroke="#4a4a4a"/>
+<text x="976.0" y="515.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Back</text>
+<rect x="1336" y="492" width="160" height="33" fill="#202020" stroke="#4a4a4a"/>
+<text x="1416.0" y="515.5" font-size="25" fill="#e6f0f5" text-anchor="middle">Controls</text>
+<rect x="0" y="600" width="1600" height="20" fill="#070707" />
+<text x="800" y="615" font-size="14" fill="#b3b3b3" text-anchor="middle">Layout illustration at 800 x 600 per page; GPU appearance has not been verified.</text>
+</svg>

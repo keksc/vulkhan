@@ -12,11 +12,13 @@ uint32_t currentImageIndex;
 int currentFrameIndex{0};
 bool isFrameStarted{false};
 
-void recreateSwapChain(EngineContext &context) {
+bool recreateSwapChain(EngineContext &context) {
   auto extent = context.window.getExtent();
   while (extent.width == 0 || extent.height == 0) {
-    extent = context.window.getExtent();
+    if (glfwWindowShouldClose(context.window))
+      return false;
     glfwWaitEvents();
+    extent = context.window.getExtent();
   }
   context.vulkan.device.waitIdle();
   if (context.vulkan.swapChain == nullptr) {
@@ -31,7 +33,9 @@ void recreateSwapChain(EngineContext &context) {
           "Swap chain image(or depth) format has changed!");
     }
   }
-  currentFrameIndex = 0;
+  currentFrameIndex = context.vulkan.swapChain->getFrameIndex();
+  context.window.framebufferResized = false;
+  return true;
 }
 
 void createCommandBuffers(EngineContext &context) {
@@ -47,7 +51,8 @@ void createCommandBuffers(EngineContext &context) {
 }
 
 void init(EngineContext &context) {
-  recreateSwapChain(context);
+  if (!recreateSwapChain(context))
+    throw std::runtime_error("Window closed before swapchain initialization");
   createCommandBuffers(context);
 }
 
@@ -73,6 +78,9 @@ int getFrameIndex() { return currentFrameIndex; }
 uint32_t getCurrentImageIndex() { return currentImageIndex; }
 
 vk::CommandBuffer beginFrame(EngineContext &context) {
+  if (glfwWindowShouldClose(context.window))
+    return nullptr;
+  currentFrameIndex = context.vulkan.swapChain->getFrameIndex();
   auto result = static_cast<vk::Result>(
       context.vulkan.swapChain->acquireNextImage(&currentImageIndex));
   if (result == vk::Result::eErrorOutOfDateKHR) {
@@ -108,8 +116,9 @@ void endFrame(EngineContext &context) {
     throw std::runtime_error("failed to present swap chain image!");
   }
   isFrameStarted = false;
-  currentFrameIndex =
-      (currentFrameIndex + 1) % context.vulkan.maxFramesInFlight;
+  // Recreation starts at slot zero; use the slot whose fence acquisition
+  // will wait on rather than independently advancing the renderer index.
+  currentFrameIndex = context.vulkan.swapChain->getFrameIndex();
 }
 
 static void setViewportScissor(vk::CommandBuffer commandBuffer,
@@ -126,9 +135,59 @@ static void setViewportScissor(vk::CommandBuffer commandBuffer,
   commandBuffer.setScissor(0, 1, &scissor);
 }
 
-void beginMsaaPass(EngineContext &context, vk::CommandBuffer commandBuffer) {
+void beginMsaaPass(EngineContext &context, vk::CommandBuffer commandBuffer,
+                   const std::array<float, 4> &clearColor) {
   auto &swapChain = *context.vulkan.swapChain;
   auto extent = swapChain.getSwapChainExtent();
+  if (context.vulkan.msaaSamples == vk::SampleCountFlagBits::e1) {
+    // Render directly into the postprocessing inputs; a single-sample
+    // attachment must never be used as a multisample resolve source.
+    std::array<vk::ImageMemoryBarrier2, 2> barriers{};
+    for (auto &barrier : barriers) {
+      barrier.srcStageMask = vk::PipelineStageFlagBits2::eTopOfPipe;
+      barrier.oldLayout = vk::ImageLayout::eUndefined;
+      barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex =
+          vk::QueueFamilyIgnored;
+      barrier.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+    }
+    barriers[0].dstStageMask =
+        vk::PipelineStageFlagBits2::eColorAttachmentOutput;
+    barriers[0].dstAccessMask = vk::AccessFlagBits2::eColorAttachmentRead |
+                                vk::AccessFlagBits2::eColorAttachmentWrite;
+    barriers[0].newLayout = vk::ImageLayout::eColorAttachmentOptimal;
+    barriers[0].image = swapChain.getSceneColorImage(currentImageIndex);
+    barriers[1].dstStageMask = vk::PipelineStageFlagBits2::eEarlyFragmentTests |
+                               vk::PipelineStageFlagBits2::eLateFragmentTests;
+    barriers[1].dstAccessMask =
+        vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+    barriers[1].newLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+    barriers[1].image = swapChain.getResolvedDepthImage(currentImageIndex);
+    barriers[1].subresourceRange.aspectMask = vk::ImageAspectFlagBits::eDepth;
+    vk::DependencyInfo dependency{};
+    dependency.imageMemoryBarrierCount = barriers.size();
+    dependency.pImageMemoryBarriers = barriers.data();
+    commandBuffer.pipelineBarrier2(dependency);
+    vk::RenderingAttachmentInfo color{}, depth{};
+    color.imageView = swapChain.getSceneColorView(currentImageIndex);
+    color.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
+    color.loadOp = vk::AttachmentLoadOp::eClear;
+    color.storeOp = vk::AttachmentStoreOp::eStore;
+    color.clearValue.color = vk::ClearColorValue{clearColor};
+    depth.imageView = swapChain.getResolvedDepthImageView(currentImageIndex);
+    depth.imageLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
+    depth.loadOp = vk::AttachmentLoadOp::eClear;
+    depth.storeOp = vk::AttachmentStoreOp::eStore;
+    depth.clearValue.depthStencil = vk::ClearDepthStencilValue{0, 0};
+    vk::RenderingInfo render{};
+    render.renderArea = vk::Rect2D{{0, 0}, extent};
+    render.layerCount = 1;
+    render.colorAttachmentCount = 1;
+    render.pColorAttachments = &color;
+    render.pDepthAttachment = &depth;
+    commandBuffer.beginRendering(render);
+    setViewportScissor(commandBuffer, extent);
+    return;
+  }
   std::array<vk::ImageMemoryBarrier2, 4> resetBarriers{};
 
   // MSAA color attachment: this image is transitioned once at creation time
@@ -214,8 +273,7 @@ void beginMsaaPass(EngineContext &context, vk::CommandBuffer commandBuffer) {
   colorAttachment.resolveImageLayout = vk::ImageLayout::eColorAttachmentOptimal;
   colorAttachment.loadOp = vk::AttachmentLoadOp::eClear;
   colorAttachment.storeOp = vk::AttachmentStoreOp::eDontCare;
-  colorAttachment.clearValue.color =
-      vk::ClearColorValue{std::array<float, 4>{0.0f, 0.0f, 0.0f, 1.0f}};
+  colorAttachment.clearValue.color = vk::ClearColorValue{clearColor};
 
   vk::RenderingAttachmentInfo depthAttachment{};
   depthAttachment.imageView = swapChain.getMsaaDepthView(currentImageIndex);
@@ -241,13 +299,22 @@ void beginMsaaPass(EngineContext &context, vk::CommandBuffer commandBuffer) {
 
 void transitionToOneXPass(EngineContext &context,
                           vk::CommandBuffer commandBuffer) {
+  endMsaaPass(commandBuffer);
+  beginOneXPass(context, commandBuffer);
+}
+
+void endMsaaPass(vk::CommandBuffer commandBuffer) {
   commandBuffer.endRendering();
+}
+
+void beginOneXPass(EngineContext &context, vk::CommandBuffer commandBuffer) {
   auto &swapChain = *context.vulkan.swapChain;
   std::array<vk::ImageMemoryBarrier2, 2> barriers{};
   barriers[0].srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
   barriers[0].srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
   barriers[0].dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput;
-  barriers[0].dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite;
+  barriers[0].dstAccessMask = vk::AccessFlagBits2::eColorAttachmentRead |
+                              vk::AccessFlagBits2::eColorAttachmentWrite;
   barriers[0].oldLayout = vk::ImageLayout::eColorAttachmentOptimal;
   barriers[0].newLayout = vk::ImageLayout::eColorAttachmentOptimal;
   barriers[0].srcQueueFamilyIndex = vk::QueueFamilyIgnored;
@@ -284,7 +351,8 @@ void transitionToOneXPass(EngineContext &context,
       swapChain.getResolvedDepthImageView(currentImageIndex);
   depthAttachment.imageLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal;
   depthAttachment.loadOp = vk::AttachmentLoadOp::eLoad;
-  depthAttachment.storeOp = vk::AttachmentStoreOp::eDontCare;
+  // Postprocessing samples the resolved depth after this pass.
+  depthAttachment.storeOp = vk::AttachmentStoreOp::eStore;
 
   vk::RenderingInfo renderInfo{};
   renderInfo.renderArea = vk::Rect2D{vk::Offset2D{0, 0}, extent};

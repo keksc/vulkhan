@@ -10,7 +10,7 @@ struct DrawIndexedIndirectCommand {
     uint firstInstance;
 };
 
-layout(set = 0, binding = 0) uniform CullingUbo {
+layout(push_constant) uniform CullingPush {
     vec4 frustumPlanes[6];
     uint totalInstances;
     uint totalCommands;

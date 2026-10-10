@@ -1,5 +1,7 @@
 #include "input.hpp"
+#include "../settings.hpp"
 #include "engineContext.hpp"
+#include "mouseLook.hpp"
 
 #include <GLFW/glfw3.h>
 #include <chrono>
@@ -63,10 +65,12 @@ void keyCallback(GLFWwindow *window, int key, int scancode, int action,
 void cursorPositionCallback(GLFWwindow *window, double xpos, double ypos) {
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
-  context->input.cursorPos = glm::vec2{xpos, ypos} /
-                                 static_cast<glm::vec2>(context->window.size) *
-                                 2.f -
-                             1.f;
+  int width, height;
+  glfwGetWindowSize(window, &width, &height);
+  context->input.cursorPos =
+      glm::vec2{xpos, ypos} /
+          glm::vec2{glm::max(width, 1), glm::max(height, 1)} * 2.f -
+      1.f;
   if (!context->currentInputCallbackSystemKey)
     return;
   context->inputCallbackSystems[context->currentInputCallbackSystemKey]
@@ -103,6 +107,7 @@ void dropCallback(GLFWwindow *window, int count, const char **paths) {
 }
 
 void windowFocusCallback(GLFWwindow *window, int focused) {
+  resetMouseLook();
   auto context =
       reinterpret_cast<EngineContext *>(glfwGetWindowUserPointer(window));
   if (!context->currentInputCallbackSystemKey)
@@ -153,17 +158,25 @@ bool checkCollisionWithEntities(const std::vector<EntitySys::Entity> &entities,
   return false;
 }
 
-glm::dvec2 lastPos;
+namespace {
+MouseLook mouseLook;
+}
+void resetMouseLook() { mouseLook.reset(); }
 void update(EngineContext &context, std::vector<EntitySys::Entity> entities) {
   glm::dvec2 currentPos;
   glfwGetCursorPos(context.window, &currentPos.x, &currentPos.y);
 
-  glm::dvec2 delta = currentPos - lastPos;
-  lastPos = currentPos;
+  const bool captured =
+      glfwGetInputMode(context.window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED &&
+      context.window.isFocused();
+  const glm::dvec2 delta = mouseLook.sample(currentPos, captured);
+  if (!captured)
+    return;
 
   const float sensitivity = .002f;
   double dYaw = delta.x * sensitivity;
-  double dPitch = -delta.y * sensitivity;
+  double dPitch =
+      delta.y * sensitivity * (settings::current().invertYAxis ? 1.0 : -1.0);
 
   context.camera.yaw -= dYaw;
   context.camera.pitch += dPitch;

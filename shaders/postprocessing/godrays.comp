@@ -1,0 +1,86 @@
+#version 450
+
+// Set-1 bindings 0-2 are the fixed ComputePass bindings (see
+// computePass.hpp's kFixedBindingCount doc comment) - output image, scene
+// color (respects PostProcessingSys chain position - see
+// InputTargetProvider), and resolved scene depth (now unused here, kept
+// bound only because ComputePass always binds it for every effect - see
+// kFixedBindingCount). Binding 3 is GodRaysEffect's own additional
+// binding: the half-resolution ray accumulation image written by
+// godraysGenerate.comp - see GodRaysEffect::beforeDispatch(),
+// additionalBindings(), and writeAdditionalDescriptors().
+//
+// This shader used to BE the whole effect: a 48-sample-per-pixel radial
+// march over the full native-resolution screen, measured at ~40ms/frame
+// via RenderDoc. That march now happens in godraysGenerate.comp, at half
+// resolution, dispatched separately from GodRaysEffect::beforeDispatch()
+// before ComputePass's own fixed dispatch (this shader) runs - see that
+// hook's doc comment for the full split. All this shader does now is
+// bilinearly upsample that result and add it to the base scene color -
+// light shafts are low-frequency enough that the upsample costs nothing
+// visible.
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 1, binding = 0) uniform writeonly image2D outputImage;
+layout(set = 1, binding = 1) uniform sampler2D sceneColor;
+layout(set = 1, binding = 2) uniform sampler2D sceneDepth;
+layout(set = 1, binding = 3) uniform sampler2D raysHalfRes;
+
+// Interleaved gradient noise (Jimenez 2014) - cheap, texture-free
+// per-pixel hash. The upsampled ray accumulation here is very
+// low-frequency (half-res, bilinear-filtered, then further smoothed by
+// the tint/intensity multiply), which bands visibly once quantized to
+// this rgba8 output - adding +/- half an LSB of this noise right before
+// the store breaks that into noise instead, same trick as sky.frag's
+// output dither.
+float ditherNoise(vec2 fragCoord) {
+  return fract(52.9829189 * fract(dot(fragCoord, vec2(0.06711056, 0.00583715))));
+}
+
+layout(push_constant) uniform Push {
+  vec4 tintAndIntensity; // rgb = tint, a = intensity
+  vec4 rayParams;        // unused here - see godraysGenerate.comp; kept so
+                         // this shader reads the exact same
+                         // BlackHoleGodRaysPush struct the generate pass
+                         // does, rather than needing a second type.
+  vec4 maskParams;       // unused here - see godraysGenerate.comp
+}
+push;
+
+void main() {
+  ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+  ivec2 size = imageSize(outputImage);
+  if (pixel.x >= size.x || pixel.y >= size.y)
+    return;
+
+  vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
+  vec3 baseColor = textureLod(sceneColor, uv, 0.0).rgb;
+
+  // Bilinear upsample (raysHalfRes's sampler is linear-filtered - see
+  // GodRaysEffect's raysSampler) of the half-res ray accumulation from
+  // godraysGenerate.comp. Tint/intensity are applied here, once, rather
+  // than in the generate pass - see GodRaysEffect::recreateRaysImages()'s
+  // format comment for why applying them before storing into that
+  // (already float, but still finite-range) intermediate would risk
+  // clipping a bright ray a frame early instead of exactly where the
+  // original single-pass version clipped it: right here, when the final
+  // sum is written into this rgba8 output.
+  vec3 rays = textureLod(raysHalfRes, uv, 0.0).rgb;
+  vec3 addedLight = rays * push.tintAndIntensity.rgb * push.tintAndIntensity.a;
+
+  vec3 finalColor = baseColor + addedLight;
+
+  // Dither: +/- half an 8-bit step, decorrelated per channel so the noise
+  // doesn't itself look tinted/patterned. Applied last, right before the
+  // store, so it dithers the actual quantization boundary rather than
+  // getting washed out by the add above.
+  vec3 dither = vec3(
+      ditherNoise(vec2(pixel)),
+      ditherNoise(vec2(pixel) + 17.0),
+      ditherNoise(vec2(pixel) + 37.0)
+  ) - 0.5;
+  finalColor += dither / 255.0;
+
+  imageStore(outputImage, pixel, vec4(finalColor, 1.0));
+}

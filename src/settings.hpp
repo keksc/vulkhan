@@ -8,6 +8,7 @@
 #include <span>
 #include <type_traits>
 
+#include "graphicsPresets.hpp"
 #include "skyResolutionPresets.hpp"
 #include "vkh/paths.hpp"
 
@@ -30,14 +31,9 @@ struct Settings {
 
   uint32_t version = kVersion;
 
-  bool vsync = true; // TODO: not wired up yet -- needs the swapchain's
-                     // VkPresentModeKHR selection, which lives in code I
-                     // don't have visibility into. Share swapChain.hpp/
-                     // renderer.hpp if you want this one wired too.
-  bool showFps = true;    // applied live in UI.cpp (GameUI::Impl::update)
-  bool invertYAxis = false; // TODO: not wired up yet -- needs the mouse-look
-                            // delta code, likely in input.cpp/camera.cpp,
-                            // which I don't have visibility into.
+  bool vsync = true; // Applied through swapchain presentation.
+  bool showFps = true;
+  bool invertYAxis = false;
   bool fullscreen = false; // applied live in UI.cpp via glfwSetWindowMonitor
   // Whether SkySys should be allowed to load its baked environment (milky
   // way cubemap + accretion disc turbulence) from disk instead of
@@ -53,11 +49,19 @@ struct Settings {
   // selected.
   uint32_t skyMilkyWayFaceSize = 512;
   uint32_t skyDiscTurbulenceSize = 256;
+  // Appended fields preserve existing settings.bin offsets.
+  uint32_t msaaSamples = 4;          // Pipeline/attachment change: next launch.
+  uint32_t grassDistance = 120;      // Applied live, within allocated capacity.
+  uint32_t terrainShadowSteps = 24;  // Applied live.
+  uint32_t fieldOfView = 110;        // Vertical degrees, applied live.
+  uint32_t lightShaftStrength = 100; // Percentage, applied live.
+  bool postEffects = true;
+  bool drawGrass = true;
 };
 
 static_assert(std::is_trivially_copyable_v<Settings>,
-             "Settings is dumped/loaded as raw bytes -- every field must "
-             "stay trivially copyable");
+              "Settings is dumped/loaded as raw bytes -- every field must "
+              "stay trivially copyable");
 
 namespace settings {
 
@@ -97,7 +101,7 @@ inline void load() {
 
   Settings loaded{}; // defaults for any bytes not present in the file
   file.read(reinterpret_cast<char *>(&loaded),
-           std::min(fileSize, sizeof(Settings)));
+            std::min(fileSize, sizeof(Settings)));
   if (!file && !file.eof()) {
     std::println("settings.bin could not be read, using defaults");
     return;
@@ -136,12 +140,27 @@ inline void validateSkyResolution() {
 
   snapToPreset(s.skyMilkyWayFaceSize, milkyWayFaceSizePresets, "sky milky way");
   snapToPreset(s.skyDiscTurbulenceSize, discTurbulenceSizePresets,
-              "sky disc turbulence");
+               "sky disc turbulence");
 }
 
 // Dumps current() as a raw byte blob to settings.bin. Cheap enough to call
 // after every single toggle, which is what the settings UI does -- that
 // way settings survive a crash, not just a clean exit.
+inline void validateGraphics() {
+  auto &s = current();
+  if (s.fieldOfView < 70 || s.fieldOfView > 120)
+    s.fieldOfView = 110;
+  if (s.lightShaftStrength > 150)
+    s.lightShaftStrength = 100;
+  if (!validMsaa(s.msaaSamples))
+    s.msaaSamples = 4;
+  if (s.grassDistance != 40 && s.grassDistance != 80 && s.grassDistance != 120)
+    s.grassDistance = 120;
+  if (s.terrainShadowSteps != 0 && s.terrainShadowSteps != 8 &&
+      s.terrainShadowSteps != 16 && s.terrainShadowSteps != 24)
+    s.terrainShadowSteps = 24;
+}
+
 inline void save() {
   std::error_code ec;
   std::filesystem::create_directories(paths::cacheDir(), ec);

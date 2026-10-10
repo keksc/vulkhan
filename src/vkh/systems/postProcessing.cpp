@@ -25,10 +25,9 @@ vk::Sampler PostProcessingSys::makeIntermediateSampler(EngineContext &context) {
   samplerInfo.addressModeW = vk::SamplerAddressMode::eClampToEdge;
 
   vk::Sampler sampler = context.vulkan.device.createSampler(samplerInfo);
-  debug::setObjName(
-      context, vk::ObjectType::eSampler,
-      reinterpret_cast<uint64_t>(static_cast<VkSampler>(sampler)),
-      "postprocessing chain hand-off sampler");
+  debug::setObjName(context, vk::ObjectType::eSampler,
+                    reinterpret_cast<uint64_t>(static_cast<VkSampler>(sampler)),
+                    "postprocessing chain hand-off sampler");
   return sampler;
 }
 
@@ -96,7 +95,7 @@ void PostProcessingSys::buildChain(
   // its present-layout transition (see run()/runPassthrough() above) -
   // there's no meaningful "chain of zero effects" for this class to run.
   assert(!effectFactories.empty() &&
-        "PostProcessingSys needs at least one effect");
+         "PostProcessingSys needs at least one effect");
 
   const size_t stageCount = effectFactories.size();
   const uint32_t imageCount =
@@ -128,7 +127,8 @@ void PostProcessingSys::buildChain(
       // recreation) is picked up automatically without reconstructing
       // this stage.
       size_t boundary = i;
-      outputTarget = [this, boundary](uint32_t imageIndex) -> ComputePassOutputTarget {
+      outputTarget =
+          [this, boundary](uint32_t imageIndex) -> ComputePassOutputTarget {
         auto &images = intermediateImages[boundary];
         auto &infos = intermediateDescInfos[boundary];
         return {static_cast<vk::Image>(images[imageIndex]),
@@ -136,7 +136,22 @@ void PostProcessingSys::buildChain(
       };
     }
 
-    chain.push_back(effectFactories[i](context, outputTarget,
+    // Every stage but the first reads the previous stage's hand-off image
+    // (boundary i-1) as its binding-1 input, instead of the default real
+    // resolved scene color - otherwise each stage would independently
+    // reprocess the original scene and only the last stage's result would
+    // ever be visible. Same capture-by-index reasoning as outputTarget
+    // above, so a later resize is picked up automatically.
+    InputTargetProvider inputTarget = nullptr;
+    if (i != 0) {
+      size_t prevBoundary = i - 1;
+      inputTarget =
+          [this, prevBoundary](uint32_t imageIndex) -> vk::DescriptorImageInfo {
+        return intermediateDescInfos[prevBoundary][imageIndex];
+      };
+    }
+
+    chain.push_back(effectFactories[i](context, outputTarget, inputTarget,
                                        skipInputTransitions));
   }
 }

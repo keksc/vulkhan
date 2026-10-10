@@ -11,6 +11,7 @@
 #include "line.hpp"
 #include "text.hpp"
 #include "textInput.hpp"
+#include "theme.hpp"
 
 #include "polyLine.hpp"
 
@@ -32,16 +33,31 @@ template <> struct std::formatter<glm::vec2> : std::formatter<std::string> {
 
 namespace UI {
 void Canvas::initBaseElements() {
+  interaction = Interaction::None;
+  selectIndicator = nullptr;
+  fileBtns.clear();
   filePicker = nullptr;
   selectedElement = nullptr;
-  modeBg = addChild<RectImg>(glm::vec2{}, glm::vec2{1.f}, 0);
-  modeText = addChild<Text>(glm::vec2{}, "mode: Select");
+  modeBg = addChild<RectImg>(glm::vec2{}, glm::vec2{1.f},
+                             theme::color(view, 0xe2d4bc));
+  modeText = addChild<Text>(glm::vec2{}, "Sketchbook | Select",
+                            glm::vec3{.20f, .16f, .12f}, .7f);
   modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
 }
 Canvas::Canvas(vkh::hud::View &view, Element *parent, glm::vec2 position,
                glm::vec2 size, decltype(RectImg::imageIndex) bgImageIndex)
     : RectImg(view, parent, position, size, bgImageIndex) {
+  imageIndex = UINT32_MAX; // Reserved procedural paper material.
   initBaseElements();
+}
+void Canvas::addToDrawInfo(vkh::hud::DrawInfo &info, float depth) {
+  modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
+  if (selectIndicator && selectedElement) {
+    selectIndicator->setAbsolutePosition(
+        selectedElement->getAbsolutePosition());
+    selectIndicator->setAbsoluteSize(selectedElement->getAbsoluteSize());
+  }
+  RectImg::addToDrawInfo(info, depth);
 }
 void Canvas::reset() {
   children.clear();
@@ -63,12 +79,16 @@ bool Canvas::handleKey(int key, int scancode, int action, int mods) {
       const auto &cursorPos = view.context.input.cursorPos;
       glm::vec2 newPos = (cursorPos - absPos) / absSize;
       glm::vec2 newSize{glm::vec2{w, h} /
-                        static_cast<glm::vec2>(view.context.window.size)};
+                        static_cast<glm::vec2>(view.context.window.size) * 2.f /
+                        absSize};
       addChild<RectImg>(newPos, newSize, texIndex);
     } else {
       const auto &cursorPos = view.context.input.cursorPos;
       glm::vec2 newPos = (cursorPos - absPos) / absSize;
-      addChild<TextInput>(newPos, glfwGetClipboardString(NULL), false);
+      const char *text = glfwGetClipboardString(view.context.window);
+      if (text)
+        addChild<TextInput>(newPos, text, false)
+            ->setColor(glm::vec3{.16f, .13f, .10f});
     }
     return true;
   }
@@ -108,6 +128,8 @@ bool Canvas::handleKey(int key, int scancode, int action, int mods) {
   }
   if (mods == GLFW_MOD_CONTROL && key == GLFW_KEY_O) {
     if (!filePicker) {
+      view.focusedTextInput = nullptr;
+      view.focusedTextInput = nullptr;
       filePicker = addChild<FilePicker>(glm::vec2{.1f}, glm::vec2{.8f},
                                         FilePicker::Mode::Open);
     }
@@ -169,41 +191,41 @@ bool Canvas::handleKey(int key, int scancode, int action, int mods) {
       return false;
     }
     mode = Mode::Select;
-    modeText->content = "mode: Select";
+    modeText->content = "Sketchbook | Select";
     modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
     return true;
   }
   if (key == vkh::input::keybinds[vkh::input::Action::PlaceText]) {
     mode = Mode::Text;
-    modeText->content = "mode: Text";
+    modeText->content = "Sketchbook | Text";
     modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
     return true;
   }
   if (key == vkh::input::keybinds[vkh::input::Action::PlaceRect]) {
     mode = Mode::Rect;
-    modeText->content = "mode: Rect";
+    modeText->content = "Sketchbook | Rect";
     modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
     return true;
   }
   if (key == vkh::input::keybinds[vkh::input::Action::PlaceLine]) {
     mode = Mode::Line;
-    modeText->content = "mode: Line";
+    modeText->content = "Sketchbook | Line";
     modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
     return true;
   }
   if (key == vkh::input::keybinds[vkh::input::Action::PlaceFreehand]) {
     mode = Mode::Freehand;
-    modeText->content = "mode: Freehand";
+    modeText->content = "Sketchbook | Freehand";
     modeBg->setAbsoluteSize(modeText->getAbsoluteSize());
     return true;
   }
   if (key >= GLFW_KEY_1 && key <= GLFW_KEY_9) {
     std::vector<glm::vec3> colors = {
-        {1.f, 1.f, 1.f}, {1.f, 0.f, 0.f},    {0.f, 1.f, 0.f},
-        {0.f, 0.f, 1.f}, {1.f, 1.f, 0.f},    {1.f, 0.f, 1.f},
-        {0.f, 1.f, 1.f}, {0.5f, 0.5f, 0.5f}, {0.f, 0.f, 0.f}};
+        {.16f, .13f, .10f}, {1.f, 0.f, 0.f},    {0.f, 1.f, 0.f},
+        {0.f, 0.f, 1.f},    {1.f, 1.f, 0.f},    {1.f, 0.f, 1.f},
+        {0.f, 1.f, 1.f},    {0.5f, 0.5f, 0.5f}, {0.f, 0.f, 0.f}};
     currentColor = colors[key - GLFW_KEY_1];
-    modeBg->imageIndex = 0; // Assuming 0 is solid color
+    modeBg->imageIndex = theme::color(view, 0xe2d4bc);
     return true;
   }
   if (key == GLFW_KEY_RIGHT_BRACKET) { // Bring to front
@@ -243,12 +265,20 @@ void Canvas::removeFileBtns() {
   fileBtns.clear();
 }
 bool Canvas::handleMouseButton(int button, int action, int mods) {
+  if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE &&
+      interaction != Interaction::None) {
+    interaction = Interaction::None;
+    return true;
+  }
   if (button != GLFW_MOUSE_BUTTON_LEFT || !isCursorInside())
     return false;
 
   const auto &cursorPos = view.context.input.cursorPos;
 
   if (action == GLFW_PRESS) {
+    for (auto &child : children)
+      if (auto text = std::dynamic_pointer_cast<TextInput>(child))
+        text->selected = text->isCursorInside() && mode == Mode::Select;
     glm::vec2 localPos = (cursorPos - absPos) / absSize;
     glm::vec2 newSize{};
     switch (mode) {
@@ -273,14 +303,22 @@ bool Canvas::handleMouseButton(int button, int action, int mods) {
         }
       }
       break;
-    case Mode::Text:
-      selectedElement = addChild<TextInput>(localPos, "", true);
+    case Mode::Text: {
+      auto text = addChild<TextInput>(localPos, "", true);
+      text->setColor(currentColor);
+      selectedElement = text;
       interaction = Interaction::Creating;
       break;
-    case Mode::Rect:
-      selectedElement = addChild<RectImg>(localPos, newSize, 0);
+    }
+    case Mode::Rect: {
+      const uint32_t rgb = (uint32_t(currentColor.r * 255) << 16) |
+                           (uint32_t(currentColor.g * 255) << 8) |
+                           uint32_t(currentColor.b * 255);
+      selectedElement =
+          addChild<RectImg>(localPos, newSize, theme::color(view, rgb));
       interaction = Interaction::Creating;
       break;
+    }
     case Mode::Line:
       selectedElement = addChild<Line>(localPos, newSize, currentColor);
       interaction = Interaction::Creating;
@@ -326,14 +364,15 @@ bool Canvas::handleMouseButton(int button, int action, int mods) {
   return false;
 }
 bool Canvas::handleCursorPosition(double xpos, double ypos) {
-  if (!isCursorInside())
+  if (!isCursorInside() && interaction == Interaction::None)
     return false;
 
   const auto &cursorPos = view.context.input.cursorPos;
 
   if (interaction == Interaction::Creating) {
     if (mode == Mode::Freehand && selectedElement) {
-      if (glm::length(cursorPos - dragOffset) > 0.01f) {
+      if (glm::length((cursorPos - dragOffset) *
+                      glm::vec2(view.context.window.size) / 2.f) > 2.f) {
         glm::vec2 localPos = (cursorPos - absPos) / absSize;
         if (auto poly = std::dynamic_pointer_cast<PolyLine>(selectedElement)) {
           poly->addPoint(localPos);
@@ -465,7 +504,9 @@ void Canvas::saveToFile(const std::filesystem::path &path) {
   std::vector<vkh::Image2D *> savedImages;
 
   for (const auto &child : children) {
-    if (child == modeBg || child == modeText || child == selectIndicator)
+    if (child == modeBg || child == modeText || child == selectIndicator ||
+        child == filePicker ||
+        std::find(fileBtns.begin(), fileBtns.end(), child) != fileBtns.end())
       continue;
 
     if (auto rect = std::dynamic_pointer_cast<RectImg>(child)) {
@@ -495,7 +536,9 @@ void Canvas::saveToFile(const std::filesystem::path &path) {
 
   // --- Write Elements ---
   for (auto &child : children) {
-    if (child == modeBg || child == modeText || child == selectIndicator)
+    if (child == modeBg || child == modeText || child == selectIndicator ||
+        child == filePicker ||
+        std::find(fileBtns.begin(), fileBtns.end(), child) != fileBtns.end())
       continue;
 
     glm::vec2 localPos = child->getPosition();
@@ -550,6 +593,8 @@ void Canvas::loadFromFile(const std::filesystem::path &path) {
   size_t offset = 0;
 
   auto readBinary = [&]<typename T>() -> T {
+    if (offset > data.size() || sizeof(T) > data.size() - offset)
+      throw std::runtime_error("Truncated canvas file");
     T value;
     std::memcpy(&value, data.data() + offset, sizeof(T));
     offset += sizeof(T);
@@ -601,7 +646,7 @@ void Canvas::loadFromFile(const std::filesystem::path &path) {
     case 'T': {
       glm::vec2 pos = readVec2();
       std::string text = readString();
-      addChild<TextInput>(pos, text);
+      addChild<TextInput>(pos, text)->setColor(glm::vec3{.16f, .13f, .10f});
       break;
     }
     case 'R': {

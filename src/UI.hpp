@@ -6,6 +6,7 @@
 
 namespace vkh {
 struct EngineContext;
+struct Settings;
 } // namespace vkh
 
 class GameUI {
@@ -33,8 +34,10 @@ public:
   // main.cpp wires this to SkySys::rebake() so the change takes effect
   // live rather than only on next launch.
   using SkyResolutionHandler = std::function<void(uint32_t milkyWayFaceSize,
-                                                    uint32_t discTurbulenceSize)>;
+                                                  uint32_t discTurbulenceSize)>;
   void setSkyResolutionHandler(SkyResolutionHandler handler);
+  using GraphicsSettingsHandler = std::function<void(const vkh::Settings &)>;
+  void setGraphicsSettingsHandler(GraphicsSettingsHandler handler);
 
 private:
   struct Impl;

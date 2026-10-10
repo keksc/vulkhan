@@ -20,7 +20,7 @@ class Image2D;
 
 class WSTessendorf : public System {
 public:
-  WSTessendorf(EngineContext &context);
+  WSTessendorf(EngineContext &context, float patchLength = tileLength);
   ~WSTessendorf();
 
   void recordComputeWaves(vk::CommandBuffer &cmd, float time);
@@ -45,6 +45,7 @@ public:
   static constexpr unsigned int tileSize = 512; // has to be a power of 2
   static constexpr unsigned int tileSizeSquared = tileSize * tileSize;
   static constexpr float tileLength = 1000.f;
+  static constexpr float detailTileLength = 8.f;
   // Full mip chain down to 1x1: log2(512) + 1 = 10 levels. Regenerated
   // every frame in recordGenerateMips() since displacementFoamMap's mip 0
   // is rewritten every frame by postFFT.comp - this isn't a load-time
@@ -53,11 +54,14 @@ public:
       static_cast<unsigned int>(std::bit_width(tileSize));
 
   Image2D &getDisplacementFoamImage() { return *displacementFoamMap; }
-
-  glm::vec2 windDir = glm::normalize(glm::vec2{.3f, 1.f});
-  float windStrength = 1.f;
+  Image2D &getDetailImage() {
+    return detailCascade ? detailCascade->getDisplacementFoamImage()
+                         : *displacementFoamMap;
+  }
 
 private:
+  float patchLength;
+  std::unique_ptr<WSTessendorf> detailCascade;
   struct WaveVector {
     glm::vec2 vec;
     glm::vec2 unit;

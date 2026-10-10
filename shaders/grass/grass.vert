@@ -6,10 +6,13 @@ layout(location = 3) out vec3 fragNormal2;
 layout(location = 4) out float fragXSide;
 layout(location = 5) out float fragHighLODOut;
 layout(location = 6) out vec3 fragWorldPos;
-layout(location = 7) out float fragSpecies;
+layout(location = 7) out float fragSpecies; // now: clump colour seed
 layout(location = 8) out vec3 fragTangent;
 layout(location = 9) out float fragClumpVar;
+layout(location = 10) out float fragDry;
+layout(location = 11) flat out vec3 fragBiomeTint;
 #include "../globalUbo.glsl"
+#include "../environment.glsl"
 struct BladeInstance {
   vec3 basePos;
   float bendAngle;
@@ -18,13 +21,10 @@ struct BladeInstance {
   float width;
   float windPhase;
   float bendAngle2;
-  float species; // always 0.0 now (flowers removed) - kept only so this
-                  // struct's layout still matches BladeInstance on the
-                  // host side and in generateGrass.comp without touching
-                  // either.
-  vec2 pad2;
+  float species; // clump colour seed
+  vec2 pad2;     // x = dryness
   vec3 aabbMin;
-  float pad0;
+  uint pad0;
   vec3 aabbMax;
   float pad1;
 };
@@ -39,12 +39,8 @@ layout(set = 1, binding = 1) uniform WindUbo {
 } wind;
 const int SEGMENTS = 3;
 const int VERTS_PER_BLADE = SEGMENTS * 2 + 1;
-const float PI = 3.14159265359;
+
 float easeOut(float x, float t) { return 1.0 - pow(1.0 - x, t); }
-float easeIn(float x, float t) { return pow(x, t); }
-float remap(float v, float inMin, float inMax, float outMin, float outMax) {
-  return mix(outMin, outMax, (v - inMin) / (inMax - inMin));
-}
 uint hashU(uint n) {
   n = (n ^ 61u) ^ (n >> 16u);
   n *= 9u;
@@ -68,22 +64,12 @@ float noise12(vec2 p) {
   float d = hash1(i + vec2(1.0, 1.0));
   return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 2.0 - 1.0; // [-1,1]
 }
-mat3 rotateX(float theta) {
-  float c = cos(theta), s = sin(theta);
-  return mat3(vec3(1, 0, 0), vec3(0, c, -s), vec3(0, s, c));
+// Standard right-handed Rodrigues rotation of v about unit axis k.
+vec3 rotAxis(vec3 k, vec3 v, float a) {
+  float s = sin(a), c = cos(a);
+  return v * c + cross(k, v) * s + k * dot(k, v) * (1.0 - c);
 }
-mat3 rotateY(float theta) {
-  float c = cos(theta), s = sin(theta);
-  return mat3(vec3(c, 0, s), vec3(0, 1, 0), vec3(-s, 0, c));
-}
-mat3 rotateAxis(vec3 axis, float angle) {
-  axis = normalize(axis);
-  float s = sin(angle), c = cos(angle), oc = 1.0 - c;
-  return mat3(
-      oc * axis.x * axis.x + c,          oc * axis.x * axis.y - axis.z * s, oc * axis.z * axis.x + axis.y * s,
-      oc * axis.x * axis.y + axis.z * s, oc * axis.y * axis.y + c,          oc * axis.y * axis.z - axis.x * s,
-      oc * axis.z * axis.x - axis.y * s, oc * axis.y * axis.z + axis.x * s, oc * axis.z * axis.z + c);
-}
+
 void main() {
   BladeInstance b = blades[gl_InstanceIndex];
   int vi = gl_VertexIndex;
@@ -92,68 +78,67 @@ void main() {
   bool isTip = (vi == VERTS_PER_BLADE - 1);
   float t = isTip ? 1.0 : float(seg) / float(SEGMENTS);
   float xSide = isRight ? 1.0 : 0.0;
-  // --- Continuous LOD blend (Quick_Grass GRASS_LOD_DIST equivalent) ---
+  float h = b.height;
+
+  // --- Continuous LOD blend ---
   vec3 camPos = ubo.inverseView[3].xyz;
   float distToCam = distance(camPos, b.basePos);
   float highLODOut =
       smoothstep(wind.lodNearDist * 0.15, wind.lodNearDist * 1.8, distToCam);
+
+  // --- Width profile + edge-on compensation ---
   float widthHigh = easeOut(1.0 - t, 2.0);
-  float widthLow = mix(easeOut(1.0 - t, 2.0), 1.0 - t, 0.6);
-  float widthBase = mix(widthHigh, widthLow, highLODOut);
-  float width = b.width * widthBase * 0.5;
-  // --- Edge-on width compensation ---
-  vec2 facingDirHoriz = vec2(cos(b.facingAngle), sin(b.facingAngle));
-  vec2 toBladeHoriz = normalize(b.basePos.xz - camPos.xz);
-  float facingAlignment = abs(dot(facingDirHoriz, toBladeHoriz));
+  float widthLow = mix(widthHigh, 1.0 - t, 0.6);
+  float width = b.width * mix(widthHigh, widthLow, highLODOut) * 0.5;
+
+  vec2 facing = vec2(cos(b.facingAngle), sin(b.facingAngle));
+  vec2 toBladeHoriz = b.basePos.xz - camPos.xz;
+  toBladeHoriz /= max(length(toBladeHoriz), 1e-4);
+  float facingAlignment = abs(dot(facing, toBladeHoriz));
   float edgeOnAmount = smoothstep(0.6, 1.0, 1.0 - facingAlignment);
   width *= 1.0 + edgeOnAmount * 2.5;
-  // --- Base curve ---
-  float easedHeight = mix(easeIn(t, 2.0), mix(easeIn(t, 2.0), 1.0, 0.6), highLODOut);
-  vec2 bendDir = vec2(cos(b.bendAngle), sin(b.bendAngle));
-  vec2 bendDir2 = vec2(cos(b.bendAngle2), sin(b.bendAngle2));
-  float sCurveMix = smoothstep(0.35, 1.0, t);
-  vec2 curveDir = normalize(mix(bendDir, bendDir2, sCurveMix * 0.6));
-  float curve = easedHeight;
-  float bendAmount = 0.32;
-  vec3 localPos = vec3(0.0, t * b.height, 0.0);
-  localPos.xz += curveDir * curve * b.height * bendAmount;
-  if (!isTip) {
-    vec2 facing = vec2(cos(b.facingAngle), sin(b.facingAngle));
-    vec2 side = vec2(-facing.y, facing.x) * width * (isRight ? 1.0 : -1.0);
-    localPos.xz += side;
-  }
-  // --- Noise-driven wind ---
-  float windDirN = noise12(b.basePos.xz * 0.015 + 0.03 * wind.time);
-  float windSample = noise12(b.basePos.xz * 0.045 + wind.time * 0.6);
-  float windLeanAngle =
-      easeIn(remap(windSample, -1.0, 1.0, 0.2, 1.0), 2.0) * 1.9 * wind.strength;
-  windLeanAngle *= t;
-  // Hard cap the lean angle regardless of wind.strength. Past ~90 degrees
-  // a rotation around a horizontal axis starts folding the blade back
-  // down and eventually below y = 0 (into the ground); capping well
-  // short of that (75 degrees) keeps the motion looking like an
-  // increasingly extreme bend rather than a snap-through flip, no matter
-  // how large wind.strength is set to.
-  const float MAX_WIND_LEAN_ANGLE = radians(75.0);
-  windLeanAngle = min(windLeanAngle, MAX_WIND_LEAN_ANGLE);
-  vec3 windAxis = vec3(cos(windDirN), 0.0, sin(windDirN));
-  mat3 grassMat = rotateAxis(windAxis, windLeanAngle);
-  localPos = grassMat * localPos;
-  // Backstop: even with the angle capped, the bend-curve offset added to
-  // localPos.xz before this rotation (see curveDir * curve * ... above)
-  // means the pre-rotation vector isn't purely vertical, so the angle
-  // cap alone doesn't perfectly guarantee y >= 0 in every case. Clamping
-  // here guarantees no vertex ever ends up below its own base, for any
-  // wind strength or bend/curve combination.
+
+  // --- Cubic Bezier control points (curve lies in the facing plane) ---
+  vec2 bd1 = vec2(cos(b.bendAngle), sin(b.bendAngle));
+  vec2 bd2 = normalize(mix(bd1, vec2(cos(b.bendAngle2), sin(b.bendAngle2)), 0.6));
+  float bendAmt = 0.22 + 0.22 * fract(b.windPhase * 3.7);
+  vec3 p0 = vec3(0.0);
+  vec3 p1 = vec3(bd1.x, 0.0, bd1.y) * h * bendAmt * 0.08 + vec3(0.0, h * 0.38, 0.0);
+  vec3 p2 = vec3(bd1.x, 0.0, bd1.y) * h * bendAmt * 0.45 + vec3(0.0, h * 0.74, 0.0);
+  vec3 p3 = vec3(bd2.x, 0.0, bd2.y) * h * bendAmt * 1.10 + vec3(0.0, h * 0.93, 0.0);
+
+  // --- Travelling directional wind, applied to the control points ---
+  vec2 wd = ubo.wind.xy;
+  vec2 xz = b.basePos.xz;
+  float leanAmt = windGust(xz);
+  leanAmt = clamp(leanAmt, 0.0, 1.6);
+  float flutter = sin(ubo.time * 4.0 + b.windPhase * 2.0) * 0.12 * ubo.wind.w;
+  vec3 wv = vec3(wd.x, 0.0, wd.y);
+  vec3 wperp = vec3(-wd.y, 0.0, wd.x);
+  p1 += wv * leanAmt * h * 0.10;
+  p2 += wv * leanAmt * h * 0.40 + wperp * flutter * h * 0.15;
+  p3 += wv * leanAmt * h * 0.85 + wperp * flutter * h * 0.40;
+  float droop = min(leanAmt, 1.5);
+  p2.y -= h * 0.08 * droop;
+  p3.y = max(p3.y - h * 0.30 * droop, h * 0.25);
+
+  float mt = 1.0 - t;
+  vec3 B = mt * mt * mt * p0 + 3.0 * mt * mt * t * p1 + 3.0 * mt * t * t * p2 + t * t * t * p3;
+  vec3 dB = 3.0 * mt * mt * (p1 - p0) + 6.0 * mt * t * (p2 - p1) + 3.0 * t * t * (p3 - p2);
+
+  vec3 sideV = vec3(-facing.y, 0.0, facing.x);
+  vec3 localPos = B;
+  if (!isTip) localPos += sideV * width * (isRight ? 1.0 : -1.0);
   localPos.y = max(localPos.y, 0.0);
   vec3 worldPos = b.basePos + localPos;
-  // --- Dual fake-round normals ---
-  vec3 curveTangent = vec3(0.0, 1.0, 0.0);
-  vec3 grassVertexNormal = normalize(vec3(0.0, -bendDir.y, bendDir.x) * curve + curveTangent * (1.0 - curve));
-  vec3 normal1 = normalize(grassMat * (rotateY(PI * 0.3) * grassVertexNormal));
-  vec3 normal2 = normalize(grassMat * (rotateY(-PI * 0.3) * grassVertexNormal));
-  vec3 tangent = normalize(grassMat * vec3(curveDir * curve * bendAmount, 1.0).xzy);
-  float clumpVar = noise12(b.basePos.xz * 0.02) * 0.5 + 0.5;
+
+  // --- Real surface normal from Bezier derivative x side vector ---
+  vec3 T = normalize(dB);
+  vec3 N0 = normalize(cross(T, sideV));
+  // +angle tilts toward -side (left edge), -angle toward +side (right edge).
+  vec3 normal1 = rotAxis(T, N0, 0.9);
+  vec3 normal2 = rotAxis(T, N0, -0.9);
+
   gl_Position = ubo.projView * vec4(worldPos, 1.0);
   fragUV = vec2(xSide, t);
   fragHeightFrac = t;
@@ -163,6 +148,8 @@ void main() {
   fragHighLODOut = highLODOut;
   fragWorldPos = worldPos;
   fragSpecies = b.species;
-  fragTangent = tangent;
-  fragClumpVar = clumpVar;
+  fragTangent = T;
+  fragClumpVar = noise12(b.basePos.xz * 0.02) * 0.5 + 0.5;
+  fragDry = b.pad2.x;
+  fragBiomeTint = unpackUnorm4x8(b.pad0).rgb;
 }

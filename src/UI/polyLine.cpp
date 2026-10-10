@@ -1,10 +1,15 @@
 #include "polyLine.hpp"
+#include "theme.hpp"
 #include <glm/gtx/norm.hpp>
 
 namespace UI {
 PolyLine::PolyLine(vkh::hud::View &view, Element *parent, glm::vec2 position,
                    glm::vec3 color)
     : Element(view, parent, position, glm::vec2{}), color{color} {
+  const uint32_t rgb = (uint32_t(glm::clamp(color.r, 0.f, 1.f) * 255) << 16) |
+                       (uint32_t(glm::clamp(color.g, 0.f, 1.f) * 255) << 8) |
+                       uint32_t(glm::clamp(color.b, 0.f, 1.f) * 255);
+  inkTexture = theme::color(view, rgb);
   points.push_back(position);
 }
 
@@ -29,18 +34,32 @@ void PolyLine::addToDrawInfo(vkh::hud::DrawInfo &drawInfo, float depth) {
   if (points.size() < 2 || !parent)
     return;
 
-  uint32_t baseIndex =
-      static_cast<uint32_t>(drawInfo.solidColorLineVertices.size());
-
-  for (size_t i = 0; i < points.size(); ++i) {
-    glm::vec2 absPos =
+  const glm::vec2 viewport = glm::vec2(view.context.window.size);
+  if (viewport.x <= 0 || viewport.y <= 0)
+    return;
+  const glm::vec2 toPixels = viewport / 2.f;
+  for (size_t i = 1; i < points.size(); ++i) {
+    const glm::vec2 a = parent->getAbsolutePosition() +
+                        points[i - 1] * parent->getAbsoluteSize();
+    const glm::vec2 b =
         parent->getAbsolutePosition() + points[i] * parent->getAbsoluteSize();
-    drawInfo.solidColorLineVertices.emplace_back(glm::vec3{absPos, depth},
-                                                 color);
-    if (i > 0) {
-      drawInfo.solidColorLineIndices.push_back(baseIndex + i - 1);
-      drawInfo.solidColorLineIndices.push_back(baseIndex + i);
-    }
+    const glm::vec2 delta = (b - a) * toPixels;
+    const float length = glm::length(delta);
+    if (length < .001f)
+      continue;
+    const glm::vec2 normal = glm::vec2{-delta.y, delta.x} / length / toPixels;
+    // Subtle pressure variation, tapered ends, and overlapping segments.
+    const float pressure = .95f + .12f * std::sin(float(i) * .73f);
+    const float width = 1.25f * view.layoutScale * pressure;
+    const float startWidth = i == 1 ? width * .45f : width;
+    const float endWidth = i + 1 == points.size() ? width * .45f : width;
+    const uint32_t base = drawInfo.solidColorTriangleVertices.size();
+    for (const auto &p : {a + normal * startWidth, a - normal * startWidth,
+                          b - normal * endWidth, b + normal * endWidth})
+      drawInfo.solidColorTriangleVertices.emplace_back(glm::vec3{p, depth},
+                                                       glm::vec2{}, inkTexture);
+    for (uint32_t offset : {0u, 1u, 2u, 0u, 2u, 3u})
+      drawInfo.solidColorTriangleIndices.push_back(base + offset);
   }
 }
 

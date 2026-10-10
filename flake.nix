@@ -50,6 +50,7 @@
             pkgs.ktx-tools
             pkgs.magic-enum
             pkgs.simdjson
+            pkgs.tomlplusplus
             fastgltf
             pkgs.gcc
             pkgs.enet
@@ -73,8 +74,7 @@
             export WASM_CLANG="${llvmPkgs.clang-unwrapped}/bin/clang"
             export WASM_CLANGXX="${llvmPkgs.clang-unwrapped}/bin/clang++"
             
-            export CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH:${fastgltf}:${pkgs.simdjson}
-            exec $(getent passwd "$USER" | cut -d: -f7)
+            export CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH:${fastgltf}:${pkgs.simdjson}:${pkgs.tomlplusplus}
           '';
         };
 
@@ -101,6 +101,7 @@
             pkgs.stb
             pkgs.glslang
             pkgs.simdjson
+            pkgs.tomlplusplus
             fastgltf
             pkgs.spirv-headers
             pkgs.spirv-tools

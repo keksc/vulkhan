@@ -1,50 +1,60 @@
 #version 450
-
-struct Vertex {
-  vec4 pos;
-  vec4 col;
-};
-
-layout(std430, set = 1, binding = 0) buffer VertexBuffer { 
-  Vertex verticesBuffer[]; 
-};
-
-layout(std430, set = 1, binding = 1) buffer TransformationBuffer { 
-  mat4 transformations[];
-};
-
-layout(push_constant) uniform Push {
-  uint transformationCount;
-} push;
-
-layout(local_size_x = 256) in;
-
-uint pcg_hash(uint inp) {
-  uint state = inp * 747796405u + 2891336453u;
-  uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-  return (word >> 22u) ^ word;
-}
-
+#include "globalUbo.glsl"
+#include "bioluminescence.glsl"
+struct Vertex { vec4 pos; vec4 col; vec4 params; };
+layout(std430,set=1,binding=0) writeonly buffer Vertices { Vertex particles[]; };
+layout(std430,set=1,binding=1) readonly buffer Transforms { mat4 transforms[]; };
+layout(push_constant) uniform Push { uint count; uint patches; uint particles; float time; } push;
+layout(local_size_x=256) in;
+float random(uint x) { return float(bioHash(x)>>8)/16777216.0; }
 void main() {
-  uint i = gl_GlobalInvocationID.x;
-
-  vec4 currentPos = verticesBuffer[i].pos;
-  currentPos.w = 1.0;
-  vec4 currentCol = verticesBuffer[i].col;
-
-  // Mutate the seed based on the particle's changing floating-point position.
-  // As long as the position updates, the seed for the next frame will change!
-  uint seed = pcg_hash(i + uint(abs(currentPos.x) * 100000.0) + uint(abs(currentPos.y) * 100000.0));
-  uint idx = pcg_hash(seed) % push.transformationCount;
-  mat4 transformation = transformations[idx];
-
-  float pIdx = float(idx)/push.transformationCount;
-
-  vec4 nextPos = transformation * currentPos;
-  vec3 targetCol = vec3(pIdx, 1.0 - pIdx, pIdx*pIdx);
-
-  // Overwrite in place
-  verticesBuffer[i].pos = nextPos; 
-  verticesBuffer[i].pos.w = 1.0;
-  verticesBuffer[i].col.rgb = mix(currentCol.rgb, targetCol, 0.2);
+  uint id=gl_GlobalInvocationID.x;
+  if(id>=push.particles) return;
+  particles[id].pos=vec4(0); particles[id].col=vec4(0); particles[id].params=vec4(0);
+  float t=push.time, radius, visibility, kind, phase;
+  vec3 pos;
+  if(id<6336u) {
+    uint group=id/64u, insect=id%64u;
+    vec4 source=ubo.lightPositions[group], path=ubo.lightPaths[group];
+    int level=int(floor(path.w));
+    uint budget=level==0 ? 64u : (level==1 ? 16u : 4u);
+    if(source.w<=0.0 || insect>=budget || ubo.lightColors[group].w<=0.0) return;
+    uint seed=bioHash(floatBitsToUint(source.x)) ^ bioHash(floatBitsToUint(source.z)) ^ bioHash(insect+37u);
+    phase=random(seed)*6.283185;
+    kind=level==0 && random(seed+19u)>.72 ? 1.0 : 0.0;
+    vec2 offset=vec2(cos(phase),sin(phase))*sqrt(random(seed+3u))*source.w;
+    // Closed, smooth orbits prevent wrap teleports. Independent phases avoid lanes.
+    float flight=t*(.25+random(seed+4u)*.2)+phase;
+    offset+=vec2(sin(flight),cos(flight*.73+phase))*min(source.w*.12,2.0);
+    offset+=ubo.wind.xy*sin(t*.17+phase)*min(ubo.wind.z*.18,2.0)*ubo.wind.w;
+    vec3 shape=vec3(0);
+    if(push.count>0u) {
+      uint s=seed;
+      for(uint j=0u;j<4u;++j) { s=bioHash(s+j); shape=(transforms[s%push.count]*vec4(shape,1)).xyz; }
+      offset+=clamp(shape.xz,vec2(-1),vec2(1))*.3;
+    }
+    pos=vec3(source.x+offset.x,source.y+dot(path.xy,offset)+path.z+1.5+random(seed+2u)*3.0+.4*sin(flight*1.3),source.z+offset.y);
+    float d=length(pos.xz-ubo.inverseView[3].xz);
+    visibility=level==0 ? 1.0-smoothstep(120.0,170.0,d) :
+       (level==1 ? smoothstep(110.0,160.0,d)*(1.0-smoothstep(370.0,470.0,d)) :
+                   smoothstep(330.0,440.0,d)*(1.0-smoothstep(1400.0,1800.0,d)));
+    visibility*=ubo.lightColors[group].w*(.65+.35*pow(.5+.5*sin(t*1.2+phase),3.0));
+    radius=level==0 ? (kind==1.0 ? .12 : .045) : (level==1 ? .13 : .38);
+  } else {
+    uint local=id-6336u;
+    if(local/8u>=push.patches) return;
+    vec3 center=transforms[16u+local/8u][3].xyz;
+    uint seed=bioHash(floatBitsToUint(center.x)) ^ bioHash(floatBitsToUint(center.z)) ^ bioHash(local%8u);
+    phase=random(seed)*6.283185;
+    // One rooted flower at the actual sampled height; nearby motes are airborne.
+    kind=local%8u==0u ? 2.0 : 1.0;
+    pos=center+vec3(0,.25,0);
+    if(kind==1.0) pos+=vec3(sin(t*.4+phase)*1.5,.7+.4*sin(t*.3+phase),cos(t*.29+phase)*1.5);
+    radius=kind==2.0 ? .28 : .075;
+    visibility=1.0-smoothstep(12.0,19.0,length(pos.xz-ubo.inverseView[3].xz));
+  }
+  BioHabitat h=bioHabitat(pos.xz);
+  particles[id].pos=vec4(pos,radius);
+  particles[id].col=vec4(h.tint*1.8,visibility*(.4+.6*h.density));
+  particles[id].params=vec4(kind,kind==1.0 ? phase+t*.7 : 0.0,0,0);
 }

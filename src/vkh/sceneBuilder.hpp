@@ -247,8 +247,8 @@ void Scene<VertexType>::loadModelCPU(const std::filesystem::path &path) {
 
   for (const auto &mesh : gltf.meshes) {
     auto &newMesh = meshes.emplace_back();
-    uint32_t start = static_cast<uint32_t>(indices.size());
     for (const auto &primitive : mesh.primitives) {
+      const uint32_t start = static_cast<uint32_t>(indices.size());
       auto &newPrimitive = newMesh.primitives.emplace_back();
       newPrimitive.indexOffset = start;
       newPrimitive.materialIndex =
@@ -326,6 +326,33 @@ void Scene<VertexType>::loadModelCPU(const std::filesystem::path &path) {
                 vertices[initial_vtx + index].uv = v;
               });
         }
+      }
+      // Standard glTF application-specific attributes exported by Blender.
+      // _VKH_FUR = length (metres), density mask, normal lift.
+      // _VKH_FLOW = comb direction, explicitly authored in glTF coordinates.
+      auto furAttribute = primitive.findAttribute("_VKH_FUR");
+      auto flowAttribute = primitive.findAttribute("_VKH_FLOW");
+      const bool hasFur = furAttribute != primitive.attributes.end();
+      const bool hasFlow = flowAttribute != primitive.attributes.end();
+      if (hasFur != hasFlow)
+        throw std::runtime_error("Fur needs both _VKH_FUR and _VKH_FLOW");
+      if (hasFur) {
+        auto readFurAttribute = [&](size_t accessorIndex,
+                                    std::vector<glm::vec3> &values) {
+          auto &accessor = gltf.accessors[accessorIndex];
+          if (accessor.count != vertices.size() - initial_vtx ||
+              accessor.type != fastgltf::AccessorType::Vec3)
+            throw std::runtime_error("Invalid surface fur attribute layout");
+          values.resize(vertices.size());
+          fastgltf::iterateAccessorWithIndex<glm::vec3>(
+              gltf, accessor, [&](glm::vec3 value, size_t index) {
+                values[initial_vtx + index] = value;
+              });
+        };
+        readFurAttribute(furAttribute->accessorIndex,
+                         newPrimitive.furParameters);
+        readFurAttribute(flowAttribute->accessorIndex,
+                         newPrimitive.furDirections);
       }
       if constexpr (has_skinning<VertexType>::value) {
         auto jointIndicesAttribute = primitive.findAttribute("JOINTS_0");
@@ -837,10 +864,8 @@ public:
     // Async work to load scene
     futureScene =
         std::async(std::launch::async, [&context, path, disableMaterial]() {
-          auto scene =
-              std::make_shared<Scene<VertexType>>(context, disableMaterial);
-          scene->loadModelCPU(path);
-          return scene;
+          return std::make_shared<Scene<VertexType>>(context, path,
+                                                     disableMaterial);
         });
   }
 

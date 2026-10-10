@@ -38,8 +38,26 @@ void SolidColorSys::createBuffers() {
   trianglesIndexBuffer->map();
 }
 
+void SolidColorSys::prepareFrame(uint32_t frameIndex) {
+  if (frameIndex == activeFrame)
+    return;
+  frameBuffers.at(activeFrame) = {
+      std::move(linesVertexBuffer), std::move(linesIndexBuffer),
+      std::move(trianglesVertexBuffer), std::move(trianglesIndexBuffer)};
+  auto &next = frameBuffers.at(frameIndex);
+  linesVertexBuffer = std::move(next.lineVertices);
+  linesIndexBuffer = std::move(next.lineIndices);
+  trianglesVertexBuffer = std::move(next.triangleVertices);
+  trianglesIndexBuffer = std::move(next.triangleIndices);
+  activeFrame = frameIndex;
+  if (!linesVertexBuffer)
+    createBuffers();
+}
+
 void SolidColorSys::ensureLineCapacity(size_t vertexCount, size_t indexCount) {
-  bool needsRecreation = false;
+  bool needsRecreation =
+      linesVertexBuffer->getSize() < vertexCount * sizeof(LineVertex) ||
+      linesIndexBuffer->getSize() < indexCount * sizeof(uint32_t);
   if (vertexCount > maxLineVertexCount) {
     maxLineVertexCount =
         std::max(static_cast<int>(vertexCount), maxLineVertexCount * 2);
@@ -52,7 +70,7 @@ void SolidColorSys::ensureLineCapacity(size_t vertexCount, size_t indexCount) {
   }
 
   if (needsRecreation) {
-    context.vulkan.device.waitIdle();
+    // Only this retired frame slot is grown; other slots stay alive.
     linesVertexBuffer = std::make_unique<Buffer<LineVertex>>(
         context, vk::BufferUsageFlagBits::eVertexBuffer,
         vk::MemoryPropertyFlagBits::eHostVisible |
@@ -71,7 +89,9 @@ void SolidColorSys::ensureLineCapacity(size_t vertexCount, size_t indexCount) {
 
 void SolidColorSys::ensureTriangleCapacity(size_t vertexCount,
                                            size_t indexCount) {
-  bool needsRecreation = false;
+  bool needsRecreation =
+      trianglesVertexBuffer->getSize() < vertexCount * sizeof(TriangleVertex) ||
+      trianglesIndexBuffer->getSize() < indexCount * sizeof(uint32_t);
   if (vertexCount > maxTriangleVertexCount) {
     maxTriangleVertexCount =
         std::max(static_cast<int>(vertexCount), maxTriangleVertexCount * 2);
@@ -84,7 +104,7 @@ void SolidColorSys::ensureTriangleCapacity(size_t vertexCount,
   }
 
   if (needsRecreation) {
-    context.vulkan.device.waitIdle();
+    // Only this retired frame slot is grown; other slots stay alive.
     trianglesVertexBuffer = std::make_unique<Buffer<TriangleVertex>>(
         context, vk::BufferUsageFlagBits::eVertexBuffer,
         vk::MemoryPropertyFlagBits::eHostVisible |
@@ -213,11 +233,28 @@ size_t SolidColorSys::addTextureFromFile(std::filesystem::path path) {
   return images.size() - 1;
 }
 
+size_t SolidColorSys::addColor(uint32_t rgba) {
+  for (const auto &[color, index] : colors)
+    if (color == rgba)
+      return index;
+  ImageCreateInfo_color info{};
+  info.size = {1, 1};
+  info.color = rgba;
+  info.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+  info.name = "UI palette";
+  images.emplace_back(context, info);
+  const size_t index = images.size() - 1;
+  colors.emplace_back(rgba, index);
+  updateDescriptors();
+  return index;
+}
+
 SolidColorSys::SolidColorSys(EngineContext &context) : System(context) {
   images.emplace_back(context, "textures/hud.png");
   images.reserve(maxTextures);
 
   createDescriptors();
+  frameBuffers.resize(context.vulkan.maxFramesInFlight);
   createBuffers();
   createPipelines();
 

@@ -31,6 +31,11 @@ struct SmokeCompositePush {
   // Lights at index >= shadowedLightCount are still lit, just unshadowed
   // (treated as trans = 1.0) - see postProcessing.comp's main loop.
   int shadowedLightCount;
+  // inverse(camera.projection * camera.view) - see smoke.comp. Computed on
+  // the CPU once per frame instead of per pixel in the shader. alignas(16):
+  // GLSL std430 puts a mat4 at the next 16-byte boundary (offset 48); glm's
+  // mat4 alone would only be 4-byte aligned and land at offset 44.
+  alignas(16) glm::mat4 invProjView;
 };
 
 // Matches TransmittancePush in transmittance.comp.
@@ -44,6 +49,9 @@ struct TransmittancePush {
   // How many transmittance volume slots to fill this dispatch - see
   // SmokeCompositePush::shadowedLightCount above, same value.
   int shadowedLightCount;
+  // Resolution divisor of the transmittance volumes vs the dye grid - see
+  // SmokeCompositeEffect::kTransmittanceStride.
+  int stride;
 };
 
 // The ComputeEffect for postProcessing.comp: composites the resolved scene
@@ -53,6 +61,12 @@ struct TransmittancePush {
 class SmokeCompositeEffect : public ComputeEffect<SmokeCompositePush> {
 public:
   using Push = SmokeCompositePush;
+
+  // Transmittance volumes are stored at 1/kTransmittanceStride of the dye
+  // grid's resolution per axis (2 -> 1/8 the texels, memory and compute).
+  // Transmittance is smooth and always read back through a trilinear
+  // sampler, so this is close to free visually. Set to 1 for full res.
+  static constexpr int kTransmittanceStride = 2;
 
   SmokeCompositeEffect(EngineContext &context, SmokeSys &smokeSys);
   ~SmokeCompositeEffect() override;
@@ -93,7 +107,7 @@ public:
   std::vector<vk::DescriptorBindingFlags>
   additionalBindingFlags() const override;
   const char *shaderPath() const override {
-    return "shaders/smokeCompositeEffect.comp.spv";
+    return "shaders/postprocessing/smoke.comp.spv";
   }
   const char *debugName() const override { return "post processing"; }
   void writeAdditionalDescriptors(DescriptorWriter &writer,
@@ -130,6 +144,9 @@ private:
   std::unique_ptr<Buffer<PointLight>> lightsBuffer;
   std::vector<PointLight> lightsCpuCopy;
   int activeLightCount = 0;
+  uint64_t lightsVersion{0};
+  struct CacheStamp { uint64_t step{~0ull}, lights{~0ull}; glm::ivec3 origin{}; };
+  std::vector<CacheStamp> shadowCache;
 
   // --- Transmittance precompute pass (see beforeDispatch()) ---
 

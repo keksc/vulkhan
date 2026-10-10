@@ -575,7 +575,7 @@ SmokeSys::FrameInputs SmokeSys::gatherFrameInputs() {
 
   // Player-movement push: derive velocity from the change in position since
   // last frame, rather than trusting a physics-system velocity we don't
-  // have access to here. `dt` is the FIXED sim timestep (1/60) the rest of
+  // have access to here. `dt` is the configured fixed sim timestep the rest of
   // this class assumes, not this frame's real wall-clock delta - so this is
   // technically only correct if update() is being called at a matching
   // fixed rate. If SmokeSys::update() is ever called at a variable frame
@@ -664,7 +664,8 @@ void SmokeSys::dispatchBrushes(vk::CommandBuffer cmd, const FrameInputs &in) {
   if (in.brushActive) {
     debug::beginLabel(context, cmd, "smoke: brush", {0.9f, 0.5f, 0.1f, 1.0f});
     applyBrush(cmd, in.brushCenterCell, in.brushRadiusCells,
-              in.forward * brushStrength, brushSmokeRate);
+              in.forward * brushStrength * (dt * 60.f),
+              brushSmokeRate * (dt * 60.f));
     // Re-bind descriptor set back to computePipelineLayout for divergence pass
     cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
                            computePipelineLayout, 0, computeSet, {});
@@ -739,7 +740,7 @@ void SmokeSys::dispatchProjection(vk::CommandBuffer cmd,
   debug::beginLabel(context, cmd, "smoke: pressure solve",
                     {0.2f, 0.7f, 0.9f, 1.0f});
   cmd.bindPipeline(vk::PipelineBindPoint::eCompute, *pressureSolvePipeline);
-  for (int iter = 0; iter < 40; iter++) {
+  for (int iter = 0; iter < pressureIterations; iter++) {
     for (int rb = 0; rb < 2; rb++) {
       pc.rb = rb;
       cmd.pushConstants(computePipelineLayout,
@@ -848,26 +849,55 @@ void SmokeSys::copyTargetsBack(vk::CommandBuffer cmd) {
   debug::endLabel(context, cmd);
 }
 
-void SmokeSys::update() {
-  FrameInputs in = gatherFrameInputs();
+bool SmokeSys::update(vk::CommandBuffer cmd, float frameTime) {
+  dt = glm::clamp(dt, 1.f / 120.f, 1.f / 15.f);
+  // Fixed-timestep accumulator: one step per dt of real time, at most one per
+  // call, with at most one dt of backlog carried over (so a hitch doesn't
+  // cause a burst of catch-up steps).
+  simAccumulator = std::min(simAccumulator + frameTime, 2.f * dt);
+  if (simAccumulator < dt)
+    return false;
+  simAccumulator -= dt;
 
-  vk::CommandBuffer cmd = beginSingleTimeCommands(context);
+  // Only on stepping frames: previousPlayerPos advances once per step, so
+  // playerVelocity = delta / dt is measured over ~dt of real time, matching
+  // the fixed rate gatherFrameInputs() has always assumed.
+  FrameInputs in = gatherFrameInputs();
+  activeSmoke = activeSmoke || in.brushActive;
+  activeFluid = activeFluid || in.brushActive || in.laserActive ||
+                in.playerRadiusCells > 0.f;
+  if (!activeFluid)
+    return false; // initialized volumes are already empty; no pressure solve
+
   debug::beginLabel(context, cmd, "SmokeSys::update", {0.3f, 0.6f, 0.3f, 1.0f});
+
+  // The sim used to run in its own submission followed by a full queue wait,
+  // which implicitly ordered it against everything from previous frames.
+  // Recorded into the frame's command buffer it needs explicit ordering:
+  // previous frame's compute reads of the dye/velocity volumes (transmittance
+  // + composite) and previous step's writes must finish before this step
+  // writes them. A pipeline barrier's first scope covers everything earlier
+  // in submission order on the queue, including prior frames' submits.
+  {
+    const auto access = vk::AccessFlagBits::eShaderRead |
+                        vk::AccessFlagBits::eShaderWrite |
+                        vk::AccessFlagBits::eTransferRead |
+                        vk::AccessFlagBits::eTransferWrite;
+    vk::MemoryBarrier begin{access, access};
+    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader |
+                            vk::PipelineStageFlagBits::eTransfer,
+                        vk::PipelineStageFlagBits::eComputeShader |
+                            vk::PipelineStageFlagBits::eTransfer,
+                        vk::DependencyFlags{}, begin, nullptr, nullptr);
+  }
 
   const uint32_t groupsX = (cellCount.x + 7) / 8;
   const uint32_t groupsY = (cellCount.y + 7) / 8;
   const uint32_t groupsZ = (cellCount.z + 7) / 8;
 
-  // recenter()'s clears (clearImages: vkCmdClearColorImage, a transfer-stage
-  // operation; clearSlicesGPU: compute dispatches) and the solid-map upload
-  // (a buffer->image copy, also transfer-stage) all record onto THIS
-  // command buffer instead of each opening their own
-  // beginSingleTimeCommands/endSingleTimeCommands - that used to mean up to
-  // three separate full CPU-blocking GPU syncs per frame while moving, on
-  // top of the one below for the sim itself. One shared submission at the
-  // end of update() replaces all of them. The returned staging buffer has
-  // to stay alive until that submission actually happens - see its own
-  // comment in recenterAndUploadSolidMap().
+  // recenter()'s clears and the solid-map upload record onto this same
+  // command buffer. The staging buffer must stay alive until this frame's
+  // GPU work is done - parked per frame-in-flight slot, see the header.
   std::unique_ptr<Buffer<uint8_t>> solidStagingBuffer =
       recenterAndUploadSolidMap(cmd, in.playerPos);
 
@@ -879,8 +909,29 @@ void SmokeSys::update() {
   dispatchAdvection(cmd, pc, groupsX, groupsY, groupsZ);
   copyTargetsBack(cmd);
 
+  // The copies in copyTargetsBack() are transfer writes; the transmittance
+  // and composite passes read the dye later in this same command buffer, and
+  // the next step reads velocity in compute. (The blocking submit used to
+  // make this implicit.)
+  {
+    vk::MemoryBarrier end{vk::AccessFlagBits::eTransferWrite |
+                              vk::AccessFlagBits::eShaderWrite,
+                          vk::AccessFlagBits::eShaderRead |
+                              vk::AccessFlagBits::eShaderWrite};
+    cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer |
+                            vk::PipelineStageFlagBits::eComputeShader,
+                        vk::PipelineStageFlagBits::eComputeShader,
+                        vk::DependencyFlags{}, end, nullptr, nullptr);
+  }
+
+  const size_t slot = static_cast<size_t>(context.frameInfo.frameIndex);
+  if (pendingSolidStaging.size() <= slot)
+    pendingSolidStaging.resize(slot + 1);
+  pendingSolidStaging[slot] = std::move(solidStagingBuffer);
+
   debug::endLabel(context, cmd); // matches "SmokeSys::update"
-  endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
+  ++simStepCount;
+  return true;
 }
 
 } // namespace vkh

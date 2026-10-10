@@ -19,12 +19,13 @@ public:
   void update();
   void setVertices(const std::vector<Vertex> &vertices);
 
+  bool isPositionInside(const glm::vec2 &position) override;
   unsigned short imageIndex;
 
 protected:
   void addToDrawInfo(vkh::hud::DrawInfo &drawInfo, float depth) override;
   std::vector<Vertex> vertices;
 
-  glm::vec2 g;
+  std::vector<uint32_t> indices;
 };
 } // namespace UI

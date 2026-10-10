@@ -1,4 +1,5 @@
 #include "swapChain.hpp"
+#include "../settings.hpp"
 #include "deviceHelpers.hpp"
 #include <cstdlib>
 #include <cstring>
@@ -34,7 +35,8 @@ void SwapChain::createSceneColorResources() {
     info.size = {extent.width, extent.height};
     info.format = swapChainImageFormat;
     info.usage = vk::ImageUsageFlagBits::eColorAttachment |
-                 vk::ImageUsageFlagBits::eSampled;
+                 vk::ImageUsageFlagBits::eSampled |
+                 vk::ImageUsageFlagBits::eTransferSrc;
     info.layout = vk::ImageLayout::eUndefined;
     info.samples = vk::SampleCountFlagBits::e1;
     info.aspect = vk::ImageAspectFlagBits::eColor;
@@ -206,7 +208,12 @@ void SwapChain::createSwapChain() {
   vk::Extent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
   vk::SwapchainCreateInfoKHR createInfo{};
   createInfo.surface = context.vulkan.surface;
-  createInfo.minImageCount = context.vulkan.maxFramesInFlight;
+  createInfo.minImageCount =
+      std::max(context.vulkan.maxFramesInFlight,
+               swapChainSupport.capabilities.minImageCount + 1);
+  if (swapChainSupport.capabilities.maxImageCount > 0)
+    createInfo.minImageCount = std::min(
+        createInfo.minImageCount, swapChainSupport.capabilities.maxImageCount);
   createInfo.imageFormat = surfaceFormat.format;
   createInfo.imageColorSpace = surfaceFormat.colorSpace;
   createInfo.imageExtent = extent;
@@ -374,6 +381,15 @@ vk::SurfaceFormatKHR SwapChain::chooseSwapSurfaceFormat(
 
 vk::PresentModeKHR SwapChain::chooseSwapPresentMode(
     const std::vector<vk::PresentModeKHR> &availablePresentModes) {
+  // Mailbox avoids FIFO refresh-rate divisors when a frame misses vblank.
+  // FIFO remains available for power-conscious runs and comparisons.
+  const char *mode = std::getenv("VULKHAN_PRESENT_MODE");
+  const bool sync =
+      mode ? std::strcmp(mode, "fifo") == 0 : settings::current().vsync;
+  if (!sync)
+    for (auto available : availablePresentModes)
+      if (available == vk::PresentModeKHR::eMailbox)
+        return available;
   return vk::PresentModeKHR::eFifo;
 }
 

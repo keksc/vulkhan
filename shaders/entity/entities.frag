@@ -13,6 +13,7 @@ layout(location = 7) flat in float fragMetallic;
 layout(location = 0) out vec4 outColor;
 
 #include "../globalUbo.glsl"
+#include "../environment.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D sceneTextures[256];
 
@@ -69,9 +70,9 @@ void main() {
 
     vec3 N = normalize(fragNormalWorld);
     vec3 V = normalize(ubo.inverseView[3].xyz - fragPosWorld);
-    vec3 L = normalize(vec3(1.0, 1.0, 0.5));
+    vec3 L = sunDirection();
     vec3 H = normalize(V + L);
-    vec3 radiance = vec3(2.0);
+    vec3 radiance = sunRadiance();
 
     float NdotV = max(dot(N, V), 0.0);
     float NdotL = max(dot(N, L), 0.0);
@@ -89,11 +90,10 @@ void main() {
     vec3 diffuse = kD * albedo / PI * NdotL;
     vec3 Lo = (diffuse + specular * NdotL) * radiance;
 
-    vec3 ambient = albedo * mix(0.12, 0.30, N.y * 0.5 + 0.5);
-    vec3 color = ambient + Lo;
+    vec3 ambient = albedo * hemisphereAmbient(N);
+    vec3 color = ambient + Lo + albedo * localLighting(fragPosWorld, N);
 
-    color = color / (color + vec3(1.0)); // tonemap
-    color = pow(color, vec3(1.0 / 2.2));  // gamma
+    color = sceneFog(color, fragPosWorld, V, distance(ubo.inverseView[3].xyz, fragPosWorld));
 
     outColor = vec4(color, 1.0);
 }

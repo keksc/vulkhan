@@ -58,6 +58,7 @@ public:
            static_cast<float>(swapChainExtent.height);
   }
   vk::Format findDepthFormat();
+  size_t getFrameIndex() const { return currentFrame; }
   vk::Result acquireNextImage(uint32_t *imageIndex);
   vk::Result submitCommandBuffers(const vk::CommandBuffer *buffers,
                                   uint32_t *imageIndex);

@@ -24,9 +24,8 @@ namespace vkh {
 
 Image::Image(Image &&other) noexcept
     : context{other.context}, img{other.img}, view{other.view},
-      allocation{other.allocation}, format{other.format},
-      layout{other.layout}, numSamples{other.numSamples},
-      aspectMask{other.aspectMask} {
+      allocation{other.allocation}, format{other.format}, layout{other.layout},
+      numSamples{other.numSamples}, aspectMask{other.aspectMask} {
   mipLevels = other.mipLevels;
   other.img = nullptr;
   other.view = nullptr;
@@ -92,7 +91,8 @@ void Image::recordTransitionLayout(vk::CommandBuffer cmd,
     imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
     srcStageMask = vk::PipelineStageFlagBits::eVertexShader |
                    vk::PipelineStageFlagBits::eTessellationEvaluationShader |
-                   vk::PipelineStageFlagBits::eFragmentShader;
+                   vk::PipelineStageFlagBits::eFragmentShader |
+                   vk::PipelineStageFlagBits::eComputeShader;
     break;
 
   case vk::ImageLayout::eColorAttachmentOptimal:
@@ -127,7 +127,8 @@ void Image::recordTransitionLayout(vk::CommandBuffer cmd,
     imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
     dstStageMask = vk::PipelineStageFlagBits::eVertexShader |
                    vk::PipelineStageFlagBits::eTessellationEvaluationShader |
-                   vk::PipelineStageFlagBits::eFragmentShader;
+                   vk::PipelineStageFlagBits::eFragmentShader |
+                   vk::PipelineStageFlagBits::eComputeShader;
     break;
 
   case vk::ImageLayout::eTransferDstOptimal:
@@ -212,7 +213,8 @@ void Image::recordTransitionMipLayout(vk::CommandBuffer cmd,
     imageMemoryBarrier.srcAccessMask = vk::AccessFlagBits::eShaderRead;
     srcStageMask = vk::PipelineStageFlagBits::eVertexShader |
                    vk::PipelineStageFlagBits::eTessellationEvaluationShader |
-                   vk::PipelineStageFlagBits::eFragmentShader;
+                   vk::PipelineStageFlagBits::eFragmentShader |
+                   vk::PipelineStageFlagBits::eComputeShader;
     break;
 
   case vk::ImageLayout::eColorAttachmentOptimal:
@@ -247,7 +249,8 @@ void Image::recordTransitionMipLayout(vk::CommandBuffer cmd,
     imageMemoryBarrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
     dstStageMask = vk::PipelineStageFlagBits::eVertexShader |
                    vk::PipelineStageFlagBits::eTessellationEvaluationShader |
-                   vk::PipelineStageFlagBits::eFragmentShader;
+                   vk::PipelineStageFlagBits::eFragmentShader |
+                   vk::PipelineStageFlagBits::eComputeShader;
     break;
 
   case vk::ImageLayout::eTransferDstOptimal:
@@ -333,8 +336,7 @@ void Image::transitionLayout(vk::ImageLayout newLayout) {
 }
 
 void Image::recordCopyFromBuffer(vk::CommandBuffer cmd, vk::Buffer buffer,
-                                 uint32_t bufferOffset,
-                                 uint32_t baseArrayLayer,
+                                 uint32_t bufferOffset, uint32_t baseArrayLayer,
                                  uint32_t layerCount) {
   assert(layout == vk::ImageLayout::eTransferDstOptimal);
 
@@ -386,9 +388,8 @@ void Image::downloadPixels(unsigned char *dst, uint32_t mipLevel,
 
   vk::CommandBuffer cmd = beginSingleTimeCommands(context);
 
-  vk::ImageSubresourceRange subresourceRange = {vk::ImageAspectFlagBits::eColor,
-                                                mipLevel, 1, baseArrayLayer,
-                                                layerCount};
+  vk::ImageSubresourceRange subresourceRange = {
+      vk::ImageAspectFlagBits::eColor, mipLevel, 1, baseArrayLayer, layerCount};
   vk::ImageLayout oldLayout = layout;
   recordTransitionLayout(cmd, vk::ImageLayout::eTransferSrcOptimal,
                          subresourceRange);
@@ -479,11 +480,10 @@ Image::KtxLoadResult Image::loadKtx2(EngineContext &context,
   // uploads as-is.
   bool expandRgbToRgba =
       (fmt == vk::Format::eR8G8B8Srgb || fmt == vk::Format::eR8G8B8Unorm);
-  vk::Format format =
-      expandRgbToRgba
-          ? (fmt == vk::Format::eR8G8B8Srgb ? vk::Format::eR8G8B8A8Srgb
-                                            : vk::Format::eR8G8B8A8Unorm)
-          : fmt;
+  vk::Format format = expandRgbToRgba ? (fmt == vk::Format::eR8G8B8Srgb
+                                             ? vk::Format::eR8G8B8A8Srgb
+                                             : vk::Format::eR8G8B8A8Unorm)
+                                      : fmt;
 
   ktxTexture *baseTex = ktxTexture(texture);
   uint32_t numFaces = texture->numFaces; // 6 for cubemaps, 1 otherwise
@@ -539,8 +539,7 @@ Image::KtxLoadResult Image::loadKtx2(EngineContext &context,
 
 std::pair<vk::Image, VmaAllocation>
 Image::createAndUploadKtxImage(EngineContext &context,
-                               const KtxLoadResult &data,
-                               uint32_t arrayLayers,
+                               const KtxLoadResult &data, uint32_t arrayLayers,
                                vk::ImageCreateFlags flags) {
   vk::ImageCreateInfo imageInfo{};
   imageInfo.imageType = vk::ImageType::e2D;
@@ -550,8 +549,8 @@ Image::createAndUploadKtxImage(EngineContext &context,
   imageInfo.arrayLayers = arrayLayers;
   imageInfo.samples = vk::SampleCountFlagBits::e1;
   imageInfo.tiling = vk::ImageTiling::eOptimal;
-  imageInfo.usage = vk::ImageUsageFlagBits::eTransferDst |
-                    vk::ImageUsageFlagBits::eSampled;
+  imageInfo.usage =
+      vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
   imageInfo.sharingMode = vk::SharingMode::eExclusive;
   imageInfo.initialLayout = vk::ImageLayout::eUndefined;
   imageInfo.flags = flags;
@@ -559,7 +558,8 @@ Image::createAndUploadKtxImage(EngineContext &context,
   VmaAllocation allocation = nullptr;
   vk::Image img = createImageWithInfo(context, imageInfo, allocation);
 
-  Buffer<std::byte> stagingBuffer(context, vk::BufferUsageFlagBits::eTransferSrc,
+  Buffer<std::byte> stagingBuffer(context,
+                                  vk::BufferUsageFlagBits::eTransferSrc,
                                   vk::MemoryPropertyFlagBits::eHostVisible |
                                       vk::MemoryPropertyFlagBits::eHostCoherent,
                                   data.uploadData.size());
@@ -582,12 +582,12 @@ Image::createAndUploadKtxImage(EngineContext &context,
   toDst.srcAccessMask = vk::AccessFlagBits::eNone;
   toDst.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
   cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTopOfPipe,
-                     vk::PipelineStageFlagBits::eTransfer, {}, nullptr,
-                     nullptr, toDst);
+                      vk::PipelineStageFlagBits::eTransfer, {}, nullptr,
+                      nullptr, toDst);
 
-  cmd.copyBufferToImage(stagingBuffer, img, vk::ImageLayout::eTransferDstOptimal,
-                       static_cast<uint32_t>(data.regions.size()),
-                       data.regions.data());
+  cmd.copyBufferToImage(
+      stagingBuffer, img, vk::ImageLayout::eTransferDstOptimal,
+      static_cast<uint32_t>(data.regions.size()), data.regions.data());
 
   vk::ImageMemoryBarrier toRead{};
   toRead.oldLayout = vk::ImageLayout::eTransferDstOptimal;
@@ -597,14 +597,12 @@ Image::createAndUploadKtxImage(EngineContext &context,
   toRead.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
   toRead.dstAccessMask = vk::AccessFlagBits::eShaderRead;
   cmd.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
-                     vk::PipelineStageFlagBits::eFragmentShader, {}, nullptr,
-                     nullptr, toRead);
+                      vk::PipelineStageFlagBits::eFragmentShader, {}, nullptr,
+                      nullptr, toRead);
   endSingleTimeCommands(context, cmd, context.vulkan.graphicsQueue);
 
   return {img, allocation};
 }
-
-
 
 void Image2D::createView() {
   vk::ImageViewCreateInfo viewInfo{};
@@ -650,9 +648,8 @@ void Image2D::createImageFromData(void *pixels, const size_t dataSize,
     throw std::runtime_error("failed to load texture image from memory!");
   }
 
-  createImage(imgSize,
-             vk::ImageUsageFlagBits::eTransferDst |
-                 vk::ImageUsageFlagBits::eSampled);
+  createImage(imgSize, vk::ImageUsageFlagBits::eTransferDst |
+                           vk::ImageUsageFlagBits::eSampled);
 
   Buffer<std::byte> stagingBuffer(context,
                                   vk::BufferUsageFlagBits::eTransferSrc,
@@ -671,7 +668,8 @@ void Image2D::createImageFromData(void *pixels, const size_t dataSize,
   createView();
 }
 
-Image2D::Image2D(EngineContext &context, const ImageCreateInfo_PNGdata &createInfo)
+Image2D::Image2D(EngineContext &context,
+                 const ImageCreateInfo_PNGdata &createInfo)
     : Image(context) {
   format = createInfo.format;
   numSamples = createInfo.samples;
@@ -703,7 +701,8 @@ Image2D::Image2D(EngineContext &context, const ImageCreateInfo_PNGdata &createIn
   setDbgInfo(createInfo.name);
 }
 
-Image2D::Image2D(EngineContext &context, const ImageCreateInfo_color &createInfo)
+Image2D::Image2D(EngineContext &context,
+                 const ImageCreateInfo_color &createInfo)
     : Image(context) {
   format = createInfo.format;
   size = createInfo.size;
@@ -734,7 +733,8 @@ Image2D::Image2D(EngineContext &context, const ImageCreateInfo_color &createInfo
   setDbgInfo(createInfo.name);
 }
 
-Image2D::Image2D(EngineContext &context, const ImageCreateInfo_empty &createInfo)
+Image2D::Image2D(EngineContext &context,
+                 const ImageCreateInfo_empty &createInfo)
     : Image(context) {
   size = createInfo.size;
   format = createInfo.format;
@@ -804,8 +804,8 @@ void Image2D::loadFromKtx2(const std::filesystem::path &path) {
   viewInfo.image = img;
   viewInfo.viewType = vk::ImageViewType::e2D;
   viewInfo.format = format;
-  viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, mipLevels,
-                               0, 1};
+  viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, mipLevels, 0,
+                               1};
   if (context.vulkan.device.createImageView(&viewInfo, nullptr, &view) !=
       vk::Result::eSuccess)
     throw std::runtime_error("failed to create image view!");
@@ -888,7 +888,8 @@ void Image3D::createImage(glm::uvec3 imgSize, vk::ImageUsageFlags usage) {
   img = createImageWithInfo(context, imageInfo, allocation);
 }
 
-Image3D::Image3D(EngineContext &context, const ImageCreateInfo_empty3D &createInfo)
+Image3D::Image3D(EngineContext &context,
+                 const ImageCreateInfo_empty3D &createInfo)
     : Image(context) {
   size = createInfo.size;
   format = createInfo.format;
@@ -944,9 +945,8 @@ Cubemap::Cubemap(EngineContext &context,
   arrayViewInfo.viewType = vk::ImageViewType::e2DArray;
   arrayViewInfo.format = format;
   arrayViewInfo.subresourceRange = {aspectMask, 0, mipLevels, 0, 6};
-  if (context.vulkan.device.createImageView(&arrayViewInfo, nullptr,
-                                            &arrayView) !=
-      vk::Result::eSuccess) {
+  if (context.vulkan.device.createImageView(
+          &arrayViewInfo, nullptr, &arrayView) != vk::Result::eSuccess) {
     throw std::runtime_error("failed to create cubemap array view!");
   }
 
@@ -1014,8 +1014,8 @@ Cubemap::Cubemap(EngineContext &context, const std::filesystem::path &path)
   viewInfo.image = img;
   viewInfo.viewType = vk::ImageViewType::eCube;
   viewInfo.format = format;
-  viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, mipLevels,
-                               0, 6};
+  viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, mipLevels, 0,
+                               6};
   if (context.vulkan.device.createImageView(&viewInfo, nullptr, &view) !=
       vk::Result::eSuccess)
     throw std::runtime_error("failed to create cubemap cube view!");
@@ -1069,9 +1069,8 @@ std::unique_ptr<Image> Image::fromFile(EngineContext &context,
     viewInfo.format = data.format;
     viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0,
                                  data.numLevels, 0, 6};
-    if (context.vulkan.device.createImageView(&viewInfo, nullptr,
-                                              &outImg->view) !=
-        vk::Result::eSuccess)
+    if (context.vulkan.device.createImageView(
+            &viewInfo, nullptr, &outImg->view) != vk::Result::eSuccess)
       throw std::runtime_error("failed to create cubemap cube view!");
 
     outImg->setDbgInfo(path.c_str());
@@ -1094,9 +1093,8 @@ std::unique_ptr<Image> Image::fromFile(EngineContext &context,
   viewInfo.format = data.format;
   viewInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0,
                                data.numLevels, 0, 1};
-  if (context.vulkan.device.createImageView(&viewInfo, nullptr,
-                                            &outImg->view) !=
-      vk::Result::eSuccess)
+  if (context.vulkan.device.createImageView(
+          &viewInfo, nullptr, &outImg->view) != vk::Result::eSuccess)
     throw std::runtime_error("failed to create image view!");
 
   outImg->setDbgInfo(path.c_str());

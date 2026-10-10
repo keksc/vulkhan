@@ -1,4 +1,5 @@
 #include "camera.hpp"
+#include "frustum.hpp"
 
 #include <glm/ext/matrix_clip_space.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -83,32 +84,8 @@ Ray getPickingRay(const EngineContext &context, glm::vec2 mousePos) {
   return Ray{context.camera.position, rayWorld};
 }
 
-std::vector<glm::vec4> getFrustumPlanes(const glm::mat4 &m) {
-  std::vector<glm::vec4> planes(6);
-  // Left
-  planes[0] = glm::vec4(m[0][3] + m[0][0], m[1][3] + m[1][0], m[2][3] + m[2][0],
-                        m[3][3] + m[3][0]);
-  // Right
-  planes[1] = glm::vec4(m[0][3] - m[0][0], m[1][3] - m[1][0], m[2][3] - m[2][0],
-                        m[3][3] - m[3][0]);
-  // Bottom
-  planes[2] = glm::vec4(m[0][3] + m[0][1], m[1][3] + m[1][1], m[2][3] + m[2][1],
-                        m[3][3] + m[3][1]);
-  // Top
-  planes[3] = glm::vec4(m[0][3] - m[0][1], m[1][3] - m[1][1], m[2][3] - m[2][1],
-                        m[3][3] - m[3][1]);
-  // Near
-  planes[4] = glm::vec4(m[0][3] + m[0][2], m[1][3] + m[1][2], m[2][3] + m[2][2],
-                        m[3][3] + m[3][2]);
-  // Far
-  planes[5] = glm::vec4(m[0][3] - m[0][2], m[1][3] - m[1][2], m[2][3] - m[2][2],
-                        m[3][3] - m[3][2]);
-
-  for (int i = 0; i < 6; i++) {
-    float length = glm::length(glm::vec3(planes[i]));
-    planes[i] /= length;
-  }
-  return planes;
+std::array<glm::vec4, 6> getFrustumPlanes(const glm::mat4 &m) {
+  return vkh::extractFrustumPlanes(m);
 }
 } // namespace camera
 } // namespace vkh

@@ -219,10 +219,16 @@ public:
        const std::string &content = "", glm::vec3 color = glm::vec3{1.f},
        float sizeMultiplicator = 1.f);
   AutoUpdateString<Text> content;
+  void setColor(glm::vec3 newColor) { color = newColor; }
   void setSizeMultiplicator(const float newSizeMultiplicator) {
+    if (sizeMultiplicator == newSizeMultiplicator)
+      return;
     sizeMultiplicator = newSizeMultiplicator;
+    flushSize();
   }
   float getSizeMultiplicator() const { return sizeMultiplicator; }
+  float renderedScale() const;
+  virtual void refreshLayout() { flushSize(); }
 
 protected:
   void addToDrawInfo(vkh::hud::DrawInfo &drawInfo, float depth) override;

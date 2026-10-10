@@ -1,0 +1,176 @@
+#version 450
+
+#include "../globalUbo.glsl"
+#include "../environment.glsl"
+#include "../consts.glsl"
+#include "../blackHoleOrbit.glsl"
+
+// The expensive half of GodRaysEffect, split out of godrays.comp so it can
+// run at a lower resolution than the final composite - see
+// GodRaysEffect::beforeDispatch()'s doc comment for why (measured at
+// ~40ms/frame at native 1920x1200 via RenderDoc before this split - a
+// 48-sample-per-pixel full-screen radial march is one of the most
+// expensive full-screen techniques there is, and light shafts are
+// low-frequency enough that evaluating them at native res is largely
+// wasted precision anyway).
+//
+// This is NOT one of the fixed-binding ComputePass shaders (see
+// computePass.hpp's kFixedBindingCount) - it's dispatched from
+// GodRaysEffect's own beforeDispatch() hook, on its own small, effect-
+// owned pipeline/descriptor set, entirely outside the generic
+// PostProcessingSys chaining machinery. That's why its bindings start at
+// 0, not kFixedBindingCount, and why binding 1/2 here always read the
+// TRUE resolved scene color/depth rather than respecting chain position
+// (see beforeDispatch()'s doc comment on why that's the correct
+// behavior, not an oversight).
+//
+// Writes ONLY the additive ray contribution (not sceneColor + rays) into
+// a half-resolution image, at a floating-point format (see
+// GodRaysEffect::recreateRaysImages()'s format comment) so a bright ray
+// isn't clipped here a frame early - godrays.comp applies tint/intensity
+// and bilinearly upsamples this into the final full-resolution composite.
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 1, binding = 0, rgba16f) uniform image2D raysOutput; // half-res
+layout(set = 1, binding = 1) uniform sampler2D sceneColor;        // full-res
+layout(set = 1, binding = 2) uniform sampler2D sceneDepth;        // full-res
+
+layout(set = 1, binding = 4) uniform sampler2D skyMask;
+
+layout(push_constant) uniform Push {
+  vec4 tintAndIntensity; // unused here - see godrays.comp; kept so this
+                         // shader reads the exact same BlackHoleGodRaysPush
+                         // struct GodRaysEffect::makePushConstants() already
+                         // builds for the outer composite dispatch, rather
+                         // than needing a second push-constant type.
+  vec4 rayParams;        // x=density, y=decay, z=weight, w=exposure
+  vec4 maskParams; // x=diskLuminanceThreshold, y=starLuminanceThreshold,
+                   // z=starWeight, w=use cached depth mask
+}
+push;
+
+// See godrays.comp's original doc comment (before the split) for why 48.
+const int NUM_SAMPLES = 48;
+
+float luminance(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+// See godrays.comp's ditherNoise() doc comment (unchanged by the split).
+float ditherNoise(vec2 pixel, float seed) {
+  return fract(52.9829189 *
+              fract(dot(pixel, vec2(0.06711056, 0.00583715)) + seed));
+}
+
+// Cache the original full-resolution five-texel depth dilation once per
+// scene pixel. Integer coordinates preserve its exact sampling behavior.
+float skyVisibility(vec2 uv) {
+  if (push.maskParams.w == 0.0) {
+    ivec2 size = textureSize(sceneDepth, 0);
+    ivec2 last = size - 1;
+    ivec2 p = clamp(ivec2(uv * vec2(size)), ivec2(0), last);
+    float d = texelFetch(sceneDepth, p, 0).r;
+    const ivec2 offsets[4] =
+        ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
+    for (int i = 0; i < 4; ++i)
+      d = max(d, texelFetch(sceneDepth,
+                          clamp(p + offsets[i], ivec2(0), last), 0).r);
+    return d > 1e-5 ? 0.0 : 1.0;
+  }
+  ivec2 size = textureSize(skyMask, 0);
+  ivec2 p = clamp(ivec2(uv * vec2(size)), ivec2(0), size - 1);
+  return texelFetch(skyMask, p, 0).r;
+}
+
+// See godrays.comp's lightScreenPosAndVisibility() doc comment (unchanged
+// by the split) - the ONE place either shader determines where the black
+// hole is on screen.
+vec3 lightScreenPosAndVisibility() {
+  vec4 clip = ubo.projView * vec4(bhWorldPos(), 1.0);
+  if (clip.w <= 1e-4) {
+    return vec3(0.5, 0.5, 0.0);
+  }
+
+  vec3 ndc = clip.xyz / clip.w;
+  vec2 uv = ndc.xy * 0.5 + 0.5;
+
+  const float fadeStart = 0.8;
+  const float fadeEnd = 2.5;
+  float maxNdc = max(abs(ndc.x), abs(ndc.y));
+  float visibility = 1.0 - smoothstep(fadeStart, fadeEnd, maxNdc);
+
+  return vec3(uv, visibility);
+}
+
+void main() {
+  ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+  ivec2 size = imageSize(raysOutput);
+  if (pixel.x >= size.x || pixel.y >= size.y)
+    return;
+
+  vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
+
+  vec3 lightData = lightScreenPosAndVisibility();
+  vec2 lightUV = lightData.xy;
+  float visibility = lightData.z;
+
+  vec3 rayAccum = vec3(0.0);
+
+  if (visibility > 0.0) {
+    float density = push.rayParams.x;
+    float decay = push.rayParams.y;
+    float weight = push.rayParams.z;
+    float exposure = push.rayParams.w;
+    float diskThreshold = push.maskParams.x;
+    float starThreshold = push.maskParams.y;
+    float starWeight = push.maskParams.z;
+
+    float jitter = ditherNoise(vec2(pixel), ubo.time);
+
+    vec2 deltaUV = (lightUV - uv) * (density / float(NUM_SAMPLES));
+    vec2 sampleUV = uv + deltaUV * jitter;
+    float illuminationDecay = 1.0;
+
+    for (int i = 0; i < NUM_SAMPLES; i++) {
+      sampleUV += deltaUV;
+      vec3 sampleColor = textureLod(sceneColor, sampleUV, 0.0).rgb;
+
+      float lum = luminance(sampleColor);
+      float diskMask = smoothstep(diskThreshold, 1.0, lum);
+      float starMask =
+          smoothstep(starThreshold, diskThreshold, lum) * starWeight;
+      float mask = diskMask + starMask;
+
+      if (mask > 0.0) {
+        rayAccum += sampleColor * mask * skyVisibility(sampleUV) *
+                    illuminationDecay * weight;
+      }
+      illuminationDecay *= decay;
+    }
+    rayAccum *= exposure * visibility;
+  }
+
+  // Directional sun shafts are separate from the emissive black-hole rays.
+  // Sample only while the sun is in front of the camera; a short half-res
+  // march keeps this atmospheric layer cheap and shares the global sun.
+  vec4 sunClip = ubo.projView * vec4(sunDirection(), 0.0);
+  if (sunClip.w > 0.001 && ubo.fogParams.x > 0.0) {
+    vec2 sunUV = sunClip.xy / sunClip.w * 0.5 + 0.5;
+    float visible = 1.0 - smoothstep(0.9, 2.0,
+        max(abs(sunUV.x * 2.0 - 1.0), abs(sunUV.y * 2.0 - 1.0)));
+    if (visible > 0.0) {
+      const int SUN_STEPS = 12;
+      vec2 delta = (sunUV - uv) / float(SUN_STEPS);
+      float amount = 0.0;
+      for (int i = 0; i < SUN_STEPS; ++i) {
+        vec2 q = uv + delta * (float(i) + 0.5);
+        vec2 d = q - sunUV;
+        float glow = exp(-dot(d, d) / 0.0008);
+        if (glow > 0.001)
+          amount += glow * skyVisibility(q);
+      }
+      rayAccum += sunRadiance() * amount / float(SUN_STEPS) * visible *
+                   min(ubo.fogParams.x * 80.0, 0.2);
+    }
+  }
+  imageStore(raysOutput, pixel, vec4(rayAccum, 1.0));
+}

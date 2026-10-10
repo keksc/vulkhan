@@ -1,0 +1,47 @@
+[terrain]
+baseHeight = 0
+peakHeight = 120
+featureSize = 100
+erosionScale = 30
+erosionStrength = 0.22
+
+[profiles.autumn]
+ground = [0.25, 0.095, 0.035]
+rock = [0.32, 0.25, 0.19]
+grass = [0.43, 0.27, 0.09]
+foliage = [0.52, 0.065, 0.016]
+grassDensity = 0.7
+treeDensity = 1.1
+dryness = 0.35
+broadleaf = 1
+snow = 0.2
+
+[profiles.volcanic]
+ground = [0.045, 0.035, 0.03]
+rock = [0.08, 0.065, 0.055]
+grassDensity = 0.02
+treeDensity = 0.02
+snow = 0
+broadleaf = 0
+
+[[regions]]
+profile = "autumn"
+center = [220, -100]
+radius = 450
+blend = 160
+
+[[regions]]
+profile = "volcanic"
+center = [700, 300]
+radius = 360
+blend = 100
+
+[[volcanoes]]
+center = [700, 300]
+radius = 200
+height = 90
+crater = 0.25
+depth = 55
+active = true
+plumeHeight = 120
+plumeColor = [0.12, 0.115, 0.10]

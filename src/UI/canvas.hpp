@@ -13,6 +13,7 @@ public:
          glm::vec2 size, decltype(RectImg::imageIndex) bgImageIndex);
   void saveToFile(const std::filesystem::path &path);
   void reset();
+  void addToDrawInfo(vkh::hud::DrawInfo &info, float depth) override;
   std::shared_ptr<FilePicker> filePicker;
   void loadFromFile(const std::filesystem::path &path);
 
@@ -40,6 +41,6 @@ private:
     Resizing
   } interaction{Interaction::None};
   glm::vec2 dragOffset;
-  glm::vec3 currentColor{1.f, 1.f, 1.f};
+  glm::vec3 currentColor{.16f, .13f, .10f};
 };
 } // namespace UI

@@ -19,6 +19,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -77,6 +78,9 @@ public:
     struct Primitive {
       uint32_t indexOffset{};
       uint32_t indexCount{};
+      // CPU-only point attributes describing fur on the skin surface.
+      // Indexed like the scene vertices; no hair mesh is exported.
+      std::vector<glm::vec3> furParameters, furDirections;
       size_t materialIndex;
       void draw(vk::CommandBuffer commandBuffer) {
         commandBuffer.drawIndexed(indexCount, 1, indexOffset, 0, 0);
@@ -233,6 +237,22 @@ public:
   Buffer<VertexType> &getVertexBuffer() { return *vertexBuffer; }
   Buffer<uint32_t> &getIndexBuffer() { return *indexBuffer; }
 
+  bool isUploaded() const {
+    return vertexBuffer && indexBuffer && sceneTextureSet;
+  }
+  // A LOD scene needs one logical representative; EntitySys expands levels.
+  std::vector<size_t> instanceMeshes() const {
+    if (!lodMeshGroups.empty()) {
+      if (lodMeshGroups.front().empty())
+        throw std::invalid_argument("Scene LOD0 has no meshes");
+      return {lodMeshGroups.front().front()};
+    }
+    std::vector<size_t> result;
+    for (size_t i = 0; i < meshes.size(); ++i)
+      if (!meshes[i].primitives.empty())
+        result.push_back(i);
+    return result;
+  }
   std::vector<Mesh> meshes;
 
   // Groups this asset's meshes into LOD levels by NODE NAME convention: a
@@ -265,9 +285,9 @@ private:
 
   EngineContext &context;
   std::unique_ptr<Buffer<VertexType>> vertexBuffer;
-  uint32_t vertexCount;
+  uint32_t vertexCount = 0;
   std::unique_ptr<Buffer<uint32_t>> indexBuffer;
-  uint32_t indexCount;
+  uint32_t indexCount = 0;
   bool disableMaterial{};
 };
 

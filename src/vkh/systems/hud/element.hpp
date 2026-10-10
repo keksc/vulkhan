@@ -48,7 +48,8 @@ public:
 
   template <input::EventType E, typename... Args>
   bool dispatchEvent(Args &&...args) {
-    for (auto &child : children) {
+    const auto listeners = children;
+    for (auto &child : listeners) {
       if (child->dispatchEvent<E>(std::forward<Args>(args)...)) {
         return true;
       }

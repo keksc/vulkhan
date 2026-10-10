@@ -77,6 +77,7 @@ public:
   void render(size_t lineVerticesSize, size_t triangleIndicesSize);
   void ensureLineCapacity(size_t vertexCount, size_t indexCount);
   void ensureTriangleCapacity(size_t vertexCount, size_t indexCount);
+  void prepareFrame(uint32_t frameIndex);
 
   std::unique_ptr<Buffer<LineVertex>> linesVertexBuffer;
   std::unique_ptr<Buffer<uint32_t>> linesIndexBuffer;
@@ -85,9 +86,19 @@ public:
   size_t addTextureFromPNGMemory(void *data, size_t size);
   size_t addTextureFromFile(std::filesystem::path path);
 
+  size_t addColor(uint32_t rgba);
+  std::vector<std::pair<uint32_t, size_t>> colors;
   std::vector<Image2D> images;
 
 private:
+  struct FrameBuffers {
+    std::unique_ptr<Buffer<LineVertex>> lineVertices;
+    std::unique_ptr<Buffer<uint32_t>> lineIndices;
+    std::unique_ptr<Buffer<TriangleVertex>> triangleVertices;
+    std::unique_ptr<Buffer<uint32_t>> triangleIndices;
+  };
+  std::vector<FrameBuffers> frameBuffers;
+  uint32_t activeFrame = 0;
   void createBuffers();
   void createDescriptors();
   void createPipelines();

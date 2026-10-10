@@ -6,7 +6,10 @@
 #include "../../AABB.hpp"
 #include "../../pipeline.hpp"
 #include "../../scene.hpp"
+#include "../culling.hpp"
 #include "../system.hpp"
+#include "instanceSlots.hpp"
+#include <unordered_map>
 
 namespace vkh {
 
@@ -70,7 +73,8 @@ public:
     Transform transform;
     RigidBody rigidBody;
     std::shared_ptr<Scene<Vertex>> scene;
-    std::size_t meshIndex;
+    std::size_t meshIndex = 0;
+    uint32_t ownerSlot = std::numeric_limits<uint32_t>::max();
 
     const inline Scene<Vertex>::Mesh &getMesh() const {
       return scene->meshes[meshIndex];
@@ -100,11 +104,7 @@ public:
                         // by the culling compute pass
   };
 
-  struct CullingUbo {
-    glm::vec4 frustumPlanes[6];
-    uint32_t totalInstances;
-    uint32_t totalCommands;
-  };
+  using CullingPush = vkh::CullingPush;
 
   struct SceneBatch {
     std::shared_ptr<Scene<Vertex>> scene;
@@ -115,6 +115,35 @@ public:
   EntitySys(EngineContext &context);
   ~EntitySys();
 
+  using Handle = InstanceHandle;
+  using Model = Scene<Vertex>;
+  // Main-thread loading, cached by normalized path and material mode.
+  std::shared_ptr<Model> loadScene(const std::filesystem::path &path,
+                                   bool disableMaterial = false);
+  Handle spawn(const std::shared_ptr<Model> &scene, const Transform &transform);
+  Handle spawn(const std::shared_ptr<Model> &scene) {
+    return spawn(scene, Transform{});
+  }
+  Handle spawn(const std::filesystem::path &path, const Transform &transform) {
+    return spawn(loadScene(path), transform);
+  }
+  Handle spawn(const std::filesystem::path &path) {
+    return spawn(loadScene(path));
+  }
+  bool destroy(Handle handle);
+  bool isAlive(Handle handle) const;
+  bool setTransform(Handle handle, const Transform &transform);
+  bool setColor(Handle handle, glm::vec4 color);
+  bool setId(Handle handle, uint32_t id);
+  std::optional<Transform> getTransform(Handle handle) const;
+  Handle pickInstance(const Ray &ray, float &distance,
+                      float maxDistance = std::numeric_limits<float>::max());
+
+  // Once after beginFrame retires the current fence, before culling/drawing.
+  void prepareFrame() {
+    updateBuffers();
+    updateJoints();
+  }
   void updateJoints();
   void cull(vk::CommandBuffer cmd);
   // Re-culls THIS frame's already-built instance/draw-command lists
@@ -158,7 +187,7 @@ public:
   // the MIRRORED one (a mountain range beside/behind the real camera
   // that the reflection should show) would incorrectly be missing.
   void render(vk::DescriptorSet globalSetOverride = nullptr,
-             const glm::vec4 &clipPlane = glm::vec4(0.f, 1.f, 0.f, 1e9f));
+              const glm::vec4 &clipPlane = glm::vec4(0.f, 1.f, 0.f, 1e9f));
   void updateBuffers();
 
   Entity *pickEntity(const Ray &ray, float &distance,
@@ -168,9 +197,18 @@ public:
   vk::DescriptorSetLayout texturesSetLayout;
   vk::DescriptorSetLayout instanceSetLayout;
 
+  // Legacy mesh-level access. Do not reorder/erase entries managed by handles.
   std::vector<Entity> entities;
 
 private:
+  struct Instance {
+    Transform transform;
+    std::vector<size_t> meshEntities;
+  };
+  InstanceSlots<Instance> instances;
+  std::unordered_map<std::string, std::weak_ptr<Model>> sceneCache;
+  // Retain resources referenced by each frame until its fence is retired.
+  std::vector<std::vector<std::shared_ptr<Model>>> frameScenes;
   void createSetLayouts();
   void createPipeline();
   void createCullingPipeline();
@@ -193,7 +231,6 @@ private:
   std::vector<vk::DescriptorSet> cullingDescriptorSets;
   std::unique_ptr<ComputePipeline> cullingPipeline;
   std::unique_ptr<ComputePipeline> finalizePipeline;
-  std::vector<std::unique_ptr<Buffer<CullingUbo>>> cullingUboBuffers;
 
   // GPU-only, written by the culling pass and read by the vertex shader.
   std::vector<std::unique_ptr<Buffer<GPUInstanceData>>>
@@ -201,10 +238,18 @@ private:
   // Static per-group data, rebuilt alongside cpuDrawCommands.
   std::vector<std::unique_ptr<Buffer<uint32_t>>> groupFirstInstanceBuffers;
   std::vector<std::unique_ptr<Buffer<uint32_t>>> commandGroupIndexBuffers;
-  // Zeroed by the CPU every frame; accumulated by the culling pass.
+  // Zeroed by a transfer command before each view; accumulated by culling.
   std::vector<std::unique_ptr<Buffer<uint32_t>>> groupVisibleCountBuffers;
 
   std::vector<SceneBatch> sceneBatches;
+  std::vector<size_t> renderOrder;
+  struct FrameEntityData {
+    glm::mat4 modelMatrix;
+    glm::mat4 normalMatrix;
+    AABB worldAABB;
+  };
+  // Indexed by render order; capacity survives frames to avoid allocations.
+  std::vector<FrameEntityData> frameEntityData;
 
   std::vector<GPUInstanceData> cpuInstanceData;
   std::vector<vk::DrawIndexedIndirectCommand> cpuDrawCommands;
@@ -219,13 +264,9 @@ private:
 
   void flushBuffers(int frameIndex);
 
-  // Shared by cull() and cullForViewProj() - the actual
-  // barrier+dispatch+barrier+dispatch+barrier compute sequence, identical
-  // regardless of whose frustum planes are currently in
-  // cullingUboBuffers[frameIndex] (each caller fills that UBO itself
-  // beforehand, since it's a two-line loop not worth its own signature
-  // coupled to camera::getFrustumPlanes()'s exact return type).
-  void dispatchCulling(vk::CommandBuffer cmd, int frameIndex);
+  // Shared compaction/finalization for the camera pushed by the caller.
+  void dispatchCulling(vk::CommandBuffer cmd, int frameIndex,
+                       const CullingPush &view);
 
 public:
   void markStructuralDirty() { structuralDirty = true; }

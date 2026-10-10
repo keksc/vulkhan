@@ -1,0 +1,26 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(set = 1, binding = 2) uniform sampler2D sceneDepth;
+layout(set = 1, binding = 3, r32f) uniform writeonly image2D skyMask;
+
+void main() {
+  ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+  ivec2 size = imageSize(skyMask);
+  if (any(greaterThanEqual(p, size)))
+    return;
+  ivec2 last = size - 1;
+  float depth = texelFetch(sceneDepth, p, 0).r;
+  if (depth > 1e-5) {
+    imageStore(skyMask, p, vec4(0.0));
+    return;
+  }
+  const ivec2 offsets[4] =
+      ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
+  for (int i = 0; i < 4; ++i)
+    depth = max(depth, texelFetch(sceneDepth,
+                                clamp(p + offsets[i], ivec2(0), last), 0).r);
+  // Reversed Z: cleared depth is sky. Keep the original dilation and
+  // epsilon to prevent shafts leaking through geometry silhouettes.
+  imageStore(skyMask, p, vec4(depth > 1e-5 ? 0.0 : 1.0));
+}

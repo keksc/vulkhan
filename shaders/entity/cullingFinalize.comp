@@ -12,7 +12,7 @@
 
 layout(local_size_x = 64) in;
 
-layout(set = 0, binding = 0) uniform CullingUbo {
+layout(push_constant) uniform CullingPush {
   vec4 frustumPlanes[6];
   uint totalInstances;
   uint totalCommands;

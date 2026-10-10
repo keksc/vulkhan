@@ -1,7 +1,6 @@
 #include "mountain.hpp"
 
 #include "vkh/sceneBuilder.hpp"
-#include "vkh/systems/water/water.hpp"
 
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/packing.hpp>
@@ -10,8 +9,10 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <future>
 #include <limits>
 #include <queue>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -292,7 +293,8 @@ ErosionResult erosionFilter(glm::vec2 p, glm::vec3 heightAndSlope,
 // blended against a running fade-target/mask via mix(), replacing the
 // running result rather than summing octaves, so that finer octaves can't
 // disturb the ridges/creases already committed by coarser ones.
-float evalHeight(glm::vec2 pos, const MountainCreateInfo &info) {
+float evalHeight(glm::vec2 pos, const MountainCreateInfo &info,
+                 float cellSizeOverride = 0.f) {
   // Turbulent base landscape, direct analog of the shader's
   // `FractalNoise(pHeight, HEIGHT_FREQUENCY, HEIGHT_OCTAVES,
   // HEIGHT_LACUNARITY, HEIGHT_GAIN)`. baseFeatureWorldSize is the
@@ -335,7 +337,9 @@ float evalHeight(glm::vec2 pos, const MountainCreateInfo &info) {
   // show.
   glm::uvec2 gridRes = glm::max(info.resolution, glm::uvec2(2u));
   glm::vec2 cellSize = info.worldSize / glm::vec2(gridRes - glm::uvec2(1u));
-  float maxSafeFreq = 1.f / (3.f * glm::max(cellSize.x, cellSize.y));
+  float cellMax = cellSizeOverride > 0.f ? cellSizeOverride
+                                         : glm::max(cellSize.x, cellSize.y);
+  float maxSafeFreq = 1.f / (3.f * cellMax);
 
   float freq0 = 1.f / (info.erosionScale * info.cellScale);
   uint32_t safeOctaves = 0;
@@ -375,6 +379,11 @@ float evalHeight(glm::vec2 pos, const MountainCreateInfo &info) {
   // (see vert.uv below), which is the one place clamping is needed -
   // sampling the gradient texture with an out-of-range altitude, not the
   // mesh's actual geometry, is the only thing that would misbehave.
+  if (info.heightModifier) {
+    const float range = info.peakHeight - info.baseHeight;
+    return (info.heightModifier(pos, info.baseHeight + eroded * range) -
+            info.baseHeight) / range;
+  }
   return eroded;
 }
 
@@ -479,125 +488,21 @@ std::vector<uint8_t> buildTerrainTexture(glm::uvec2 &outSize) {
 
 } // namespace
 
-std::shared_ptr<Scene<EntitySys::Vertex>>
-generate(EngineContext &context, vk::DescriptorSetLayout texturesSetLayout,
-         const MountainCreateInfo &createInfo, MountainHeightmap *outHeightmap,
-         std::vector<Lake> *outLakes, std::vector<TreePlacement> *outTrees) {
-  using Vertex = EntitySys::Vertex;
-
-  const uint32_t gridX = glm::max(createInfo.resolution.x, 2u);
-  const uint32_t gridZ = glm::max(createInfo.resolution.y, 2u);
-
-  std::vector<Vertex> vertices;
-  vertices.reserve(static_cast<size_t>(gridX) * gridZ);
-
-  glm::vec3 boundsMin(std::numeric_limits<float>::max());
-  glm::vec3 boundsMax(std::numeric_limits<float>::lowest());
-
-  std::vector<float> heights(static_cast<size_t>(gridX) * gridZ);
-  // Populated in lockstep with `heights` in the vertex loop below, reused
-  // afterward for lake-basin flood filling (see the outLakes block).
-  std::vector<float> slopeNorms(static_cast<size_t>(gridX) * gridZ);
-
+// Priority-flood lake detection on a gridX x gridZ height grid (normalized
+// heights) covering createInfo.worldSize centred on createInfo.worldCenter.
+static void detectLakes(const MountainCreateInfo &createInfo,
+                        const std::vector<float> &heights, uint32_t gridX,
+                        uint32_t gridZ, std::vector<Lake> *outLakes) {
   const glm::vec2 halfSize = createInfo.worldSize * 0.5f;
   const float heightRange = createInfo.peakHeight - createInfo.baseHeight;
-
   auto worldPosAt = [&](uint32_t ix, uint32_t iz) {
     float u = static_cast<float>(ix) / static_cast<float>(gridX - 1);
     float v = static_cast<float>(iz) / static_cast<float>(gridZ - 1);
-    float x = glm::mix(-halfSize.x, halfSize.x, u);
-    float z = glm::mix(-halfSize.y, halfSize.y, v);
-    return glm::vec2(x, z);
+    return createInfo.worldCenter +
+           glm::vec2(glm::mix(-halfSize.x, halfSize.x, u),
+                     glm::mix(-halfSize.y, halfSize.y, v));
   };
-
-  for (uint32_t iz = 0; iz < gridZ; ++iz) {
-    for (uint32_t ix = 0; ix < gridX; ++ix) {
-      glm::vec2 xz = worldPosAt(ix, iz);
-      float h = evalHeight(xz, createInfo);
-      heights[iz * gridX + ix] = h;
-    }
-  }
-
-  // Cell size, used to compute normals from central differences on the
-  // already-evaluated height grid rather than re-evaluating the (fairly
-  // expensive) erosion function again.
-  float cellX = createInfo.worldSize.x / static_cast<float>(gridX - 1);
-  float cellZ = createInfo.worldSize.y / static_cast<float>(gridZ - 1);
-
-  // If requested, accumulated in lockstep with the vertex loop below so
-  // the exported heightmap always matches the mesh's own hNorm/slopeNorm
-  // exactly - no separate re-evaluation, no risk of drifting out of sync.
-  //
-  // Stored as packed half-floats (glm::packHalf2x16), one uint32 per
-  // texel, matching an R16G16_SFLOAT image - NOT plain 32-bit floats.
-  // R32G32_SFLOAT is only required by the Vulkan spec to support nearest
-  // filtering; linear filtering on 32-bit float formats is optional and
-  // frequently unsupported, while 16-bit float formats are part of the
-  // mandatory linear-filtering set. Sampling with an unsupported filter
-  // mode is undefined behavior - inconsistent-looking results that don't
-  // match the actual terrain (right shape, wrong place; or a hard seam
-  // partway across an otherwise-uniform area) are exactly what that looks
-  // like in practice. Half-float precision is more than enough here: the
-  // height value maxes out around peakHeight (tens of world units) and
-  // the suitability channel is already clamped to [0,1].
-  std::vector<uint32_t> heightmapPixels;
-  if (outHeightmap)
-    heightmapPixels.resize(static_cast<size_t>(gridX) * gridZ);
-
-  for (uint32_t iz = 0; iz < gridZ; ++iz) {
-    for (uint32_t ix = 0; ix < gridX; ++ix) {
-      glm::vec2 xz = worldPosAt(ix, iz);
-      float hNorm = heights[iz * gridX + ix];
-      float y = createInfo.baseHeight + hNorm * heightRange;
-
-      uint32_t ixL = ix > 0 ? ix - 1 : ix;
-      uint32_t ixR = ix < gridX - 1 ? ix + 1 : ix;
-      uint32_t izD = iz > 0 ? iz - 1 : iz;
-      uint32_t izU = iz < gridZ - 1 ? iz + 1 : iz;
-
-      float hL = heights[iz * gridX + ixL] * heightRange;
-      float hR = heights[iz * gridX + ixR] * heightRange;
-      float hD = heights[izD * gridX + ix] * heightRange;
-      float hU = heights[izU * gridX + ix] * heightRange;
-
-      float dHdx = (hR - hL) / (glm::max(1u, ixR - ixL) * cellX);
-      float dHdz = (hU - hD) / (glm::max(1u, izU - izD) * cellZ);
-
-      glm::vec3 normal = glm::normalize(glm::vec3(-dHdx, 1.f, -dHdz));
-
-      // Slope steepness, normalized so 0 = flat and 1 = at-or-beyond
-      // rockSlopeAngleDeg from horizontal. normal.y == cos(angle from
-      // vertical-up), so a flat surface has normal.y == 1 and a surface
-      // at the threshold angle has normal.y == cos(rockSlopeAngleDeg).
-      float thresholdNormalY =
-          std::cos(glm::radians(createInfo.rockSlopeAngleDeg));
-      float slopeNorm = 0.f;
-      if (thresholdNormalY < 1.f - 1e-5f) {
-        slopeNorm =
-            glm::clamp((1.f - normal.y) / (1.f - thresholdNormalY), 0.f, 1.f);
-      }
-
-      slopeNorms[iz * gridX + ix] = slopeNorm;
-
-      Vertex vert{};
-      vert.pos = glm::vec3(xz.x, y, xz.y);
-      vert.normal = normal;
-      vert.uv = glm::vec2(glm::clamp(hNorm, 0.f, 1.f), slopeNorm);
-      vertices.push_back(vert);
-
-      if (outHeightmap) {
-        size_t pIdx = static_cast<size_t>(iz) * gridX + ix;
-        float suitability =
-            computeGrassSuitability(glm::clamp(hNorm, 0.f, 1.f), slopeNorm);
-        heightmapPixels[pIdx] = glm::packHalf2x16(glm::vec2(y, suitability));
-      }
-
-      boundsMin = glm::min(boundsMin, vert.pos);
-      boundsMax = glm::max(boundsMax, vert.pos);
-    }
-  }
-
-  if (outLakes && createInfo.generateLakes) {
+  {
     // Priority-flood depression filling (the standard terrain/hydrology
     // technique for this - equivalent to LeetCode's "Trapping Rain Water
     // II"): flood inward from the map's edge, and for every cell compute
@@ -753,98 +658,256 @@ generate(EngineContext &context, vk::DescriptorSetLayout texturesSetLayout,
         }
 
         ++accepted;
+        // The extents above come from member cell CENTRES, so the real shore
+        // can lie up to one grid cell beyond them. Without this padding the
+        // water mesh ends in a straight, axis-aligned cut there, leaving
+        // lakebed below the water level uncovered. The padded area is trimmed
+        // back by the flood-filled water mesh below and the depth test.
+        // At least ~4 terrain cells: the fine lattice must contain the whole
+        // true shore, otherwise its border clips the water in a straight cut.
+        const float padMin = 4.f * terrainCellSize(createInfo);
+        const float padX = std::max(
+            createInfo.worldSize.x / static_cast<float>(gridX - 1), padMin);
+        const float padZ = std::max(
+            createInfo.worldSize.y / static_cast<float>(gridZ - 1), padMin);
+        minX -= padX;
+        maxX += padX;
+        minZ -= padZ;
+        maxZ += padZ;
         Lake lake{};
         float waterY = createInfo.baseHeight + minSpillLevel * heightRange -
                        createInfo.lakeShoreMargin;
         lake.worldCenter =
             glm::vec3((minX + maxX) * 0.5f, waterY, (minZ + maxZ) * 0.5f);
         lake.worldSize = glm::vec2(maxX - minX, maxZ - minZ);
+        if (createInfo.lakeAllowed && !createInfo.lakeAllowed(lake.worldCenter)) {
+          for (uint32_t memberIdx : members) inBasin[memberIdx] = 0;
+          continue;
+        }
 
-        // Rasterize this component's actual member cells into a fixed-
-        // resolution mask now that the final bounding box (minX/maxX/
-        // minZ/maxZ) is known - see Lake::cellMask's comment.
-        // vkh::WaterSys::tileResolution is used directly (rather than a
-        // duplicated magic number) so this can't silently drift out of
-        // sync with WaterSys's own grid resolution.
-        constexpr uint32_t maskRes = vkh::WaterSys::tileResolution;
-        lake.maskResolution = glm::uvec2(maskRes, maskRes);
-        lake.cellMask.assign(static_cast<size_t>(maskRes) * maskRes, false);
-        float boxWidth = std::max(maxX - minX, 1e-5f);
-        float boxDepth = std::max(maxZ - minZ, 1e-5f);
-        // GATHER, not scatter: for each mask texel, check whether ANY
-        // terrain grid cell whose footprint falls inside that texel's
-        // world-space extent is a basin member, rather than pushing each
-        // member cell forward onto a single mask texel (scatter) or
-        // point-sampling just one terrain cell per texel.
-        //
-        // Neither of those simpler approaches works across the full
-        // range of lake sizes, because maskRes is a FIXED 32x32
-        // regardless of a lake's bounding box, while the terrain grid is
-        // a fixed 512x512 over the whole level - so which side is finer
-        // flips depending on the lake:
-        //  - Scatter (push each member cell to its nearest mask texel)
-        //    only fills every texel when the mask is coarser than the
-        //    terrain in that axis. For a lake narrower than roughly
-        //    maskRes * (terrain cell spacing) - e.g. a long, narrow
-        //    canyon basin - mask spacing becomes FINER than the terrain
-        //    grid, so whole columns/rows of texels never get hit by any
-        //    source cell and default to false: non-water stripes cutting
-        //    through the lake.
-        //  - Point-sampling one nearest terrain cell per texel (the
-        //    previous fix here) flips that failure for the more common
-        //    case of a lake bigger than that threshold, where the
-        //    terrain grid is finer than the mask: each texel then
-        //    represents a whole PATCH of terrain cells, and checking only
-        //    the one nearest to the texel's center means a texel next to
-        //    a jagged/curved shoreline can land on that one dry cell even
-        //    though most of the patch it stands for is wet - eroding the
-        //    mask inward from the true shoreline (water not reaching the
-        //    edge of the lakebed).
-        // Checking every terrain cell in the texel's actual footprint (OR
-        // together) covers both cases: it degrades to a single nearest
-        // cell when the mask is finer than the terrain (preserving the
-        // stripe fix), and covers the whole patch when the mask is
-        // coarser (fixing the shoreline erosion).
-        auto worldToGridRange = [&](float worldMin, float worldMax,
-                                    float halfExtent, float worldExtent,
-                                    uint32_t gridCount) {
-          float gu0 = (worldMin + halfExtent) / worldExtent;
-          float gu1 = (worldMax + halfExtent) / worldExtent;
-          int32_t g0 = static_cast<int32_t>(std::floor(gu0 * (gridCount - 1)));
-          int32_t g1 = static_cast<int32_t>(std::ceil(gu1 * (gridCount - 1)));
-          g0 = std::clamp(g0, 0, static_cast<int32_t>(gridCount - 1));
-          g1 = std::clamp(g1, 0, static_cast<int32_t>(gridCount - 1));
-          if (g1 < g0)
-            g1 = g0; // texel footprint collapsed to sub-cell width
-          return std::pair{g0, g1};
-        };
+        float boxWidth = maxX - minX;
+        float boxDepth = maxZ - minZ;
 
-        for (uint32_t mz = 0; mz < maskRes; ++mz) {
-          float v0 = static_cast<float>(mz) / static_cast<float>(maskRes);
-          float v1 = static_cast<float>(mz + 1) / static_cast<float>(maskRes);
-          auto [gz0, gz1] =
-              worldToGridRange(minZ + v0 * boxDepth, minZ + v1 * boxDepth,
-                               halfSize.y, createInfo.worldSize.y, gridZ);
-          for (uint32_t mx = 0; mx < maskRes; ++mx) {
-            float u0 = static_cast<float>(mx) / static_cast<float>(maskRes);
-            float u1 = static_cast<float>(mx + 1) / static_cast<float>(maskRes);
-            auto [gx0, gx1] =
-                worldToGridRange(minX + u0 * boxWidth, minX + u1 * boxWidth,
-                                 halfSize.x, createInfo.worldSize.x, gridX);
+        // --- Water surface mesh --------------------------------------------
+        // Refine the coarse basin on the rendered terrain's lattice, keeping
+        // only connected water. Reuse this footprint for vegetation exclusion.
+        {
+          // Match the terrain's vertex lattice and triangle diagonal exactly.
+          // Dry perimeter vertices stay in place, hiding the mesh boundary
+          // under the bank instead of cutting water at a grid-aligned contour.
+          const float surfaceCell = terrainCellSize(createInfo);
+          minX = std::floor(minX / surfaceCell) * surfaceCell;
+          minZ = std::floor(minZ / surfaceCell) * surfaceCell;
+          maxX = std::ceil(maxX / surfaceCell) * surfaceCell;
+          maxZ = std::ceil(maxZ / surfaceCell) * surfaceCell;
+          const uint32_t NX =
+              static_cast<uint32_t>(std::lround((maxX - minX) / surfaceCell)) +
+              1;
+          const uint32_t NZ =
+              static_cast<uint32_t>(std::lround((maxZ - minZ) / surfaceCell)) +
+              1;
+          // Keep the previous per-lake sampling budget. Oversized basins are
+          // omitted rather than fitted to a coarse grid that exposes shores.
+          if (static_cast<size_t>(NX) * NZ > 384u * 384u) {
+            for (uint32_t memberIdx : members)
+              inBasin[memberIdx] = 0;
+            continue;
+          }
+          boxWidth = maxX - minX;
+          boxDepth = maxZ - minZ;
+          lake.worldSize = glm::vec2(boxWidth, boxDepth);
+          lake.worldCenter.x = (minX + maxX) * 0.5f;
+          lake.worldCenter.z = (minZ + maxZ) * 0.5f;
+          // Shore slack lets the water run a little under the rim so the
+          // terrain mesh's own interpolation never leaves a gap at the edge
+          // (the depth test hides the part that is underground).
+          // 0.3 (was 0.1): the terrain mesh interpolates linearly between its
+          // vertices, so on curved/steep shores it can sit a few decimetres
+          // below the true height the contour was taken from.
+          constexpr float kShoreSlack = 0.3f;
+          float threshold = waterY + kShoreSlack;
 
-            bool anyWet = false;
-            for (int32_t gz = gz0; gz <= gz1 && !anyWet; ++gz) {
-              for (int32_t gx = gx0; gx <= gx1; ++gx) {
-                size_t gIdx = static_cast<size_t>(gz) * gridX + gx;
-                if (inBasin[gIdx]) {
-                  anyWet = true;
-                  break;
+          std::vector<float> hTex(static_cast<size_t>(NX) * NZ,
+                                  std::numeric_limits<float>::quiet_NaN());
+          auto heightTex = [&](uint32_t tx, uint32_t tz) {
+            float &c = hTex[static_cast<size_t>(tz) * NX + tx];
+            if (std::isnan(c)) {
+              glm::vec2 p(minX + tx * surfaceCell, minZ + tz * surfaceCell);
+              // Explicit LOD 0 detail: this is the surface the finest terrain
+              // chunks (and, via TerrainSys::setLakeZones, every chunk over
+              // the lake) are built from.
+              c = createInfo.baseHeight +
+                  evalHeight(p, createInfo, surfaceCell) * heightRange;
+            }
+            return c;
+          };
+          auto nearestGrid = [](float world, float centerOff, float halfExtent,
+                                float worldExtent, uint32_t count) {
+            float u = (world - centerOff + halfExtent) / worldExtent;
+            int32_t g = static_cast<int32_t>(
+                std::lround(u * static_cast<float>(count - 1)));
+            return static_cast<uint32_t>(
+                std::clamp(g, 0, static_cast<int32_t>(count - 1)));
+          };
+
+          std::vector<uint8_t> wet(static_cast<size_t>(NX) * NZ, 0);
+          std::vector<uint32_t> floodStack;
+
+          // Seed texels: those inside a cell the coarse flood fill assigned to
+          // this basin.
+          std::vector<uint32_t> seedTexels;
+          for (uint32_t tz = 0; tz < NZ; ++tz) {
+            uint32_t gz =
+                nearestGrid(minZ + tz * surfaceCell, createInfo.worldCenter.y,
+                            halfSize.y, createInfo.worldSize.y, gridZ);
+            for (uint32_t tx = 0; tx < NX; ++tx) {
+              uint32_t gx =
+                  nearestGrid(minX + tx * surfaceCell, createInfo.worldCenter.x,
+                              halfSize.x, createInfo.worldSize.x, gridX);
+              if (inBasin[static_cast<size_t>(gz) * gridX + gx])
+                seedTexels.push_back(tz * NX + tx);
+            }
+          }
+
+          // Flood the fine lattice at `level`: seeds below the level grow
+          // through every connected texel below it (so narrow channels the
+          // coarse grid missed are included; pockets behind a ridge are never
+          // reached). Returns true if the water reached the lattice border -
+          // physically that means it is running out of the basin (the coarse
+          // grid's spill level was higher than the true pour point), or the
+          // lattice is too small to hold the lake.
+          // Include the terrain triangle's diagonal, but not the other one.
+          static const int32_t ndx[6] = {-1, 1, 0, 0, -1, 1};
+          static const int32_t ndz[6] = {0, 0, -1, 1, 1, -1};
+          auto runFlood = [&](float level) {
+            std::fill(wet.begin(), wet.end(), uint8_t{0});
+            floodStack.clear();
+            for (uint32_t sIdx : seedTexels)
+              if (heightTex(sIdx % NX, sIdx / NX) <= level) {
+                wet[sIdx] = 1;
+                floodStack.push_back(sIdx);
+              }
+            bool leaked = false;
+            while (!floodStack.empty()) {
+              uint32_t idx = floodStack.back();
+              floodStack.pop_back();
+              int32_t cx = static_cast<int32_t>(idx % NX);
+              int32_t cz = static_cast<int32_t>(idx / NX);
+              if (cx == 0 || cz == 0 || cx == static_cast<int32_t>(NX) - 1 ||
+                  cz == static_cast<int32_t>(NZ) - 1)
+                leaked = true;
+              for (int n = 0; n < 6; ++n) {
+                int32_t nx = cx + ndx[n];
+                int32_t nz = cz + ndz[n];
+                if (nx < 0 || nz < 0 || nx >= static_cast<int32_t>(NX) ||
+                    nz >= static_cast<int32_t>(NZ))
+                  continue;
+                size_t nIdx = static_cast<size_t>(nz) * NX + nx;
+                if (wet[nIdx])
+                  continue;
+                if (heightTex(nx, nz) <= level) {
+                  wet[nIdx] = 1;
+                  floodStack.push_back(static_cast<uint32_t>(nIdx));
                 }
               }
             }
-            if (anyWet)
-              lake.cellMask[mz * maskRes + mx] = true;
+            return leaked;
+          };
+
+          if (runFlood(threshold)) {
+            // Leak: settle the lake at the highest level that stays inside the
+            // lattice (bisection; leaking is monotone in the level, heights
+            // are cached so each pass is cheap). That is the true fine-grid
+            // spill level, so water no longer hovers over the outlet or ends
+            // in a straight cut at the lattice border.
+            float lo = std::numeric_limits<float>::max();
+            for (uint32_t sIdx : seedTexels)
+              lo = std::min(lo, heightTex(sIdx % NX, sIdx / NX));
+            float hi = threshold;
+            if (lo < hi) {
+              for (int it = 0; it < 14; ++it) {
+                const float mid = 0.5f * (lo + hi);
+                if (runFlood(mid))
+                  hi = mid;
+                else
+                  lo = mid;
+              }
+              threshold = lo;
+            }
+            runFlood(threshold);
+            waterY = threshold - kShoreSlack;
+            lake.worldCenter.y = waterY;
+#ifdef VKH_MOUNTAIN_DEBUG_PRINT
+            std::fprintf(stderr,
+                         "[mountain] lake at (%.0f, %.0f): fine flood leaked, "
+                         "level lowered to %.2f\n",
+                         lake.worldCenter.x, lake.worldCenter.z, waterY);
+#endif
           }
+
+          if (runFlood(threshold) ||
+              std::none_of(seedTexels.begin(), seedTexels.end(),
+                           [&](uint32_t i) {
+                             return heightTex(i % NX, i / NX) < waterY;
+                           })) {
+            for (uint32_t memberIdx : members)
+              inBasin[memberIdx] = 0;
+            continue;
+          }
+
+          // Include complete terrain-aligned quads at the shore. Every outer
+          // edge has dry endpoints above waterY + slack, so its whole length
+          // is buried beneath the matching terrain triangle. No contour
+          // snapping or extra erosion evaluations are needed.
+          const float sx = surfaceCell;
+          const float sz = surfaceCell;
+          lake.meshCellSize = 0.5f * (sx + sz);
+          auto latticeXZ = [&](int32_t x, int32_t z) {
+            return glm::vec2(minX + static_cast<float>(x) * sx,
+                             minZ + static_cast<float>(z) * sz);
+          };
+          auto inGrid = [&](int32_t x, int32_t z) {
+            return x >= 0 && z >= 0 && x < static_cast<int32_t>(NX) &&
+                   z < static_cast<int32_t>(NZ);
+          };
+          auto isWet = [&](int32_t x, int32_t z) {
+            return inGrid(x, z) && wet[static_cast<size_t>(z) * NX + x];
+          };
+
+          std::vector<int32_t> vid(static_cast<size_t>(NX) * NZ, -1);
+          auto vertex = [&](int32_t x, int32_t z) -> uint32_t {
+            int32_t &id = vid[static_cast<size_t>(z) * NX + x];
+            if (id >= 0)
+              return static_cast<uint32_t>(id);
+            id = static_cast<int32_t>(lake.meshXZ.size());
+            glm::vec2 p = latticeXZ(x, z);
+            float depth = 0.f;
+            if (isWet(x, z)) {
+              depth = std::max(waterY - heightTex(x, z), 0.f);
+            }
+            lake.meshXZ.push_back(p);
+            lake.meshDepth.push_back(depth);
+            return static_cast<uint32_t>(id);
+          };
+
+          for (int32_t tz = 0; tz + 1 < static_cast<int32_t>(NZ); ++tz)
+            for (int32_t tx = 0; tx + 1 < static_cast<int32_t>(NX); ++tx) {
+              if (!(isWet(tx, tz) || isWet(tx + 1, tz) || isWet(tx, tz + 1) ||
+                    isWet(tx + 1, tz + 1)))
+                continue;
+              const uint32_t v0 = vertex(tx, tz);
+              const uint32_t v1 = vertex(tx + 1, tz);
+              const uint32_t v2 = vertex(tx + 1, tz + 1);
+              const uint32_t v3 = vertex(tx, tz + 1);
+              lake.meshIndices.insert(lake.meshIndices.end(), {v0, v1, v2, v3});
+            }
+          lake.maskResolution = glm::uvec2(NX - 1, NZ - 1);
+          lake.cellMask.assign(static_cast<size_t>(NX - 1) * (NZ - 1), false);
+          for (uint32_t z = 0; z + 1 < NZ; ++z)
+            for (uint32_t x = 0; x + 1 < NX; ++x)
+              lake.cellMask[static_cast<size_t>(z) * (NX - 1) + x] =
+                  isWet(x, z) || isWet(x + 1, z) || isWet(x, z + 1) ||
+                  isWet(x + 1, z + 1);
         }
 
         for (uint32_t memberIdx : members)
@@ -861,6 +924,165 @@ generate(EngineContext &context, vk::DescriptorSetLayout texturesSetLayout,
     //              rejectedTooSmall + rejectedTooShallow, rejectedTooSmall,
     //              rejectedTooShallow);
   }
+}
+
+std::vector<Lake> findLakesInTile(const MountainCreateInfo &createInfo,
+                                  int32_t tx, int32_t tz) {
+  // Half resolution: 4x fewer height evaluations, plenty for finding basins.
+  const uint32_t gridX = glm::max(createInfo.resolution.x / 2u, 2u);
+  const uint32_t gridZ = glm::max(createInfo.resolution.y / 2u, 2u);
+  MountainCreateInfo ci = createInfo;
+  ci.lakeMinCells = std::max(1u, createInfo.lakeMinCells / 4u);
+  ci.worldCenter = createInfo.worldCenter +
+                   glm::vec2(static_cast<float>(tx), static_cast<float>(tz)) *
+                       createInfo.worldSize;
+  const glm::vec2 half = ci.worldSize * 0.5f;
+  std::vector<float> h(static_cast<size_t>(gridX) * gridZ);
+  for (uint32_t iz = 0; iz < gridZ; ++iz)
+    for (uint32_t ix = 0; ix < gridX; ++ix) {
+      glm::vec2 p =
+          ci.worldCenter +
+          glm::vec2(glm::mix(-half.x, half.x, float(ix) / float(gridX - 1)),
+                    glm::mix(-half.y, half.y, float(iz) / float(gridZ - 1)));
+      h[static_cast<size_t>(iz) * gridX + ix] = evalHeight(p, ci);
+    }
+  std::vector<Lake> out;
+  detectLakes(ci, h, gridX, gridZ, &out);
+  return out;
+}
+
+std::shared_ptr<Scene<EntitySys::Vertex>>
+generate(EngineContext &context, vk::DescriptorSetLayout texturesSetLayout,
+         const MountainCreateInfo &createInfo, MountainHeightmap *outHeightmap,
+         std::vector<Lake> *outLakes, std::vector<TreePlacement> *outTrees) {
+  using Vertex = EntitySys::Vertex;
+
+  const uint32_t gridX = glm::max(createInfo.resolution.x, 2u);
+  const uint32_t gridZ = glm::max(createInfo.resolution.y, 2u);
+
+  std::vector<Vertex> vertices;
+  if (createInfo.buildMesh)
+    vertices.reserve(static_cast<size_t>(gridX) * gridZ);
+
+  glm::vec3 boundsMin(std::numeric_limits<float>::max());
+  glm::vec3 boundsMax(std::numeric_limits<float>::lowest());
+
+  std::vector<float> heights(static_cast<size_t>(gridX) * gridZ);
+  // Populated in lockstep with `heights` in the vertex loop below, reused
+  // afterward for lake-basin flood filling (see the outLakes block).
+  std::vector<float> slopeNorms(static_cast<size_t>(gridX) * gridZ);
+
+  const glm::vec2 halfSize = createInfo.worldSize * 0.5f;
+  const float heightRange = createInfo.peakHeight - createInfo.baseHeight;
+
+  auto worldPosAt = [&](uint32_t ix, uint32_t iz) {
+    float u = static_cast<float>(ix) / static_cast<float>(gridX - 1);
+    float v = static_cast<float>(iz) / static_cast<float>(gridZ - 1);
+    float x = glm::mix(-halfSize.x, halfSize.x, u);
+    float z = glm::mix(-halfSize.y, halfSize.y, v);
+    return glm::vec2(x, z);
+  };
+
+  // Only the initial finite heightmap is parallelized here; streamed lake
+  // tiles already run on workers. Cap concurrency to leave CPU headroom.
+  const uint32_t hardware = std::thread::hardware_concurrency();
+  const uint32_t workers =
+      std::min(gridZ, std::min(8u, hardware > 1 ? hardware - 1 : 1u));
+  auto heightRows = [&](uint32_t worker) {
+    for (uint32_t iz = worker; iz < gridZ; iz += workers)
+      for (uint32_t ix = 0; ix < gridX; ++ix)
+        heights[static_cast<size_t>(iz) * gridX + ix] =
+            evalHeight(worldPosAt(ix, iz), createInfo);
+  };
+  std::vector<std::future<void>> heightJobs;
+  for (uint32_t worker = 1; worker < workers; ++worker)
+    heightJobs.push_back(std::async(std::launch::async, heightRows, worker));
+  heightRows(0);
+  for (auto &job : heightJobs)
+    job.get();
+
+  // Cell size, used to compute normals from central differences on the
+  // already-evaluated height grid rather than re-evaluating the (fairly
+  // expensive) erosion function again.
+  float cellX = createInfo.worldSize.x / static_cast<float>(gridX - 1);
+  float cellZ = createInfo.worldSize.y / static_cast<float>(gridZ - 1);
+
+  // If requested, accumulated in lockstep with the vertex loop below so
+  // the exported heightmap always matches the mesh's own hNorm/slopeNorm
+  // exactly - no separate re-evaluation, no risk of drifting out of sync.
+  //
+  // Stored as packed half-floats (glm::packHalf2x16), one uint32 per
+  // texel, matching an R16G16_SFLOAT image - NOT plain 32-bit floats.
+  // R32G32_SFLOAT is only required by the Vulkan spec to support nearest
+  // filtering; linear filtering on 32-bit float formats is optional and
+  // frequently unsupported, while 16-bit float formats are part of the
+  // mandatory linear-filtering set. Sampling with an unsupported filter
+  // mode is undefined behavior - inconsistent-looking results that don't
+  // match the actual terrain (right shape, wrong place; or a hard seam
+  // partway across an otherwise-uniform area) are exactly what that looks
+  // like in practice. Half-float precision is more than enough here: the
+  // height value maxes out around peakHeight (tens of world units) and
+  // the suitability channel is already clamped to [0,1].
+  std::vector<uint32_t> heightmapPixels;
+  if (outHeightmap)
+    heightmapPixels.resize(static_cast<size_t>(gridX) * gridZ);
+
+  for (uint32_t iz = 0; iz < gridZ; ++iz) {
+    for (uint32_t ix = 0; ix < gridX; ++ix) {
+      glm::vec2 xz = worldPosAt(ix, iz);
+      float hNorm = heights[iz * gridX + ix];
+      float y = createInfo.baseHeight + hNorm * heightRange;
+
+      uint32_t ixL = ix > 0 ? ix - 1 : ix;
+      uint32_t ixR = ix < gridX - 1 ? ix + 1 : ix;
+      uint32_t izD = iz > 0 ? iz - 1 : iz;
+      uint32_t izU = iz < gridZ - 1 ? iz + 1 : iz;
+
+      float hL = heights[iz * gridX + ixL] * heightRange;
+      float hR = heights[iz * gridX + ixR] * heightRange;
+      float hD = heights[izD * gridX + ix] * heightRange;
+      float hU = heights[izU * gridX + ix] * heightRange;
+
+      float dHdx = (hR - hL) / (glm::max(1u, ixR - ixL) * cellX);
+      float dHdz = (hU - hD) / (glm::max(1u, izU - izD) * cellZ);
+
+      glm::vec3 normal = glm::normalize(glm::vec3(-dHdx, 1.f, -dHdz));
+
+      // Slope steepness, normalized so 0 = flat and 1 = at-or-beyond
+      // rockSlopeAngleDeg from horizontal. normal.y == cos(angle from
+      // vertical-up), so a flat surface has normal.y == 1 and a surface
+      // at the threshold angle has normal.y == cos(rockSlopeAngleDeg).
+      float thresholdNormalY =
+          std::cos(glm::radians(createInfo.rockSlopeAngleDeg));
+      float slopeNorm = 0.f;
+      if (thresholdNormalY < 1.f - 1e-5f) {
+        slopeNorm =
+            glm::clamp((1.f - normal.y) / (1.f - thresholdNormalY), 0.f, 1.f);
+      }
+
+      slopeNorms[iz * gridX + ix] = slopeNorm;
+
+      Vertex vert{};
+      vert.pos = glm::vec3(xz.x, y, xz.y);
+      vert.normal = normal;
+      vert.uv = glm::vec2(glm::clamp(hNorm, 0.f, 1.f), slopeNorm);
+      if (createInfo.buildMesh)
+        vertices.push_back(vert);
+
+      if (outHeightmap) {
+        size_t pIdx = static_cast<size_t>(iz) * gridX + ix;
+        float suitability =
+            computeGrassSuitability(glm::clamp(hNorm, 0.f, 1.f), slopeNorm);
+        heightmapPixels[pIdx] = glm::packHalf2x16(glm::vec2(y, suitability));
+      }
+
+      boundsMin = glm::min(boundsMin, vert.pos);
+      boundsMax = glm::max(boundsMax, vert.pos);
+    }
+  }
+
+  if (outLakes && createInfo.generateLakes)
+    detectLakes(createInfo, heights, gridX, gridZ, outLakes);
 
   if (outTrees && createInfo.generateTrees) {
     outTrees->clear();
@@ -976,41 +1198,44 @@ generate(EngineContext &context, vk::DescriptorSetLayout texturesSetLayout,
     // std::println("[mountain] scattered %{} trees", outTrees->size());
   }
 
-  std::vector<uint32_t> indices;
-  indices.reserve(static_cast<size_t>(gridX - 1) * (gridZ - 1) * 6);
-  for (uint32_t iz = 0; iz < gridZ - 1; ++iz) {
-    for (uint32_t ix = 0; ix < gridX - 1; ++ix) {
-      uint32_t i0 = iz * gridX + ix;
-      uint32_t i1 = i0 + 1;
-      uint32_t i2 = i0 + gridX;
-      uint32_t i3 = i2 + 1;
+  std::shared_ptr<Scene<Vertex>> scene;
+  if (createInfo.buildMesh) {
+    std::vector<uint32_t> indices;
+    indices.reserve(static_cast<size_t>(gridX - 1) * (gridZ - 1) * 6);
+    for (uint32_t iz = 0; iz < gridZ - 1; ++iz) {
+      for (uint32_t ix = 0; ix < gridX - 1; ++ix) {
+        uint32_t i0 = iz * gridX + ix;
+        uint32_t i1 = i0 + 1;
+        uint32_t i2 = i0 + gridX;
+        uint32_t i3 = i2 + 1;
 
-      indices.push_back(i0);
-      indices.push_back(i2);
-      indices.push_back(i1);
+        indices.push_back(i0);
+        indices.push_back(i2);
+        indices.push_back(i1);
 
-      indices.push_back(i1);
-      indices.push_back(i2);
-      indices.push_back(i3);
+        indices.push_back(i1);
+        indices.push_back(i2);
+        indices.push_back(i3);
+      }
     }
-  }
 
-  glm::uvec2 texSize{};
-  std::vector<uint8_t> texPixels = buildTerrainTexture(texSize);
+    glm::uvec2 texSize{};
+    std::vector<uint8_t> texPixels = buildTerrainTexture(texSize);
 
-  SceneCreateInfo<Vertex> sceneInfo{vertices, indices};
-  sceneInfo.texturePixels = std::move(texPixels);
-  sceneInfo.textureSize = texSize;
+    SceneCreateInfo<Vertex> sceneInfo{vertices, indices};
+    sceneInfo.texturePixels = std::move(texPixels);
+    sceneInfo.textureSize = texSize;
 
-  auto scene =
-      std::make_shared<Scene<Vertex>>(context, sceneInfo, texturesSetLayout);
+    scene =
+        std::make_shared<Scene<Vertex>>(context, sceneInfo, texturesSetLayout);
 
-  // The raw-vertex constructor default-constructs Mesh{} (aabb{} is
-  // degenerate/zero-sized), so without this the compute-based frustum
-  // culling pass will treat the whole mountain as invisible.
-  for (auto &mesh : scene->meshes) {
-    mesh.aabb.min = boundsMin;
-    mesh.aabb.max = boundsMax;
+    // The raw-vertex constructor default-constructs Mesh{} (aabb{} is
+    // degenerate/zero-sized), so without this the compute-based frustum
+    // culling pass will treat the whole mountain as invisible.
+    for (auto &mesh : scene->meshes) {
+      mesh.aabb.min = boundsMin;
+      mesh.aabb.max = boundsMax;
+    }
   }
 
   if (outHeightmap) {
@@ -1095,6 +1320,24 @@ generateLakeMesh(EngineContext &context,
   }
 
   return scene;
+}
+
+std::function<float(glm::vec2, float)>
+makeHeightFn(const MountainCreateInfo &createInfo) {
+  const float heightRange = createInfo.peakHeight - createInfo.baseHeight;
+  return [createInfo, heightRange](glm::vec2 xz, float cellSize) {
+    return createInfo.baseHeight +
+           evalHeight(xz, createInfo, cellSize) * heightRange;
+  };
+}
+
+std::function<float(glm::vec2)>
+makeCoarseHeightFn(const MountainCreateInfo &createInfo, float cellSize) {
+  const float heightRange = createInfo.peakHeight - createInfo.baseHeight;
+  return [createInfo, heightRange, cellSize](glm::vec2 xz) {
+    return createInfo.baseHeight +
+           evalHeight(xz, createInfo, cellSize) * heightRange;
+  };
 }
 
 } // namespace vkh::mountain

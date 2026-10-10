@@ -26,7 +26,7 @@ constexpr int MAX_LIGHT_CAPACITY = 256;
 // (see the memory note on SmokeCompositeEffect::transmittanceVolumes) -
 // keep it well below MAX_LIGHT_CAPACITY unless you actually need every
 // light to cast shadows through smoke.
-constexpr int TRANSMITTANCE_CAPACITY = 64;
+constexpr int TRANSMITTANCE_CAPACITY = 16;
 
 // std430-compatible: every member already sits on a 16-byte boundary, so
 // no explicit padding is needed - std430 array rules force each

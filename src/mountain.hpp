@@ -9,6 +9,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <random>
 #include <vector>
@@ -29,6 +30,13 @@ inline uint32_t randomMountainSeed() {
 }
 
 struct MountainCreateInfo {
+  // Pure, thread-safe world-height transform, applied after noise/erosion.
+  // Extends every terrain/lake/grass query consistently (e.g. volcano cones).
+  std::function<float(glm::vec2, float)> heightModifier;
+  std::function<bool(glm::vec3)> lakeAllowed;
+  // Disable when using streamed TerrainSys: still exports the heightmap,
+  // lakes, and trees, but skips the unused finite mesh and its GPU upload.
+  bool buildMesh{true};
   // Number of vertices along each side of the grid. Higher values give more
   // detail but cost more triangles (resolution.x * resolution.y quads).
   // NOTE: this must scale roughly with worldSize (keep worldSize/resolution
@@ -39,6 +47,10 @@ struct MountainCreateInfo {
   // World-space footprint of the mesh on the XZ plane, centered on the
   // origin.
   glm::vec2 worldSize{400.f, 400.f};
+
+  // World XZ the heightmap/lake grid is centred on (only used by
+  // findLakesInTile; generate() always builds the mesh at the origin).
+  glm::vec2 worldCenter{0.f, 0.f};
 
   // Wavelength, in absolute world units, of the base landscape's largest
   // noise octave. This is intentionally independent of worldSize: growing
@@ -265,6 +277,17 @@ struct MountainCreateInfo {
   uint32_t treeVariantCount{3};
 };
 
+// Vertex spacing of the finite mountain mesh (the larger of the two axes, the
+// same value evalHeight()'s octave limit derives from). This is the single
+// source of truth for "LOD 0 detail": use it as TerrainSys::CreateInfo::
+// lod0CellSize so LOD 0 chunks, the lake builder and the heightmap all see the
+// same ground. Chunks over lakes are pinned to it at every LOD.
+inline float terrainCellSize(const MountainCreateInfo &ci) {
+  const glm::uvec2 r = glm::max(ci.resolution, glm::uvec2(2u));
+  const glm::vec2 c = ci.worldSize / glm::vec2(r - glm::uvec2(1u));
+  return glm::max(c.x, c.y);
+}
+
 // One scattered tree - the caller (main.cpp) turns each of these into a
 // vkh::TreeSys::TreePlacement (position/yaw/scale carry over directly;
 // `variant` selects which of TreeSys::addVariant()'s registered tree
@@ -298,17 +321,25 @@ struct Lake {
   // cellMask in water.hpp, which consumes this directly to build a mesh
   // matching the true footprint instead.
   //
-  // maskResolution is set to (vkh::WaterSys::tileResolution,
-  // vkh::WaterSys::tileResolution) by generate() (see its rasterization
-  // of this field) - referencing that real constant, rather than a
-  // locally duplicated magic number, means this can't silently drift out
-  // of sync if WaterSys's own grid resolution ever changes.
-  // WaterSys::createGridIndices() still defends against a mismatch
-  // defensively (treating a wrong-sized mask as "render nothing" rather
-  // than reading out of bounds), in case this field is ever populated by
-  // something other than generate() with a different assumption.
+  // One exclusion cell per terrain-aligned water quad, derived after the
+  // final water level is settled. Used by streamed grass and trees; water
+  // rendering uses meshXZ/meshIndices directly.
   glm::uvec2 maskResolution{0, 0};
   std::vector<bool> cellMask;
+
+  // Water surface mesh, built from the same flood fill as the basin but on a
+  // fine lattice (about one terrain cell). World-space XZ points, four indices
+  // per quad (v0, v1, v2, v3), and a per-vertex depth. Only the connected
+  // water is meshed, including complete quads along its shore. Dry vertices
+  // remain on the terrain lattice, burying outer edges beneath the bank.
+  // meshDepth is the water depth (waterY - bed height, clamped to 0);
+  // WaterSys fades wave displacement to 0 toward the shore.
+  // Y is worldCenter.y.
+  std::vector<glm::vec2> meshXZ;
+  std::vector<float> meshDepth;
+  // Lattice cell size in world units (average of the X and Z spacing).
+  float meshCellSize{1.5f};
+  std::vector<uint32_t> meshIndices;
 };
 
 // Builds a heightmap-based mountain mesh implementing the erosion
@@ -399,5 +430,29 @@ generate(EngineContext &context, vk::DescriptorSetLayout texturesSetLayout,
 std::shared_ptr<Scene<EntitySys::Vertex>>
 generateLakeMesh(EngineContext &context,
                  vk::DescriptorSetLayout texturesSetLayout, const Lake &lake);
+
+// World-space height (Y) of the mountain at an XZ position, for streaming
+// terrain (TerrainSys). `cellSize` is the vertex spacing the sample will be
+// shown at: erosion octaves finer than ~3 * cellSize are dropped (Nyquist
+// guard in evalHeight), so the SAME point has a slightly different height at
+// different cell sizes. Lake meshes are built with terrainCellSize(); callers
+// that must match them (chunks over a lake, see TerrainSys::setLakeZones) pass
+// that value instead of their own spacing. Pure and thread-safe: the returned
+// function owns a copy of createInfo.
+std::function<float(glm::vec2 worldXZ, float cellSize)>
+makeHeightFn(const MountainCreateInfo &createInfo);
+
+// Lake basins in tile (tx, tz): the createInfo.worldSize square centred on
+// (tx, tz) * worldSize. Same detection as generate() but on a half-resolution
+// grid. Pure and thread-safe (run it async). A basin touching a tile edge
+// counts as draining and is not reported.
+std::vector<Lake> findLakesInTile(const MountainCreateInfo &createInfo,
+                                  int32_t tx, int32_t tz);
+
+// Cheap approximation of makeHeightFn for visibility tests: drops erosion
+// octaves finer than ~3 * cellSize, so it is several times cheaper but can be
+// off by a few metres. Thread-safe.
+std::function<float(glm::vec2 worldXZ)>
+makeCoarseHeightFn(const MountainCreateInfo &createInfo, float cellSize);
 
 } // namespace vkh::mountain

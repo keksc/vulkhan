@@ -4,10 +4,12 @@ layout(location = 0) in vec4 inPos;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUV;
 layout(location = 3) in vec4 inReflClipPos;
+layout(location = 4) in float inWaterDepth;
 
 layout(location = 0) out vec4 outColor;
 
 #include "../globalUbo.glsl"
+#include "../environment.glsl"
 
 layout(set = 1, binding = 0) uniform VertexUBO {
     mat4 model;
@@ -19,6 +21,10 @@ layout(set = 1, binding = 0) uniform VertexUBO {
 
 layout(set = 1, binding = 1) uniform sampler2D displacementFoamMap;
 layout(set = 1, binding = 2) uniform sampler2D planarReflectionMap;
+layout(set = 1, binding = 3) uniform sampler2D detailWaveMap;
+
+#include "waveSampling.glsl"
+
 // layout(set = 2, binding = 0) uniform samplerCube skybox;
 
 // DEBUG ONLY - RULED IN then OFF: confirmed the reflection texture itself
@@ -38,11 +44,28 @@ void main() {
   // vertexUBO.scale) still got full-strength foam before this - scaling
   // by it here ties foam coverage to how energetic this patch's water
   // actually is, on top of the postFFT-side threshold/decay tuning.
-  float foamMask = texture(displacementFoamMap, inUV).a;
+  float waveLod = max(textureQueryLod(displacementFoamMap, inUV).y, 0.0);
+  float foamMask = sampleWaterWaves(inUV, waveLod).a;
   foamMask = pow(foamMask, 1.6) * vertexUBO.scale;
   foamMask = clamp(foamMask, 0.0, 1.0);
 
   vec3 N = normalize(inNormal);
+  // The 8m FFT cascade resolves centimetre ripples independently of mesh
+  // spacing. Keep its coordinates attached to the undisplaced water UVs.
+  vec2 detailUV = inUV * (1000.0 / 8.0);
+  float detailLod = max(textureQueryLod(detailWaveMap, detailUV).y, 0.0);
+  vec2 detailTexel = exp2(detailLod) /
+                     vec2(textureSize(detailWaveMap, 0));
+  float hx = sampleWaterField(detailWaveMap,
+               detailUV + vec2(detailTexel.x, 0.0), detailLod).y -
+             sampleWaterField(detailWaveMap,
+               detailUV - vec2(detailTexel.x, 0.0), detailLod).y;
+  float hz = sampleWaterField(detailWaveMap,
+               detailUV + vec2(0.0, detailTexel.y), detailLod).y -
+             sampleWaterField(detailWaveMap,
+               detailUV - vec2(0.0, detailTexel.y), detailLod).y;
+  vec2 detailSlope = vec2(hx, hz) / (2.0 * detailTexel * 8.0);
+  N = normalize(N - vec3(detailSlope.x, 0.0, detailSlope.y) * N.y);
 
   vec3 camPos = vec3(ubo.inverseView[3]);
   vec3 V = normalize(camPos - worldPos);
@@ -80,7 +103,8 @@ void main() {
   // instead of always keeping ~25% water tint mixed in.
   fresnel = min(fresnel, 0.92);
 
-  vec3 finalColor = mix(waterColor, foamColor, foamMask);
+  vec3 finalColor = mix(waterColor, foamColor, foamMask) *
+      (hemisphereAmbient(N) + sunRadiance() * .4 + vec3(.025));
 
   // Foam (whitecaps) doesn't reflect like a smooth water surface - zeroing
   // Fresnel under foam means neither SSR's mix(base, reflection, fresnel)
@@ -166,11 +190,25 @@ void main() {
   planarColor = clamp(planarColor, 0.0, 1.0);
 
   finalColor = mix(finalColor, planarColor, planarWeight);
+  // A dielectric sun glint follows the same light as terrain and foliage.
+  vec3 H = normalize(V + sunDirection());
+  float nh = max(dot(N, H), 0.0);
+  float nl = max(dot(N, sunDirection()), 0.0);
+  float nv = max(dot(N, V), 0.001);
+  const float a2 = 0.0004;
+  float denom = nh * nh * (a2 - 1.0) + 1.0;
+  float distribution = a2 / max(3.14159265 * denom * denom, 1e-6);
+  float sunFresnel = 0.02 + 0.98 * pow(1.0 - max(dot(H, V), 0.0), 5.0);
+  finalColor += sunRadiance() * min(distribution * sunFresnel * nl /
+                    max(4.0 * nv, 0.04), 1.5) * (1.0 - foamMask);
+  finalColor += localLighting(worldPos, N) * vec3(.12,.18,.22);
+  finalColor = sceneFog(finalColor, worldPos, V, distance(camPos, worldPos));
 
-  // Reflection is already fully resolved into finalColor above -
-  // opaque output (alpha == 1.0) both correctly represents that AND
-  // makes ssr.comp's own alpha >= 0.999 check skip this pixel
-  // automatically (see its doc comment), so no separate mode plumbing
-  // is needed on the SSR side to avoid double-applying a reflection.
-  outColor = vec4(finalColor, 1.0);
+  // Shallow water reveals the actual rendered bed. Greater optical path
+  // length darkens deep water, while grazing angles and foam stay opaque.
+  float opticalDepth = max(inWaterDepth, 0.0) / max(abs(dot(N, V)), 0.25);
+  float tintOpacity = 1.0 - exp(-opticalDepth * 0.20);
+  float opacity = mix(max(0.20, tintOpacity), 0.98, reflectWeight);
+  opacity = mix(opacity, 1.0, foamMask);
+  outColor = vec4(finalColor, clamp(opacity, 0.20, 0.98));
 }

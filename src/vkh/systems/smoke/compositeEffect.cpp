@@ -62,6 +62,7 @@ void SmokeCompositeEffect::createLightsBuffer() {
 }
 
 void SmokeCompositeEffect::createTransmittanceImages(uint32_t imageCount) {
+  shadowCache.assign(imageCount, {});
   ImageCreateInfo_empty3D createInfo{};
   // eTransferDst is needed purely for the one-time clear-to-1.0 below
   // (vkCmdClearColorImage requires the target image have this usage bit).
@@ -69,7 +70,7 @@ void SmokeCompositeEffect::createTransmittanceImages(uint32_t imageCount) {
                      vk::ImageUsageFlagBits::eSampled |
                      vk::ImageUsageFlagBits::eTransferDst;
   createInfo.layout = vk::ImageLayout::eGeneral;
-  createInfo.size = smokeSys.cellCount;
+  createInfo.size = smokeSys.cellCount / kTransmittanceStride;
   // Single-channel now (was rgba32f packing 4 lights/texel) - one volume
   // per light instead of one volume per 4 lights. Same total bytes for a
   // given light count; see the memory/perf note on
@@ -109,9 +110,10 @@ void SmokeCompositeEffect::createTransmittanceImages(uint32_t imageCount) {
 void SmokeCompositeEffect::writeTransmittanceDescriptorSet(
     uint32_t imageIndex) {
   DescriptorWriter writer(context);
-  writer.writeImage(
-      0, smokeSys.dyeImage->getDescriptorInfo(context.vulkan.defaultSampler),
-      vk::DescriptorType::eStorageImage);
+  // Sampled (not storage) - the march below uses hardware trilinear with
+  // the dye's REPEAT sampler, see transmittance.comp.
+  writer.writeImage(0, smokeSys.dyeImage->getDescriptorInfo(smokeVolumeSampler),
+                    vk::DescriptorType::eCombinedImageSampler);
 
   // Binding 1: descriptor-indexed array of per-light transmittance
   // volumes. Every slot's image exists from construction (see
@@ -139,10 +141,10 @@ void SmokeCompositeEffect::writeTransmittanceDescriptorSet(
 
 void SmokeCompositeEffect::createTransmittancePass() {
   std::vector<vk::DescriptorSetLayoutBinding> bindings = {
-      // Binding 0: dye volume (read) - storage image, since
-      // transmittance.comp marches it with its own imageLoad-based
-      // trilinear rather than relying on a hardware sampler.
-      {0, vk::DescriptorType::eStorageImage, 1,
+      // Binding 0: dye volume (read) - combined image sampler (REPEAT,
+      // trilinear): transmittance.comp marches it with one hardware fetch
+      // per step.
+      {0, vk::DescriptorType::eCombinedImageSampler, 1,
        vk::ShaderStageFlagBits::eCompute, nullptr},
       // Binding 1: per-light transmittance volumes (write), descriptor-
       // indexed array sized TRANSMITTANCE_CAPACITY. Must be the LAST
@@ -164,9 +166,9 @@ void SmokeCompositeEffect::createTransmittancePass() {
   // enabled on the device - see the note in chat about main.cpp/device
   // setup.
   std::vector<vk::DescriptorBindingFlags> bindingFlags = {
-      {}, // binding 0: no flags
+      {},                                             // binding 0: no flags
       vk::DescriptorBindingFlagBits::ePartiallyBound, // binding 1
-      {}, // binding 2: no flags
+      {},                                             // binding 2: no flags
   };
 
   vk::DescriptorSetLayoutBindingFlagsCreateInfo flagsInfo{};
@@ -208,8 +210,8 @@ void SmokeCompositeEffect::createTransmittancePass() {
     throw std::runtime_error("failed to create transmittance pipeline layout!");
 
   transmittancePipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/smoke/transmittance.comp.spv", transmittancePipelineLayout,
-      "smoke transmittance");
+      context, "shaders/smoke/transmittance.comp.spv",
+      transmittancePipelineLayout, "smoke transmittance");
 }
 
 void SmokeCompositeEffect::onImageCountChanged(uint32_t imageCount) {
@@ -230,6 +232,10 @@ float SmokeCompositeEffect::maxLightDistance() const {
 
 void SmokeCompositeEffect::beforeDispatch(vk::CommandBuffer cmd,
                                           uint32_t imageIndex) {
+  if (!smokeSys.hasSmoke()) return;
+  auto &stamp = shadowCache[imageIndex];
+  if (stamp.step == smokeSys.stepCount() && stamp.lights == lightsVersion &&
+      stamp.origin == smokeSys.gridOrigin) return;
   glm::vec3 boxMin = glm::vec3(smokeSys.gridOrigin) * smokeSys.cellSize;
   glm::vec3 boxMax = boxMin + glm::vec3(smokeSys.cellCount) * smokeSys.cellSize;
   float maxDist = maxLightDistance();
@@ -254,6 +260,7 @@ void SmokeCompositeEffect::beforeDispatch(vk::CommandBuffer cmd,
   // assumption.
   if (shadowedCount == 0 || !anyLightInRange)
     return;
+  stamp = {smokeSys.stepCount(), lightsVersion, smokeSys.gridOrigin};
 
   debug::beginLabel(context, cmd, "smoke: transmittance",
                     {0.9f, 0.7f, 0.2f, 1.0f});
@@ -269,12 +276,15 @@ void SmokeCompositeEffect::beforeDispatch(vk::CommandBuffer cmd,
   pc.cellSize = smokeSys.cellSize;
   pc.maxLightDistance = maxDist;
   pc.shadowedLightCount = shadowedCount;
+  pc.stride = kTransmittanceStride;
   cmd.pushConstants(transmittancePipelineLayout,
                     vk::ShaderStageFlagBits::eCompute, 0,
                     sizeof(TransmittancePush), &pc);
 
-  // Matches transmittance.comp's local_size_{x,y,z} = 8.
-  glm::ivec3 groups = (smokeSys.cellCount + glm::ivec3(7)) / 8;
+  // Matches transmittance.comp's local_size_{x,y,z} = 8. The volumes (and
+  // therefore the dispatch) are 1/kTransmittanceStride of the dye grid.
+  glm::ivec3 outCells = smokeSys.cellCount / kTransmittanceStride;
+  glm::ivec3 groups = (outCells + glm::ivec3(7)) / 8;
   cmd.dispatch(groups.x, groups.y, groups.z);
 
   // Barrier covers every slot up to shadowedCount - the ones
@@ -307,6 +317,7 @@ void SmokeCompositeEffect::beforeDispatch(vk::CommandBuffer cmd,
 }
 
 void SmokeCompositeEffect::setPointLights(const PointLight *lights, int count) {
+  ++lightsVersion;
   count = glm::clamp(count, 0, MAX_LIGHT_CAPACITY);
   lightsCpuCopy.assign(lights, lights + count);
   activeLightCount = count;
@@ -324,7 +335,8 @@ void SmokeCompositeEffect::setPointLights(const PointLight *lights, int count) {
     // debugging session in chat for how this surfaced (both lights'
     // slots showing identical, non-light-shaped stale data in RenderDoc).
     lightsBuffer->write(lightsCpuCopy.data(),
-                        static_cast<vk::DeviceSize>(count) * sizeof(PointLight));
+                        static_cast<vk::DeviceSize>(count) *
+                            sizeof(PointLight));
     lightsBuffer->flush();
   }
 
@@ -341,24 +353,24 @@ void SmokeCompositeEffect::setPointLights(const PointLight *lights, int count) {
 
 std::vector<vk::DescriptorSetLayoutBinding>
 SmokeCompositeEffect::additionalBindings() const {
-  return {// Binding 3: Smoke dye volume (Input) — sampler3D, periodic
-          vk::DescriptorSetLayoutBinding{
-              3, vk::DescriptorType::eCombinedImageSampler, 1,
-              vk::ShaderStageFlagBits::eCompute, nullptr},
-          // Binding 4: Point lights SSBO (Input) - runtime array, updated
-          // from the CPU via setPointLights(). Not per-swapchain-image,
-          // same as before.
-          vk::DescriptorSetLayoutBinding{4, vk::DescriptorType::eStorageBuffer,
-                                         1, vk::ShaderStageFlagBits::eCompute,
-                                         nullptr},
-          // Binding 5: descriptor-indexed array of precomputed per-light
-          // transmittance volumes (Input), sized TRANSMITTANCE_CAPACITY.
-          // Must stay the LAST binding in this set - see
-          // additionalBindingFlags().
-          vk::DescriptorSetLayoutBinding{
-              5, vk::DescriptorType::eCombinedImageSampler,
-              TRANSMITTANCE_CAPACITY, vk::ShaderStageFlagBits::eCompute,
-              nullptr}};
+  return {
+      // Binding 3: Smoke dye volume (Input) — sampler3D, periodic
+      vk::DescriptorSetLayoutBinding{
+          3, vk::DescriptorType::eCombinedImageSampler, 1,
+          vk::ShaderStageFlagBits::eCompute, nullptr},
+      // Binding 4: Point lights SSBO (Input) - runtime array, updated
+      // from the CPU via setPointLights(). Not per-swapchain-image,
+      // same as before.
+      vk::DescriptorSetLayoutBinding{4, vk::DescriptorType::eStorageBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute,
+                                     nullptr},
+      // Binding 5: descriptor-indexed array of precomputed per-light
+      // transmittance volumes (Input), sized TRANSMITTANCE_CAPACITY.
+      // Must stay the LAST binding in this set - see
+      // additionalBindingFlags().
+      vk::DescriptorSetLayoutBinding{
+          5, vk::DescriptorType::eCombinedImageSampler, TRANSMITTANCE_CAPACITY,
+          vk::ShaderStageFlagBits::eCompute, nullptr}};
 }
 
 std::vector<vk::DescriptorBindingFlags>
@@ -399,10 +411,14 @@ SmokeCompositeEffect::Push SmokeCompositeEffect::makePushConstants() const {
   Push push{};
   push.boxMin = glm::vec4(glm::vec3(smokeSys.gridOrigin) * smokeSys.cellSize,
                           smokeSys.cellSize);
-  push.cellCount = glm::ivec4(smokeSys.cellCount, 0);
+  push.cellCount = glm::ivec4(smokeSys.cellCount, smokeSys.hasSmoke() ? 1 : 0);
   push.maxLightDistance = maxLightDistance();
   push.lightCount = activeLightCount;
   push.shadowedLightCount = glm::min(activeLightCount, TRANSMITTANCE_CAPACITY);
+  // Same matrix the shader used to build from ubo.projView every pixel;
+  // main.cpp fills ubo.projView = proj * view from these exact fields.
+  push.invProjView =
+      glm::inverse(context.camera.projectionMatrix * context.camera.viewMatrix);
   return push;
 }
 

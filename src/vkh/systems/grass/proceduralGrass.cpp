@@ -2,14 +2,17 @@
 
 #include <vulkan/vulkan.hpp>
 
+#include "../../buffer.hpp"
 #include "../../camera.hpp"
 #include "../../debug.hpp"
-#include "../../pipeline.hpp"
-#include "../../buffer.hpp"
 #include "../../descriptors.hpp"
+#include "../../pipeline.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <unordered_set>
+
+#include "grassField.hpp"
 
 namespace vkh {
 
@@ -45,7 +48,8 @@ void ProceduralGrassSys::createPipeline() {
   // with inconsistent front/back-facing per blade. Vulkan resets the
   // strip automatically at each instance boundary for non-indexed
   // drawIndirect, so no primitive-restart setup is needed here.
-  pipelineInfo.inputAssemblyInfo.topology = vk::PrimitiveTopology::eTriangleStrip;
+  pipelineInfo.inputAssemblyInfo.topology =
+      vk::PrimitiveTopology::eTriangleStrip;
   pipelineInfo.multisampleInfo.rasterizationSamples =
       static_cast<vk::SampleCountFlagBits>(context.vulkan.msaaSamples);
 
@@ -76,7 +80,9 @@ void ProceduralGrassSys::createGeneratePipeline() {
                                      vk::ShaderStageFlagBits::eCompute},
       vk::DescriptorSetLayoutBinding{5,
                                      vk::DescriptorType::eCombinedImageSampler,
-                                     1, vk::ShaderStageFlagBits::eCompute}};
+                                     1, vk::ShaderStageFlagBits::eCompute},
+      vk::DescriptorSetLayoutBinding{6, vk::DescriptorType::eUniformBuffer, 1,
+                                     vk::ShaderStageFlagBits::eCompute}};
   generateSetLayout = buildDescriptorSetLayout(context, bindings);
 
   vk::PipelineLayoutCreateInfo layoutInfo{};
@@ -94,19 +100,19 @@ void ProceduralGrassSys::createFinalizePipeline() {
   layoutInfo.pSetLayouts = &generateSetLayout;
 
   finalizePipeline = std::make_unique<ComputePipeline>(
-      context, "shaders/grass/finalize.comp.spv",
-      layoutInfo, "procedural grass finalize");
+      context, "shaders/grass/finalize.comp.spv", layoutInfo,
+      "procedural grass finalize");
 }
 
 void ProceduralGrassSys::buildTileOrigins() {
   std::vector<GrassPatch> effectivePatches =
-      patches_.empty()
-          ? std::vector<GrassPatch>{{glm::vec2(0.f, 0.f), glm::vec2(70.f, 70.f)}}
-          : patches_;
+      patches_.empty() ? std::vector<GrassPatch>{{glm::vec2(0.f, 0.f),
+                                                  glm::vec2(70.f, 70.f)}}
+                       : patches_;
 
   // Dedupe tiles shared by overlapping patches so overlapping meadows
-  // don't double-generate (and double-count toward maxBladeCount) the
-  // same ground.
+  // don't double-generate (and double-count toward the active tile
+  // capacity/dispatch below) the same ground.
   std::unordered_set<uint64_t> seen;
   for (const GrassPatch &patch : effectivePatches) {
     glm::vec2 minCorner = patch.center - patch.size * 0.5f;
@@ -120,9 +126,11 @@ void ProceduralGrassSys::buildTileOrigins() {
       for (int tx = tileXStart; tx < tileXEnd; tx++) {
         // Pack the two 32-bit tile coords into one 64-bit key for the
         // dedupe set - cheaper than hashing a pair/struct.
-        uint64_t key = (static_cast<uint64_t>(static_cast<uint32_t>(tx)) << 32) |
-                       static_cast<uint32_t>(tz);
-        if (!seen.insert(key).second) continue;
+        uint64_t key =
+            (static_cast<uint64_t>(static_cast<uint32_t>(tx)) << 32) |
+            static_cast<uint32_t>(tz);
+        if (!seen.insert(key).second)
+          continue;
         tileOrigins_.emplace_back(static_cast<float>(tx) * tileSize_,
                                   static_cast<float>(tz) * tileSize_);
       }
@@ -130,14 +138,55 @@ void ProceduralGrassSys::buildTileOrigins() {
   }
 }
 
-ProceduralGrassSys::ProceduralGrassSys(EngineContext &context,
-                                       std::vector<GrassPatch> patches,
-                                       float tileSize,
-                                       uint32_t bladesPerTileSide,
-                                       std::optional<HeightmapBinding> heightmap)
+uint32_t ProceduralGrassSys::computeActiveTileCapacity() const {
+  // Upper bound on how many tiles can be within maxDist of ANY camera
+  // position at once, so neither the per-frame tile-origin upload nor
+  // compactedInstanceBuffers has to be sized for the WHOLE configured
+  // field - which, once that field covers something the size of a real
+  // terrain (main.cpp currently passes the entire 800x800m mountain, not
+  // a hand-placed meadow), is many times larger than anything that could
+  // ever actually be near the camera at once. A field that size used to
+  // mean dispatching ~41 million compute threads and allocating a
+  // multi-GB compactedInstanceBuffers per frame-in-flight, unconditionally,
+  // regardless of where the camera was standing.
+  //
+  // Uses a square window (side = 2 * (maxDist + 2 tiles' margin)) rather
+  // than an exact circle - simpler to reason about and to fill in
+  // updateBuffers()'s CPU-side filter below, at the cost of a modest
+  // overestimate (a circle inscribed in this square covers ~79% of its
+  // area). The 2-tile margin covers grassGenerate.comp's per-blade jitter/
+  // warp (a tile just past maxDist can still contain a blade that warps to
+  // just inside it) plus general slack.
+  float windowSide = 2.0f * (maxDist + tileSize_ * 2.0f);
+  uint32_t tilesPerSide =
+      static_cast<uint32_t>(std::ceil(windowSide / tileSize_)) + 1;
+  uint64_t capacity =
+      static_cast<uint64_t>(tilesPerSide) * static_cast<uint64_t>(tilesPerSide);
+  if (infinite_) {
+    // Frustum rejection is only an optimization: never assume it removes a
+    // fixed fraction. The selected tile centres lie in a circle. Each tile's
+    // square lies within that circle expanded by half a tile diagonal, so
+    // its area bounds the count for any camera position. This saves memory
+    // versus the square window without ever stopping midway through a row.
+    const double radius = static_cast<double>(maxDist) / tileSize_ +
+                          2.0 + std::sqrt(0.5);
+    return static_cast<uint32_t>(std::ceil(
+        std::acos(-1.0) * radius * radius));
+  }
+  // Can never need more capacity than the whole field actually has.
+  capacity = std::min<uint64_t>(capacity, tileOrigins_.size());
+  return static_cast<uint32_t>(capacity);
+}
+
+ProceduralGrassSys::ProceduralGrassSys(
+    EngineContext &context, std::vector<GrassPatch> patches, float tileSize,
+    uint32_t bladesPerTileSide, std::optional<HeightmapBinding> heightmap,
+    bool infiniteField)
     : System(context), patches_(std::move(patches)), tileSize_(tileSize),
-      bladesPerTileSide_(bladesPerTileSide), heightmap_(std::move(heightmap)) {
-  buildTileOrigins();
+      bladesPerTileSide_(bladesPerTileSide), heightmap_(std::move(heightmap)),
+      infinite_(infiniteField) {
+  if (!infinite_)
+    buildTileOrigins();
 
   createSetLayouts();
   createPipeline();
@@ -156,33 +205,26 @@ ProceduralGrassSys::ProceduralGrassSys(EngineContext &context,
     static const float dummyPixels[2] = {0.f, 0.f};
     dummyInfo.data = const_cast<void *>(static_cast<const void *>(dummyPixels));
     dummyInfo.layout = vk::ImageLayout::eShaderReadOnlyOptimal;
-    dummyInfo.usage = vk::ImageUsageFlagBits::eTransferDst |
-                      vk::ImageUsageFlagBits::eSampled;
+    dummyInfo.usage =
+        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
     dummyInfo.format = vk::Format::eR32G32Sfloat;
     dummyInfo.name = "procedural grass fallback heightmap image";
     fallbackHeightmapImage_ = std::make_shared<Image2D>(context, dummyInfo);
   }
 
   uint32_t framesInFlight = context.vulkan.maxFramesInFlight;
-  uint32_t maxBlades = maxBladeCount();
-
-  // Uploaded once - the tile layout never changes after construction, so
-  // this doesn't need per-frame-in-flight copies like the other buffers.
-  tileOriginBuffer = std::make_unique<Buffer<glm::vec2>>(
-      context, vk::BufferUsageFlagBits::eStorageBuffer,
-      vk::MemoryPropertyFlagBits::eHostVisible |
-          vk::MemoryPropertyFlagBits::eHostCoherent,
-      tileOrigins_.size());
-  tileOriginBuffer->map();
-  tileOriginBuffer->write(tileOrigins_.data(),
-                          tileOrigins_.size() * sizeof(glm::vec2));
-  tileOriginBuffer->unmap();
+  activeTileCapacity_ = computeActiveTileCapacity();
+  uint32_t maxBlades =
+      activeTileCapacity_ * bladesPerTileSide_ * bladesPerTileSide_;
+  frameTileScratch_.reserve(activeTileCapacity_);
 
   compactedInstanceBuffers.resize(framesInFlight);
   visibleCountBuffers.resize(framesInFlight);
   indirectDrawBuffers.resize(framesInFlight);
   grassUboBuffers.resize(framesInFlight);
   windBuffers.resize(framesInFlight);
+  activeTileOriginBuffers.resize(framesInFlight);
+  heightmapSlots_.resize(framesInFlight);
   instanceDescriptorSets.resize(framesInFlight, nullptr);
   generateDescriptorSets.resize(framesInFlight, nullptr);
 
@@ -198,11 +240,24 @@ ProceduralGrassSys::ProceduralGrassSys(EngineContext &context,
             vk::MemoryPropertyFlagBits::eHostCoherent,
         1);
 
+    // Re-filled every frame by updateBuffers() with whichever tiles are
+    // currently within maxDist of the camera - capacity activeTileCapacity_,
+    // NOT tileOrigins_.size() (the whole configured field). See
+    // computeActiveTileCapacity()'s doc comment for why the whole field is
+    // the wrong thing to size this from once that field covers real terrain.
+    activeTileOriginBuffers[i] = std::make_unique<Buffer<glm::vec2>>(
+        context, vk::BufferUsageFlagBits::eStorageBuffer,
+        vk::MemoryPropertyFlagBits::eHostVisible |
+            vk::MemoryPropertyFlagBits::eHostCoherent,
+        std::max<uint32_t>(activeTileCapacity_, 1));
+
     // Fixed-size for the lifetime of the system - worst case is every
-    // generated blade in the tile window passing the frustum test.
+    // generated blade in the ACTIVE tile window (not the whole field)
+    // passing the frustum test.
     compactedInstanceBuffers[i] = std::make_unique<Buffer<BladeInstance>>(
         context, vk::BufferUsageFlagBits::eStorageBuffer,
-        vk::MemoryPropertyFlagBits::eDeviceLocal, maxBlades);
+        vk::MemoryPropertyFlagBits::eDeviceLocal,
+        std::max<uint32_t>(maxBlades, 1));
 
     visibleCountBuffers[i] = std::make_unique<Buffer<uint32_t>>(
         context, vk::BufferUsageFlagBits::eStorageBuffer,
@@ -241,10 +296,12 @@ ProceduralGrassSys::ProceduralGrassSys(EngineContext &context,
         context.vulkan.globalDescriptorAllocator->allocate(generateSetLayout);
     DescriptorWriter gWriter(context);
     vk::DescriptorBufferInfo uInfo = grassUboBuffers[i]->descriptorInfo();
-    vk::DescriptorBufferInfo tileOriginInfo = tileOriginBuffer->descriptorInfo();
+    vk::DescriptorBufferInfo tileOriginInfo =
+        activeTileOriginBuffers[i]->descriptorInfo();
     vk::DescriptorBufferInfo compactedInfo =
         compactedInstanceBuffers[i]->descriptorInfo();
-    vk::DescriptorBufferInfo countInfo = visibleCountBuffers[i]->descriptorInfo();
+    vk::DescriptorBufferInfo countInfo =
+        visibleCountBuffers[i]->descriptorInfo();
     vk::DescriptorBufferInfo indirectInfo =
         indirectDrawBuffers[i]->descriptorInfo();
     gWriter.writeBuffer(0, uInfo, vk::DescriptorType::eUniformBuffer);
@@ -252,6 +309,8 @@ ProceduralGrassSys::ProceduralGrassSys(EngineContext &context,
     gWriter.writeBuffer(2, compactedInfo, vk::DescriptorType::eStorageBuffer);
     gWriter.writeBuffer(3, countInfo, vk::DescriptorType::eStorageBuffer);
     gWriter.writeBuffer(4, indirectInfo, vk::DescriptorType::eStorageBuffer);
+    gWriter.writeBuffer(6, context.vulkan.worldUbo->descriptorInfo(),
+                        vk::DescriptorType::eUniformBuffer);
 
     Image2D &heightmapImage =
         heightmap_ ? *heightmap_->image : *fallbackHeightmapImage_;
@@ -261,35 +320,118 @@ ProceduralGrassSys::ProceduralGrassSys(EngineContext &context,
                        vk::DescriptorType::eCombinedImageSampler);
 
     gWriter.updateSet(generateDescriptorSets[i]);
+
+    HeightmapSlot &hs = heightmapSlots_[i];
+    hs.image = heightmap_ ? heightmap_->image : fallbackHeightmapImage_;
+    hs.origin = heightmap_ ? heightmap_->worldMin : glm::vec2(0.f);
+    hs.size = heightmap_ ? heightmap_->worldSize : glm::vec2(0.f);
+    hs.version = heightmapVersion_;
   }
+}
+
+void ProceduralGrassSys::setHeightmap(HeightmapBinding heightmap) {
+  heightmap_ = std::move(heightmap);
+  ++heightmapVersion_;
+}
+
+// Rewrites this slot's binding 5 to the newest heightmap. Runs at the top of
+// updateBuffers(), when the slot's previous frame has retired, so neither the
+// descriptor set nor the image it used to point at is still in use.
+void ProceduralGrassSys::adoptHeightmap(int frameIndex) {
+  HeightmapSlot &hs = heightmapSlots_[frameIndex];
+  if (hs.version == heightmapVersion_)
+    return;
+  Image2D &img = heightmap_ ? *heightmap_->image : *fallbackHeightmapImage_;
+  vk::DescriptorImageInfo info =
+      img.getDescriptorInfo(context.vulkan.defaultSampler);
+  DescriptorWriter writer(context);
+  writer.writeImage(5, info, vk::DescriptorType::eCombinedImageSampler);
+  writer.updateSet(generateDescriptorSets[frameIndex]);
+
+  hs.image = heightmap_ ? heightmap_->image : fallbackHeightmapImage_;
+  hs.origin = heightmap_ ? heightmap_->worldMin : glm::vec2(0.f);
+  hs.size = heightmap_ ? heightmap_->worldSize : glm::vec2(0.f);
+  hs.version = heightmapVersion_;
 }
 
 ProceduralGrassSys::~ProceduralGrassSys() {
   if (context.vulkan.device) {
-    context.vulkan.device.destroyDescriptorSetLayout(instanceSetLayout, nullptr);
-    context.vulkan.device.destroyDescriptorSetLayout(generateSetLayout, nullptr);
+    context.vulkan.device.destroyDescriptorSetLayout(instanceSetLayout,
+                                                     nullptr);
+    context.vulkan.device.destroyDescriptorSetLayout(generateSetLayout,
+                                                     nullptr);
   }
 }
 
 void ProceduralGrassSys::updateBuffers() {
   int frameIndex = context.frameInfo.frameIndex;
+  adoptHeightmap(frameIndex);
+  const HeightmapSlot &hs = heightmapSlots_[frameIndex];
+
+  glm::vec2 camPosXZ =
+      glm::vec2(context.camera.position.x, context.camera.position.z);
 
   auto planes = camera::getFrustumPlanes(context.camera.projectionMatrix *
                                          context.camera.viewMatrix);
   GrassUbo ubo{};
   for (int i = 0; i < 6; i++)
     ubo.frustumPlanes[i] = planes[i];
-  ubo.camPos = glm::vec2(context.camera.position.x, context.camera.position.z);
-  ubo.heightmapOrigin = heightmap_ ? heightmap_->worldMin : glm::vec2(0.f);
-  // (0,0) is the sentinel grassGenerate.comp checks to fall back to flat
-  // ground at y=0, so this must stay exactly zero when no heightmap was
-  // supplied - even a legitimately tiny real heightmap should never hit
-  // (0,0) in practice, but if yours somehow does, nudge worldSize instead
-  // of relying on this sentinel.
-  ubo.heightmapSize = heightmap_ ? heightmap_->worldSize : glm::vec2(0.f);
+
+  const float filterDist = maxDist + tileSize_ * 2.0f;
+  if (infinite_) {
+    // No field-sized list: enumerate the tiles around the camera directly,
+    // skipping 16x16-tile blocks that are out of range or outside the view
+    // frustum (roughly half of everything in range for a wide FOV), nearest
+    // first, up to the capacity the buffers were sized for. The shader still
+    // frustum-culls per blade; this just stops it from being dispatched for
+    // ground behind and beside the camera.
+    const float yMin = heightmap_ ? heightmap_->minY : -1.0e4f;
+    const float yMax = heightmap_ ? heightmap_->maxY : 1.0e4f;
+    grass::collectVisibleTiles(camPosXZ, filterDist, tileSize_,
+                               ubo.frustumPlanes, yMin, yMax,
+                               activeTileCapacity_, blockScratch_,
+                               frameTileScratch_);
+  } else {
+    // CPU-side broad-phase: pick out just the tiles within maxDist (plus the
+    // same margin computeActiveTileCapacity() budgeted for) of the camera,
+    // instead of handing grassGenerate.comp the WHOLE configured field every
+    // frame - see that method's doc comment for the ~41M-thread dispatch and
+    // multi-GB compactedInstanceBuffers this replaces once the field covers
+    // real terrain rather than a hand-placed meadow.
+    float filterDistSq = filterDist * filterDist;
+    frameTileScratch_.clear();
+    for (const glm::vec2 &origin : tileOrigins_) {
+      glm::vec2 tileCenter = origin + glm::vec2(tileSize_ * 0.5f);
+      glm::vec2 diff = tileCenter - camPosXZ;
+      if (glm::dot(diff, diff) > filterDistSq)
+        continue;
+      frameTileScratch_.push_back(origin);
+      // Clamped defensively in case maxDist was raised past what this
+      // system was constructed with (see activeTileCapacity_'s comment).
+      if (frameTileScratch_.size() >= activeTileCapacity_)
+        break;
+    }
+  }
+  currentActiveTileCount_ = static_cast<uint32_t>(frameTileScratch_.size());
+
+  if (currentActiveTileCount_ > 0) {
+    activeTileOriginBuffers[frameIndex]->map();
+    activeTileOriginBuffers[frameIndex]->write(
+        frameTileScratch_.data(), currentActiveTileCount_ * sizeof(glm::vec2));
+    activeTileOriginBuffers[frameIndex]->unmap();
+  }
+
+  ubo.camPos = camPosXZ;
+  // The origin/size of the image THIS slot has bound (see adoptHeightmap()).
+  // (0,0) size is the sentinel grassGenerate.comp checks to fall back to
+  // flat ground at y=0, so it stays exactly zero when no heightmap exists.
+  ubo.heightmapOrigin = hs.origin;
+  ubo.heightmapSize = hs.size;
   ubo.tileSize = tileSize_;
   ubo.bladesPerTileSide = bladesPerTileSide_;
-  ubo.tileCount = static_cast<uint32_t>(tileOrigins_.size());
+  // The FILTERED count for this frame, not the whole field - the shader
+  // indexes activeTileOriginBuffers[frameIndex] with exactly this value.
+  ubo.tileCount = currentActiveTileCount_;
   ubo.maxDist = maxDist;
   ubo.lodNearDist = lodNearDist;
   ubo.flowerChance = flowerChance;
@@ -300,8 +442,8 @@ void ProceduralGrassSys::updateBuffers() {
 
   WindUbo wind{};
   wind.time = context.time;
-  wind.strength = windStrength;
-  wind.dir = windDir;
+  wind.strength = context.environment.windStrength;
+  wind.dir = safeWindDirection(context.environment);
   wind.lodNearDist = lodNearDist;
   windBuffers[frameIndex]->map();
   windBuffers[frameIndex]->write(&wind, sizeof(WindUbo));
@@ -338,8 +480,11 @@ void ProceduralGrassSys::cull(vk::CommandBuffer cmd) {
                          &generateDescriptorSets[frameIndex], 0, nullptr);
 
   generatePipeline->bind(cmd);
-  uint32_t groupCount = (maxBladeCount() + 63) / 64;
-  cmd.dispatch(groupCount, 1, 1);
+  uint32_t activeBladeCount =
+      currentActiveTileCount_ * bladesPerTileSide_ * bladesPerTileSide_;
+  uint32_t groupCount = (activeBladeCount + 63) / 64;
+  if (groupCount > 0)
+    cmd.dispatch(groupCount, 1, 1);
 
   // Makes the generate+cull pass's writes (visibleCountBuffers,
   // compactedInstanceBuffers) visible to both the finalize dispatch and
@@ -374,10 +519,9 @@ void ProceduralGrassSys::render() {
 
   pipeline->bind(cmd);
 
-  cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
-                         pipeline->getLayout(), 0, 1,
-                         &context.vulkan.globalDescriptorSets[frameIndex], 0,
-                         nullptr);
+  cmd.bindDescriptorSets(
+      vk::PipelineBindPoint::eGraphics, pipeline->getLayout(), 0, 1,
+      &context.vulkan.globalDescriptorSets[frameIndex], 0, nullptr);
   cmd.bindDescriptorSets(vk::PipelineBindPoint::eGraphics,
                          pipeline->getLayout(), 1, 1,
                          &instanceDescriptorSets[frameIndex], 0, nullptr);

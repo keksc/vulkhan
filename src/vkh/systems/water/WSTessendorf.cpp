@@ -6,6 +6,7 @@
 #include "../../image.hpp"
 #include "../../pipeline.hpp"
 #include "water.hpp" // getGlobalWindDirection()/getGlobalWindStrength()
+#include <array>
 #include <format>
 #include <stdexcept>
 #include <vulkan/vulkan.hpp>
@@ -75,12 +76,13 @@ void WSTessendorf::createDescriptors() {
       displacementFoamMap->getDescriptorInfo(context.vulkan.defaultSampler);
 
   writer.writeBuffer(0, fftDataInfoPost, vk::DescriptorType::eStorageBuffer);
-  writer.writeImage(
-      1, displacementImageInfo, vk::DescriptorType::eStorageImage);
+  writer.writeImage(1, displacementImageInfo,
+                    vk::DescriptorType::eStorageImage);
   writer.updateSet(postFFTSet);
 }
 
-WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
+WSTessendorf::WSTessendorf(EngineContext &context, float patchLength)
+    : System(context), patchLength(patchLength) {
   vk::FenceCreateInfo fenceCreateInfo{};
   if (context.vulkan.device.createFence(&fenceCreateInfo, nullptr, &fence) !=
       vk::Result::eSuccess) {
@@ -162,10 +164,14 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
 
   createDescriptors();
 
-  vk::SpecializationMapEntry specMapEntry{0, 0, sizeof(uint32_t)};
-
-  vk::SpecializationInfo specInfo{1, &specMapEntry, sizeof(uint32_t),
-                                  &tileSize};
+  const std::array<uint32_t, 2> specData{
+      tileSize, patchLength == detailTileLength ? 1u : 0u};
+  const std::array<vk::SpecializationMapEntry, 2> specEntries{
+      vk::SpecializationMapEntry{0, 0, sizeof(uint32_t)},
+      vk::SpecializationMapEntry{1, sizeof(uint32_t), sizeof(uint32_t)}};
+  vk::SpecializationInfo specInfo{static_cast<uint32_t>(specEntries.size()),
+                                  specEntries.data(), sizeof(specData),
+                                  specData.data()};
 
   vk::PipelineLayoutCreateInfo FFTLayoutInfo{};
   FFTLayoutInfo.setLayoutCount = 1;
@@ -189,8 +195,8 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   baseWaveHeightFieldLayoutInfo.setLayoutCount = 1;
   baseWaveHeightFieldLayoutInfo.pSetLayouts = &preFFTSetLayout;
 
-  vk::PushConstantRange windPushConstantRange{
-      vk::ShaderStageFlagBits::eCompute, 0, sizeof(WindPushConstantData)};
+  vk::PushConstantRange windPushConstantRange{vk::ShaderStageFlagBits::eCompute,
+                                              0, sizeof(WindPushConstantData)};
   baseWaveHeightFieldLayoutInfo.pushConstantRangeCount = 1;
   baseWaveHeightFieldLayoutInfo.pPushConstantRanges = &windPushConstantRange;
 
@@ -215,6 +221,9 @@ WSTessendorf::WSTessendorf(EngineContext &context) : System(context) {
   waveVectors->recordCopyFromBuffer(cmd, stagingBuffer);
   recordUpdateSpectrumIfWindChanged(cmd);
   endSingleTimeCommands(context, cmd, context.vulkan.computeQueue);
+  if (patchLength != detailTileLength) {
+    detailCascade = std::make_unique<WSTessendorf>(context, detailTileLength);
+  }
 }
 
 WSTessendorf::~WSTessendorf() {
@@ -232,13 +241,15 @@ void WSTessendorf::computeWaveVectors(std::vector<WaveVector> &waveVecs) {
   for (int32_t m = 0; m < tileSize; ++m) {
     for (int32_t n = 0; n < tileSize; ++n) {
       waveVecs.emplace_back(
-          glm::vec2(glm::pi<float>() * (2.0f * n - tileSize) / tileLength,
-                    glm::pi<float>() * (2.0f * m - tileSize) / tileLength));
+          glm::vec2(glm::pi<float>() * (2.0f * n - tileSize) / patchLength,
+                    glm::pi<float>() * (2.0f * m - tileSize) / patchLength));
     }
   }
 }
 
 void WSTessendorf::recordUpdateSpectrumIfWindChanged(vk::CommandBuffer &cmd) {
+  const glm::vec2 windDir = safeWindDirection(context.environment);
+  const float windStrength = spectrumWindStrength(context.environment);
   // Small epsilons rather than exact equality - direction/strength are
   // floats that can drift by rounding even when a caller isn't
   // meaningfully changing them, and re-dispatching this shader is not
@@ -269,7 +280,7 @@ void WSTessendorf::recordUpdateSpectrumIfWindChanged(vk::CommandBuffer &cmd) {
   // jonswapSpectrum()'s L = windSpeed^2/g sits in a couple of
   // denominators, and a literal 0 m/s would make k_p = 1/L divide by
   // zero.
-  constexpr float kMinSpectrumWindSpeed = 0.5f; // m/s
+  constexpr float kMinSpectrumWindSpeed = 0.5f;  // m/s
   constexpr float kMaxSpectrumWindSpeed = 20.0f; // m/s
   // Clamped here, not just documented as [0, 1] at the call site -
   // glm::mix() does not clamp its own `t`, so a caller accidentally
@@ -291,8 +302,8 @@ void WSTessendorf::recordUpdateSpectrumIfWindChanged(vk::CommandBuffer &cmd) {
                     sizeof(WindPushConstantData), &windData);
   baseWaveHeightFieldPipeline->bind(cmd);
   cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                        baseWaveHeightFieldPipeline->getLayout(), 0, 1,
-                        &preFFTSet, 0, nullptr);
+                         baseWaveHeightFieldPipeline->getLayout(), 0, 1,
+                         &preFFTSet, 0, nullptr);
   cmd.dispatch(tileSize / 16, tileSize / 16, 1);
 
   // preFFT.comp reads baseWaveHeightField (preFFTSet binding 1) right
@@ -381,6 +392,9 @@ void WSTessendorf::recordComputeWaves(vk::CommandBuffer &cmd, float t) {
     recordGenerateMips(cmd);
   }
   debug::endLabel(context, cmd);
+  if (detailCascade) {
+    detailCascade->recordComputeWaves(cmd, t);
+  }
 }
 
 void WSTessendorf::recordGenerateMips(vk::CommandBuffer &cmd) {
@@ -416,17 +430,17 @@ void WSTessendorf::recordGenerateMips(vk::CommandBuffer &cmd) {
     // eTransferDstOptimal (i>1, written by the previous iteration's blit)
     // - either way, move it to eTransferSrcOptimal so this iteration can
     // blit FROM it.
-    vk::ImageLayout prevMipPriorLayout = (i == 1)
-                                             ? vk::ImageLayout::eGeneral
-                                             : vk::ImageLayout::eTransferDstOptimal;
+    vk::ImageLayout prevMipPriorLayout =
+        (i == 1) ? vk::ImageLayout::eGeneral
+                 : vk::ImageLayout::eTransferDstOptimal;
     displacementFoamMap->recordTransitionMipLayout(
         cmd, prevMipPriorLayout, vk::ImageLayout::eTransferSrcOptimal, i - 1,
         1);
     // mip i is eGeneral (never touched yet this frame) - move it to
     // eTransferDstOptimal so this iteration can blit INTO it.
     displacementFoamMap->recordTransitionMipLayout(
-        cmd, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferDstOptimal,
-        i, 1);
+        cmd, vk::ImageLayout::eGeneral, vk::ImageLayout::eTransferDstOptimal, i,
+        1);
 
     vk::ImageBlit blit{};
     blit.srcOffsets[0] = vk::Offset3D{0, 0, 0};
@@ -438,14 +452,14 @@ void WSTessendorf::recordGenerateMips(vk::CommandBuffer &cmd) {
     int32_t nextMipHeight = mipHeight > 1 ? mipHeight / 2 : 1;
     blit.dstOffsets[0] = vk::Offset3D{0, 0, 0};
     blit.dstOffsets[1] = vk::Offset3D{nextMipWidth, nextMipHeight, 1};
-    blit.dstSubresource = vk::ImageSubresourceLayers{
-        vk::ImageAspectFlagBits::eColor, i, 0, 1};
+    blit.dstSubresource =
+        vk::ImageSubresourceLayers{vk::ImageAspectFlagBits::eColor, i, 0, 1};
 
     cmd.blitImage(static_cast<vk::Image>(*displacementFoamMap),
-                 vk::ImageLayout::eTransferSrcOptimal,
-                 static_cast<vk::Image>(*displacementFoamMap),
-                 vk::ImageLayout::eTransferDstOptimal, 1, &blit,
-                 vk::Filter::eLinear);
+                  vk::ImageLayout::eTransferSrcOptimal,
+                  static_cast<vk::Image>(*displacementFoamMap),
+                  vk::ImageLayout::eTransferDstOptimal, 1, &blit,
+                  vk::Filter::eLinear);
 
     mipWidth = nextMipWidth;
     mipHeight = nextMipHeight;

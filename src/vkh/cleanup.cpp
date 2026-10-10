@@ -22,6 +22,7 @@ void cleanup(EngineContext &context) {
     // Must run before the allocator is destroyed: ~Buffer() calls
     // vmaDestroyBuffer() on each global UBO.
     context.vulkan.globalUBOs.clear();
+    context.vulkan.worldUbo.reset();
 
     if (context.vulkan.allocator) {
       vmaDestroyAllocator(context.vulkan.allocator);

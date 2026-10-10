@@ -1,0 +1,19 @@
+#version 450
+#include "../shaders/globalUbo.glsl"
+#include "../shaders/environment.glsl"
+struct Sample { vec4 light; vec4 nearby; vec4 material; };
+layout(std430,set=1,binding=0) writeonly buffer Results { Sample samples[]; };
+layout(local_size_x=256) in;
+void main() {
+  uint id=gl_GlobalInvocationID.x;
+  if(id>=65536u) return;
+  vec3 P=vec3(float(id%256u)*8.0-1024.0,0,float(id/256u)*8.0-1024.0);
+  vec3 N=normalize(vec3(.2,1,.1));
+  samples[id].light=vec4(localLighting(P,N),1);
+  samples[id].nearby=vec4(localLighting(P+vec3(.001,0,.001),N),1);
+  BioHabitat h=bioHabitat(P.xz);
+  vec3 L=normalize(vec3(h.direction.x,-.65,h.direction.z));
+  samples[id].material=vec4(length(bioTreeIrradiance(h,L,1.0,true)),
+                            length(bioTreeIrradiance(h,-L,1.0,true)),
+                            length(bioTreeIrradiance(h,L,.3,true)),1);
+}

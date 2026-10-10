@@ -1,0 +1,19 @@
+#version 450
+#define FUR_LOD
+#include "furData.glsl"
+layout(local_size_x=32) in;
+void main() {
+  uint i = gl_GlobalInvocationID.x;
+  if (i >= fur.counts.x) return;
+  FurInstance wolf = wolves[i];
+  vec3 c = (ubo.view * wolf.model * vec4(0,1.1,0,1)).xyz;
+  float scale = max(length(wolf.model[0].xyz),
+                    max(length(wolf.model[1].xyz),length(wolf.model[2].xyz)));
+  float pixels = 4.0*scale*abs(ubo.proj[1][1])*ubo.resolution.y /
+                 (2.0*max(abs(c.z),.1));
+  float density = clamp(pixels/300.0, 1.0/64.0, 1.0);
+  uint strands = uint(ceil(64.0*density));
+  uint segments = pixels > 180.0 ? 8u : pixels > 60.0 ? 4u : 2u;
+  dispatches[i] = Dispatch(fur.counts.w,(strands+31u)/32u,1u,
+                           strands,segments,density,0u,0u);
+}

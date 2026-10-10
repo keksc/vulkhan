@@ -13,8 +13,13 @@ layout(location = 4) flat out int fragMRTexIndex;
 layout(location = 5) flat out float fragRoughness;
 layout(location = 6) flat out float fragMetallic;
 layout(location = 7) flat out uint fragFlags;
+layout(location = 8) out vec3 fragLocalPos;
+layout(location = 9) flat out float fragSeed;
+layout(location = 10) flat out vec3 fragBiomeTint;
+layout(location = 11) out float fragCanopyAO;
 
 #include "../globalUbo.glsl"
+#include "../environment.glsl"
 
 struct GPUInstanceData {
     mat4 modelMatrix;
@@ -29,6 +34,8 @@ struct GPUInstanceData {
     uint flags;
     uint groupIndex;
     float _pad0;
+    float _pad1;
+    float _pad2;
 };
 const uint FLAG_FOLIAGE = 1u;
 
@@ -59,20 +66,21 @@ void main() {
     // Broad sway, same frequency for trunk and canopy so branches and their
     // leaves move together; scaled by per-vertex stiffness so trunk bases
     // stay put while branch tips and leaves swing.
-    float sway = sin(wind.time * 1.5 + inst.windPhase) * wind.strength *
-                inColor.r;
+    vec4 worldPos = inst.modelMatrix * vec4(inPosition, 1.0);
+    vec2 rootXZ = inst.modelMatrix[3].xz;
+    float gust = inColor.r > 0.0 ? windGust(rootXZ) : 0.0;
+    float sway = (0.4 + 0.6 * sin(ubo.time * 1.15 + inst.windPhase)) *
+                 gust * inColor.r;
     // Faster, smaller flutter layered on top, foliage only - this is what
     // reads as individual leaves catching the wind rather than the whole
     // tree swaying as one rigid shape.
     if (foliage) {
-        sway += sin(wind.time * 6.0 + inst.windPhase * 3.1) * 0.15 *
-               wind.strength * inColor.r;
+        sway += sin(ubo.time * 6.0 + inst.windPhase * 3.1) * 0.10 *
+                gust * inColor.r;
     }
 
-    vec3 displacedLocal =
-        inPosition + vec3(wind.dir.x, 0.0, wind.dir.y) * sway;
-
-    vec4 worldPos = inst.modelMatrix * vec4(displacedLocal, 1.0);
+    // Wind stays world-aligned even when instances have different yaw.
+    worldPos.xz += ubo.wind.xy * sway;
     fragPosWorld = worldPos.xyz;
     fragNormalWorld = normalize(mat3(inst.normalMatrix) * inNormal);
     fragUV = inUV;
@@ -81,6 +89,10 @@ void main() {
     fragRoughness = inst.roughnessFactor;
     fragMetallic = inst.metallicFactor;
     fragFlags = inst.flags;
+    fragLocalPos = inPosition;
+    fragSeed = inst.windPhase;
+    fragBiomeTint = vec3(inst._pad0,inst._pad1,inst._pad2);
+    fragCanopyAO = inColor.g;
 
     gl_Position = ubo.projView * worldPos;
     gl_ClipDistance[0] = dot(worldPos, push.clipPlane);

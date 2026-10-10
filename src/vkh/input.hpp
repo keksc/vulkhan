@@ -12,7 +12,8 @@ class EngineContext;
 namespace input {
 void init(EngineContext &context);
 void update(EngineContext &context, std::vector<EntitySys::Entity> entities);
-extern glm::dvec2 lastPos;
+// Discard cursor-mode changes and focus transitions before the next sample.
+void resetMouseLook();
 enum class Action {
   MoveForward,
   MoveBackward,

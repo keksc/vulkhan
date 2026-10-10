@@ -1,0 +1,137 @@
+#version 450
+#extension GL_EXT_shader_atomic_int64 : require
+#define FUR_RASTER
+#include "furData.glsl"
+#include "../environment.glsl"
+layout(local_size_x=32) in;
+layout(set=3,binding=5) uniform sampler2D sceneDepth;
+shared vec3 guidePosition[12];
+shared vec3 guideNormal[12];
+
+vec3 curve(float t, vec3 bary) {
+  float at = clamp(t,0.0,1.0)*3.0;
+  int layer = min(int(at),2);
+  float f = at-float(layer);
+  vec3 p[4];
+  for (int i=0;i<4;++i) {
+    int row = clamp(layer+i-1,0,3)*3;
+    p[i] = guidePosition[row]*bary.x + guidePosition[row+1]*bary.y +
+           guidePosition[row+2]*bary.z;
+  }
+  return .5*((2.0*p[1])+(-p[0]+p[2])*f +
+         (2.0*p[0]-5.0*p[1]+4.0*p[2]-p[3])*f*f +
+         (-p[0]+3.0*p[1]-3.0*p[2]+p[3])*f*f*f);
+}
+
+vec3 strandPoint(float t, vec3 bary, float variation, float seed, float hairLength) {
+  vec3 n = normalize(guideNormal[0]*bary.x+guideNormal[1]*bary.y+guideNormal[2]*bary.z);
+  vec3 p = curve(t,bary);
+  // Fine variation is proportional to coat length; roots stay on the skin.
+  p += n * hairLength*(variation * .06 * t + .025*sin(t*5.0+seed)*t*t);
+  float wind = min(windGust(p.xz),1.5) *
+               smoothstep(.2,8.0,max(ubo.wind.z,0.0));
+  vec3 w = vec3(ubo.wind.x,0,ubo.wind.y);
+  w -= n*min(dot(w,n),0.0);
+  p += w*hairLength*(.12+.03*sin(ubo.time*4.2+seed))*wind*t*t;
+  return p;
+}
+
+// Clip before stepping: near-plane crossings never produce huge DDA loops.
+bool clipPlane(float fa, float fb, inout float lo, inout float hi) {
+  if (fa < 0.0 && fb < 0.0) return false;
+  if (fa < 0.0) lo = max(lo,fa/(fa-fb));
+  if (fb < 0.0) hi = min(hi,fa/(fa-fb));
+  return lo <= hi;
+}
+
+void rasterSegment(vec3 a, vec3 b, vec2 coat, uint wolf) {
+  vec4 ca = ubo.projView*vec4(a,1), cb = ubo.projView*vec4(b,1);
+  float lo=0.0,hi=1.0;
+  if (!clipPlane(ca.w-.0001,cb.w-.0001,lo,hi) ||
+      !clipPlane(ca.z,cb.z,lo,hi) ||
+      !clipPlane(ca.w-ca.z,cb.w-cb.z,lo,hi) ||
+      !clipPlane(ca.w+ca.x,cb.w+cb.x,lo,hi) ||
+      !clipPlane(ca.w-ca.x,cb.w-cb.x,lo,hi) ||
+      !clipPlane(ca.w+ca.y,cb.w+cb.y,lo,hi) ||
+      !clipPlane(ca.w-ca.y,cb.w-cb.y,lo,hi)) return;
+  vec4 ac=mix(ca,cb,lo),bc=mix(ca,cb,hi);
+  vec3 na=ac.xyz/ac.w,nb=bc.xyz/bc.w;
+  vec2 pa=(na.xy*.5+.5)*ubo.resolution-vec2(fur.window.zw);
+  vec2 pb=(nb.xy*.5+.5)*ubo.resolution-vec2(fur.window.zw);
+  vec2 delta=pb-pa;
+  float steps=max(abs(delta.x),abs(delta.y));
+  vec3 tangent=normalize(b-a);
+  // Subpixel hairs have finite width; this is a coverage approximation,
+  // with a conservative guide plus a thinner center-sample layer.
+  float physicalWidth=.00045;
+  float distance=max(length(a-ubo.inverseView[3].xyz),.01);
+  float diameter=clamp(physicalWidth*abs(ubo.proj[1][1])*
+                       ubo.resolution.y/distance,.16,1.0);
+  int count=max(int(ceil(steps)),1);
+  ivec2 previousBase=ivec2(0);
+  for (int i=0;i<=count;++i) {
+    float t=float(i)/float(count);
+    vec2 p=mix(pa,pb,t);
+    ivec2 base=ivec2(floor(p));
+    // Visit the neighbouring pixels for genuinely conservative coverage.
+    for (int y=-1;y<=1;++y) for (int x=-1;x<=1;++x) {
+      ivec2 q=base+ivec2(x,y);
+      // Closest distance/depth depend on the whole segment, not this step.
+      // Overlapping stencils have already tested these pixels; avoid repeated
+      // depth fetches and atomic writes along every long strand.
+      if (i>0 && all(lessThanEqual(abs(q-previousBase),ivec2(1)))) continue;
+      if (!furInside(q)) continue;
+      vec2 c=vec2(q)+.5;
+      float closest=clamp(dot(c-pa,delta)/max(dot(delta,delta),1e-10),0.0,1.0);
+      float d=length(c-mix(pa,pb,closest));
+      if (d > .71+diameter*.5) continue;
+      float z=mix(na.z,nb.z,closest);
+      ivec2 absolute=q+ivec2(fur.window.zw);
+      if (z <= texelFetch(sceneDepth,absolute,0).r) continue;
+      uint64_t payload=furPayload(z,tangent,coat,wolf);
+      uint index=furPixel(q);
+      atomicMin(conservative[index],payload);
+      if (d <= diameter*.5) atomicMin(center[index],payload);
+    }
+    previousBase=base;
+  }
+}
+
+void main() {
+  uint bundle=gl_WorkGroupID.x, wolfId=fur.counts.x;
+  FurInstance wolf=wolves[wolfId];
+  uint lane=gl_LocalInvocationID.x;
+  if (lane < 12u) {
+    Guide guide=bundles[bundle].guides[lane];
+    mat4 transform=wolf.model*guideSkin(guide,wolf);
+    guidePosition[lane]=(transform*vec4(guide.position.xyz,1.0)).xyz;
+    guideNormal[lane]=normalize(mat3(transform)*guide.normal.xyz);
+  }
+  barrier();
+  uint strand=gl_WorkGroupID.y*32u+lane;
+  uint seed=bundle*786433u+uint(wolf.animation.w*100000.0);
+  Dispatch lod=dispatches[wolfId];
+  // Per-bundle offsets stagger count changes; the surviving strand positions
+  // use persistent IDs and never change when the LOD count changes.
+  uint count=uint(floor(bundles[bundle].parameters.x*lod.density+randomFur(seed)));
+  if (strand >= count) return;
+  float a=sqrt(randomFur(seed+strand*65537u));
+  float b=randomFur(seed+strand*3571u+41u);
+  vec3 bary=vec3(1.0-a,a*(1.0-b),a*b);
+  float variation=randomFur(seed+strand*1237u+71u)*2.0-1.0;
+  float phase=randomFur(seed+strand*967u+17u)*6.283185;
+  float tip=.72+.28*randomFur(seed+strand*313u+23u);
+  vec2 coat=vec2(0);
+  for (uint corner=0u;corner<3u;++corner) {
+    Guide guide=bundles[bundle].guides[corner];
+    coat+=vec2(guide.normal.w,guide.position.w)*bary[corner];
+  }
+  float hairLength=bundles[bundle].parameters.y;
+  vec3 previous=strandPoint(0.0,bary,variation,phase,hairLength);
+  for (uint i=1u;i<=lod.segments;++i) {
+    vec3 next=strandPoint(tip*float(i)/float(lod.segments),bary,variation,phase,hairLength);
+    if (dot(next-previous,next-previous)>1e-12)
+      rasterSegment(previous,next,coat,wolfId);
+    previous=next;
+  }
+}

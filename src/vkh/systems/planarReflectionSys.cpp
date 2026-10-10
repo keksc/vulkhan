@@ -22,7 +22,7 @@ PlanarReflectionSys::PlanarReflectionSys(EngineContext &context,
   for (uint32_t i = 0; i < imageCount; ++i) {
     ImageCreateInfo_empty colorInfo{};
     colorInfo.size = resolution;
-    colorInfo.format = vk::Format::eR8G8B8A8Unorm;
+    colorInfo.format = context.vulkan.swapChain->getSwapChainImageFormat();
     colorInfo.samples = context.vulkan.msaaSamples;
     // Attachment-only: this image is never sampled directly (an MSAA image
     // isn't a plain sampler2D water.frag could read) - only its resolve
@@ -36,7 +36,8 @@ PlanarReflectionSys::PlanarReflectionSys(EngineContext &context,
     // what actually gets bound to be sampled for reflections.
     ImageCreateInfo_empty resolvedColorInfo{};
     resolvedColorInfo.size = resolution;
-    resolvedColorInfo.format = vk::Format::eR8G8B8A8Unorm;
+    resolvedColorInfo.format =
+        context.vulkan.swapChain->getSwapChainImageFormat();
     resolvedColorInfo.usage = vk::ImageUsageFlagBits::eColorAttachment |
                               vk::ImageUsageFlagBits::eSampled;
     resolvedColorInfo.layout = vk::ImageLayout::eUndefined;
@@ -45,7 +46,7 @@ PlanarReflectionSys::PlanarReflectionSys(EngineContext &context,
 
     ImageCreateInfo_empty depthInfo{};
     depthInfo.size = resolution;
-    depthInfo.format = vk::Format::eD32Sfloat;
+    depthInfo.format = context.vulkan.swapChain->getSwapChainDepthFormat();
     depthInfo.samples = context.vulkan.msaaSamples;
     depthInfo.usage = vk::ImageUsageFlagBits::eDepthStencilAttachment;
     depthInfo.aspect = vk::ImageAspectFlagBits::eDepth;
@@ -80,6 +81,8 @@ PlanarReflectionSys::PlanarReflectionSys(EngineContext &context,
 
     DescriptorWriter writer(context);
     writer.writeBuffer(0, bufferInfo, vk::DescriptorType::eUniformBuffer);
+    writer.writeBuffer(1, context.vulkan.worldUbo->descriptorInfo(),
+                       vk::DescriptorType::eUniformBuffer);
     writer.updateSet(set);
 
     reflectionGlobalSets.push_back(set);
@@ -139,8 +142,8 @@ void PlanarReflectionSys::updateReflectionCamera(float planeY) {
   ubo.inverseView = glm::inverse(mirroredView);
   ubo.resolution = context.window.size;
   ubo.aspectRatio = context.window.aspectRatio;
-  ubo.time = static_cast<float>(glfwGetTime()); // matches main.cpp's own
-                                                // ubo.time fill exactly
+  ubo.time = context.time;
+  applyEnvironment(ubo, context.environment);
 
   // Clip out anything below the water plane (the lake bed/underlying
   // terrain) from THIS reflection render - see getClipPlane()'s doc
@@ -160,7 +163,10 @@ void PlanarReflectionSys::recordReflectionPass(
     vk::CommandBuffer cmd,
     const std::function<void(vk::CommandBuffer)> &drawOpaqueScene) {
   const int frameIndex = context.frameInfo.frameIndex;
-  Image2D &colorTarget = colorTargets[frameIndex];
+  const bool multisampled =
+      context.vulkan.msaaSamples != vk::SampleCountFlagBits::e1;
+  Image2D &colorTarget =
+      (multisampled ? colorTargets : resolvedColorTargets)[frameIndex];
   Image2D &resolvedColorTarget = resolvedColorTargets[frameIndex];
   Image2D &depthTarget = depthTargets[frameIndex];
 
@@ -175,7 +181,8 @@ void PlanarReflectionSys::recordReflectionPass(
   colorAttachment.imageView = colorTarget.getImageView();
   colorAttachment.imageLayout = vk::ImageLayout::eColorAttachmentOptimal;
   colorAttachment.loadOp = vk::AttachmentLoadOp::eClear;
-  colorAttachment.storeOp = vk::AttachmentStoreOp::eDontCare;
+  colorAttachment.storeOp = multisampled ? vk::AttachmentStoreOp::eDontCare
+                                         : vk::AttachmentStoreOp::eStore;
   colorAttachment.clearValue.color =
       vk::ClearColorValue{std::array<float, 4>{0.55f, 0.7f, 0.85f, 1.0f}};
   // Sky-tint clear color, matching ssr.comp's own miss-fallback constant
@@ -188,8 +195,10 @@ void PlanarReflectionSys::recordReflectionPass(
   // color image: colorTarget itself is storeOp eDontCare (its MSAA
   // samples are never read directly, only the resolved output is), and
   // resolvedColorTarget is what water.frag actually samples afterward.
-  colorAttachment.resolveMode = vk::ResolveModeFlagBits::eAverage;
-  colorAttachment.resolveImageView = resolvedColorTarget.getImageView();
+  colorAttachment.resolveMode = multisampled ? vk::ResolveModeFlagBits::eAverage
+                                             : vk::ResolveModeFlagBits::eNone;
+  colorAttachment.resolveImageView =
+      multisampled ? resolvedColorTarget.getImageView() : vk::ImageView{};
   colorAttachment.resolveImageLayout = vk::ImageLayout::eColorAttachmentOptimal;
 
   vk::RenderingAttachmentInfo depthAttachment{};

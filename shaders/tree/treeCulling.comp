@@ -15,6 +15,8 @@ struct GPUInstanceData {
     uint flags;
     uint groupIndex;
     float _pad0;
+    float _pad1;
+    float _pad2;
 };
 
 struct DrawIndexedIndirectCommand {
@@ -25,7 +27,7 @@ struct DrawIndexedIndirectCommand {
     uint firstInstance;
 };
 
-layout(set = 0, binding = 0) uniform CullingUbo {
+layout(push_constant) uniform CullingPush {
     vec4 frustumPlanes[6];
     uint totalInstances;
     uint totalCommands;

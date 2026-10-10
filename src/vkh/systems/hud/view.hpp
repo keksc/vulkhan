@@ -21,6 +21,8 @@ public:
   EngineContext &context;
   Element container;
 
+  Element *focusedTextInput = nullptr;
+  float layoutScale = 1.f;
   size_t elementCount = 0;
 
   HudSys &hudSys;

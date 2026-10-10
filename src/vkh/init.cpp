@@ -1,4 +1,5 @@
 #include "init.hpp"
+#include "../settings.hpp"
 #include "debug.hpp"
 
 #include <GLFW/glfw3.h>
@@ -237,7 +238,8 @@ unsigned int getDeviceScore(EngineContext &context, vk::PhysicalDevice device) {
         // used for planar reflections has nothing stopping it from
         // rendering geometry below the water plane (the lake bed/
         // underlying terrain) straight into the reflection texture.
-        supportedFeatures.shaderClipDistance))
+        supportedFeatures.shaderClipDistance &&
+        supportedFeatures.shaderStorageImageWriteWithoutFormat))
     return 0; // unsuitable
 
   const auto &props = device.getProperties();
@@ -302,11 +304,14 @@ void pickPhysicalDevice(EngineContext &context) {
   context.vulkan.physicalDeviceProperties =
       context.vulkan.physicalDevice.getProperties();
 
-  vk::SampleCountFlagBits maxUsable = getMaxUsableSampleCount(context);
-  context.vulkan.msaaSamples = vk::SampleCountFlagBits::e4;
-  if (context.vulkan.msaaSamples > maxUsable) {
-    context.vulkan.msaaSamples = maxUsable;
-  }
+  const auto &limits = context.vulkan.physicalDeviceProperties.limits;
+  const auto supported =
+      limits.framebufferColorSampleCounts & limits.framebufferDepthSampleCounts;
+  auto &settings = vkh::settings::current();
+  settings.msaaSamples = vkh::supportedMsaa(settings.msaaSamples,
+                                            static_cast<uint32_t>(supported));
+  context.vulkan.msaaSamples =
+      static_cast<vk::SampleCountFlagBits>(settings.msaaSamples);
 }
 
 void createLogicalDevice(EngineContext &context) {
@@ -375,7 +380,20 @@ void createLogicalDevice(EngineContext &context) {
   vulkan12Features.descriptorBindingPartiallyBound = VK_TRUE;
   vulkan12Features.runtimeDescriptorArray = VK_TRUE;
 
+  // Optional strand fur uses a buffer-backed 64-bit visibility payload.
+  // Enable both features only when supported; cards remain the fallback.
+  vk::PhysicalDeviceVulkan12Features supported12{};
+  vk::PhysicalDeviceFeatures2 supported{};
+  supported.pNext = &supported12;
+  context.vulkan.physicalDevice.getFeatures2(&supported);
+  context.vulkan.strandFurAvailable =
+      supported.features.shaderInt64 && supported12.shaderBufferInt64Atomics &&
+      context.vulkan.physicalDeviceProperties.limits
+              .maxPerStageDescriptorStorageBuffers >= 7;
+  vulkan12Features.shaderBufferInt64Atomics = context.vulkan.strandFurAvailable;
+
   vk::PhysicalDeviceFeatures deviceFeatures{};
+  deviceFeatures.shaderInt64 = context.vulkan.strandFurAvailable;
   deviceFeatures.tessellationShader = VK_TRUE;
   deviceFeatures.multiDrawIndirect = VK_TRUE;
   deviceFeatures.fillModeNonSolid = VK_TRUE;
@@ -383,6 +401,9 @@ void createLogicalDevice(EngineContext &context) {
   // See the isDeviceSuitable() check above for why this is required now -
   // entities.vert needs it for the reflection pass's water-plane clip.
   deviceFeatures.shaderClipDistance = VK_TRUE;
+  // Post-processing targets either RGBA or BGRA UNORM presentation images.
+  // Untyped write-only images let Vulkan use the actual view format.
+  deviceFeatures.shaderStorageImageWriteWithoutFormat = VK_TRUE;
 
   vk::PhysicalDeviceFeatures2 deviceFeatures2{};
   deviceFeatures2.pNext = &vulkan12Features;
@@ -534,6 +555,14 @@ void setupGlobResources(EngineContext &context) {
   context.vulkan.globalDescriptorAllocator->init(100, poolSizeRatios);
 
   context.vulkan.globalUBOs.reserve(context.vulkan.maxFramesInFlight);
+  context.vulkan.worldUbo = std::make_unique<Buffer<world::GpuData>>(
+      context, vk::BufferUsageFlagBits::eUniformBuffer,
+      vk::MemoryPropertyFlagBits::eHostVisible |
+          vk::MemoryPropertyFlagBits::eHostCoherent);
+  context.vulkan.worldUbo->map();
+  const auto worldData = context.worldConfig ? context.worldConfig->gpuData()
+                                             : world::Config{}.gpuData();
+  context.vulkan.worldUbo->write(&worldData, sizeof(worldData));
   for (int i = 0; i < context.vulkan.maxFramesInFlight; i++) {
     auto &buf = context.vulkan.globalUBOs.emplace_back(
         context, vk::BufferUsageFlagBits::eUniformBuffer,
@@ -547,8 +576,10 @@ void setupGlobResources(EngineContext &context) {
   binding.descriptorCount = 1;
   binding.stageFlags = vk::ShaderStageFlagBits::eAll;
 
+  auto worldBinding = binding;
+  worldBinding.binding = 1;
   context.vulkan.globalDescriptorSetLayout =
-      buildDescriptorSetLayout(context, {binding});
+      buildDescriptorSetLayout(context, {binding, worldBinding});
 
   context.vulkan.globalDescriptorSets.reserve(context.vulkan.maxFramesInFlight);
   for (int i = 0; i < context.vulkan.maxFramesInFlight; i++) {
@@ -557,6 +588,8 @@ void setupGlobResources(EngineContext &context) {
         context.vulkan.globalDescriptorSetLayout);
     DescriptorWriter writer(context);
     writer.writeBuffer(0, context.vulkan.globalUBOs[i].descriptorInfo(),
+                       vk::DescriptorType::eUniformBuffer);
+    writer.writeBuffer(1, context.vulkan.worldUbo->descriptorInfo(),
                        vk::DescriptorType::eUniformBuffer);
     writer.updateSet(set);
   }

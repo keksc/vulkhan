@@ -5,7 +5,13 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 // Deliberately its own tiny standalone set - NOT common.glsl's 7-binding
 // compute set (that one is private to SmokeSys).
-layout(set = 0, binding = 0, r32f) uniform readonly image3D dyeVolume;
+//
+// Was a `readonly image3D` sampled with a hand-rolled 8-imageLoad trilinear
+// per march step. Now a real sampler3D (REPEAT addressing, same sampler the
+// composite pass uses for the dye - see SmokeCompositeEffect::
+// smokeVolumeSampler): one hardware-filtered fetch per step instead of 8
+// loads plus modulo/wrap math.
+layout(set = 0, binding = 0) uniform sampler3D dyeVolume;
 
 // Descriptor-indexed array of per-light output volumes - was two packed
 // rgba32f volumes (4 lights/channel, MAX_POINT_LIGHTS = 8). One
@@ -13,7 +19,7 @@ layout(set = 0, binding = 0, r32f) uniform readonly image3D dyeVolume;
 // pc.shadowedLightCount entries are written this dispatch (see main()).
 // Must be the LAST binding in this set (Vulkan requirement for a
 // partially-bound/variable-count binding).
-#define TRANSMITTANCE_CAPACITY 64
+#define TRANSMITTANCE_CAPACITY 16
 layout(set = 0, binding = 1, r32f) uniform writeonly image3D transmittanceVolumes[TRANSMITTANCE_CAPACITY];
 
 struct PointLight {
@@ -37,132 +43,101 @@ layout(push_constant) uniform TransmittancePush {
   // the first shadowedLightCount lights, by convention on the CPU side
   // (see SmokeCompositeEffect::beforeDispatch).
   int shadowedLightCount;
+  // Resolution divisor of the transmittance volumes relative to the dye
+  // grid (1 = same resolution, 2 = half resolution per axis = 1/8 of the
+  // texels). Transmittance is a smooth low-frequency field and is read back
+  // with a trilinear sampler, so half-res is visually indistinguishable but
+  // 8x cheaper. See SmokeCompositeEffect::kTransmittanceStride.
+  int stride;
 } pc;
 
 ivec3 wrapCoord(ivec3 p, ivec3 dims) {
   return ((p % dims) + dims) % dims;
 }
 
-float getDye(ivec3 p, ivec3 dims) {
-  return imageLoad(dyeVolume, wrapCoord(p, dims)).r;
+// Integer floor division for possibly-negative gridOrigin (GLSL's / truncates
+// toward zero).
+ivec3 floorDiv(ivec3 a, int b) {
+  ivec3 q = a / b;
+  ivec3 r = a - q * b;
+  return q - ivec3(lessThan(r, ivec3(0)));
 }
 
-// Same manual trilinear as common.glsl's sampleDyeAtLocalPos, duplicated
-// rather than shared via #include - see the original comment on why.
-float sampleDyeAtLocalPos(vec3 pos, ivec3 dims) {
-  ivec3 iPos = ivec3(floor(pos));
-  vec3 t = pos - vec3(iPos);
-
-  float c000 = getDye(iPos + ivec3(0, 0, 0), dims);
-  float c100 = getDye(iPos + ivec3(1, 0, 0), dims);
-  float c010 = getDye(iPos + ivec3(0, 1, 0), dims);
-  float c110 = getDye(iPos + ivec3(1, 1, 0), dims);
-  float c001 = getDye(iPos + ivec3(0, 0, 1), dims);
-  float c101 = getDye(iPos + ivec3(1, 0, 1), dims);
-  float c011 = getDye(iPos + ivec3(0, 1, 1), dims);
-  float c111 = getDye(iPos + ivec3(1, 1, 1), dims);
-
-  float x00 = mix(c000, c100, t.x);
-  float x10 = mix(c010, c110, t.x);
-  float x01 = mix(c001, c101, t.x);
-  float x11 = mix(c011, c111, t.x);
-
-  float y0 = mix(x00, x10, t.y);
-  float y1 = mix(x01, x11, t.y);
-
-  return mix(y0, y1, t.z);
-}
-
-// Identical math to the old smokeShadow(): march toward the light through
-// the dye field accumulating optical depth, Beer-Lambert it into a
-// transmittance factor. Runs once per grid cell per shadowed light per
-// frame, in this separate compute pass.
+// Marches toward the light through the dye field accumulating optical
+// depth, Beer-Lambert it into a transmittance factor. Same reach as before
+// (32 cells), but in `stride`-cell steps: the dye field is smooth and
+// trilinearly filtered, so 16 two-cell steps track 32 one-cell steps closely
+// while halving the fetch count again.
 //
-// boxMin/boxMax (the grid's world-space AABB, same values main() computed
-// to decide whether to skip a light entirely) clamp each march step -
-// this shader works entirely in world-space already (worldPos is built
-// from gridOrigin+p, not a bare storage index), so wrapCoord()'s modulo
-// inside sampleDyeAtLocalPos/getDye is doing correct address resolution
-// for an in-window coordinate, same as everywhere else - but nothing
-// stops a step from marching clean past the window's edge (up to
-// SHADOW_STEPS_MAX * cellSize = 32 cells - not small, relative to a
-// grid that might only be ~64 cells across) into a world coordinate
-// wrapCoord will still happily resolve to SOME slot, just one that
-// belongs to the window's opposite face. Clamping to the AABB before
-// sampling keeps the march from ever crossing that edge - it stops
-// accumulating additional optical depth once it exits the actually-
-// simulated volume instead of continuing through a phantom reconnection
-// to the far side.
+// UVW is worldPos / (dims * cellSize) with NO half-cell offset - identical
+// to smoke.comp's uvwOf(), i.e. texel i is centered at world (i + 0.5) *
+// cellSize. (The old hand-rolled sampler placed texel i at world i *
+// cellSize, half a cell off from how the composite pass reads the same
+// volume - this makes the two agree.)
+//
+// boxMin/boxMax clamp each step exactly as before, so the march never
+// crosses the window edge into the toroidally-wrapped far side.
 float marchTransmittance(vec3 worldPos, vec3 lightPos, ivec3 dims,
                          vec3 boxMin, vec3 boxMax) {
   vec3 toLight = lightPos - worldPos;
   float dist = length(toLight);
   vec3 dir = toLight / max(dist, 1e-4);
 
-  const int SHADOW_STEPS_MAX = 32;
-  float stepLen = pc.cellSize;
+  const int SHADOW_CELLS_MAX = 32;
+  int stride = max(pc.stride, 1);
+  int maxSteps = SHADOW_CELLS_MAX / stride;
+  float stepLen = pc.cellSize * float(stride);
+  vec3 uvwScale = 1.0 / (vec3(dims) * pc.cellSize);
 
   float opticalDepth = 0.0;
   float traveled = 0.0;
   vec3 p = worldPos;
-  for (int i = 0; i < SHADOW_STEPS_MAX && traveled < dist; i++) {
+  for (int i = 0; i < maxSteps && traveled < dist; i++) {
     p += dir * stepLen;
     traveled += stepLen;
     vec3 clampedP = clamp(p, boxMin, boxMax - vec3(1e-3));
-    opticalDepth += sampleDyeAtLocalPos(clampedP / pc.cellSize, dims) * stepLen;
+    opticalDepth += texture(dyeVolume, clampedP * uvwScale).r * stepLen;
   }
   return exp(-opticalDepth);
 }
 
 void main() {
-  ivec3 p = ivec3(gl_GlobalInvocationID);
   ivec3 dims = pc.cellCount.xyz;
-  if (p.x >= dims.x || p.y >= dims.y || p.z >= dims.z)
+  int stride = max(pc.stride, 1);
+  ivec3 outDims = dims / stride; // size of the transmittance volumes
+  ivec3 p = ivec3(gl_GlobalInvocationID);
+  if (p.x >= outDims.x || p.y >= outDims.y || p.z >= outDims.z)
     return;
 
-  // One representative world position for this cell within the current
-  // window - see the original comment on periodicity for why this is
-  // valid regardless of which preimage under wrapping it corresponds to.
-  vec3 worldPos = (vec3(pc.gridOrigin.xyz + p) + 0.5) * pc.cellSize;
+  // Coarse cell `cw` in absolute (toroidal) world coordinates: cell p of the
+  // window's coarse lattice, anchored to gridOrigin's floor-division so the
+  // lattice stays fixed in world space as the window recenters (for
+  // stride 1 this is exactly the old gridOrigin + p). Its center sits at
+  // (cw + 0.5) * stride cells - which is also where a REPEAT-sampled texel
+  // storageP is centered when read back via worldPos / (dims * cellSize).
+  // With stride > 1 the coarse lattice can be up to (stride - 1) fine cells
+  // short of the window's far edge (when gridOrigin isn't a multiple of
+  // stride); smoke fades out there anyway (see edgeFadeCells).
+  ivec3 cw = floorDiv(pc.gridOrigin.xyz, stride) + p;
+  vec3 worldPos = (vec3(cw) + 0.5) * float(stride) * pc.cellSize;
 
-  // Storage index for transmittanceVolumes: MUST match dyeVolume's own
-  // toroidal convention (wrapCoord of the absolute world cell), not the
-  // raw dispatch-local `p`. `p` is window-local (always [0,dims), counted
-  // fresh from the current window's start), while every other field in
-  // this sim (dye/velocity/pressure/...) is addressed by
-  // wrapCoord(worldCell, dims) - a ring-buffer slot that does NOT reset
-  // to 0 at the window edge, it rotates with gridOrigin's own residue mod
-  // dims (see common.glsl's windowLocalOffset comment). Writing at raw p
-  // here used to silently disagree with smokeCompositeEffect.comp's
-  // sampleTransmittance(), which reads via worldPos with a REPEAT
-  // sampler - i.e. genuine toroidal addressing, same formula as dye. The
-  // two only lined up when gridOrigin mod dims happened to be zero, which
-  // recenter() has no reason to preserve (it shifts by arbitrary drift,
-  // not whole-grid multiples) - everywhere else, self-shadowing sampled
-  // the wrong texel, offset by gridOrigin mod dims from where it was
-  // actually computed.
-  ivec3 storageP = wrapCoord(pc.gridOrigin.xyz + p, dims);
+  // Storage index: the same toroidal convention as dyeVolume (wrap of the
+  // absolute world cell), just at the coarse resolution - see the long
+  // comment this replaces in git history for why raw `p` is wrong.
+  ivec3 storageP = wrapCoord(cw, outDims);
 
-  // Grid's own world-space AABB, used below to skip individual lights
-  // that are too far away to meaningfully attenuate through this volume -
-  // mirrors the whole-pass skip in SmokeCompositeEffect::beforeDispatch().
   vec3 boxMin = vec3(pc.gridOrigin.xyz) * pc.cellSize;
   vec3 boxMax = boxMin + vec3(dims) * pc.cellSize;
 
-  // lightIndex (l) is the SAME value across every invocation at a given
-  // loop iteration (loop bound is the uniform push constant
-  // shadowedLightCount) - dynamically uniform, so indexing
+  // l is dynamically uniform (loop bound is a push constant), so indexing
   // transmittanceVolumes[l] needs no nonuniformEXT decoration.
   for (int l = 0; l < pc.shadowedLightCount; l++) {
     vec3 lightPos = lightsBuf.lights[l].positionAndRadius.xyz;
     vec3 closest = clamp(lightPos, boxMin, boxMax);
     float dist = length(lightPos - closest);
 
-    // Fade the marched result out to fully-transmissive (1.0) over the
-    // last quarter of the range, rather than a hard cut at
-    // pc.maxLightDistance - avoids a visible pop as a light crosses that
-    // boundary. Once fade reaches 0, marchTransmittance() isn't called at
-    // all, so distant lights are still cheap.
+    // Fade to fully-transmissive over the last quarter of the range instead
+    // of a hard cut at pc.maxLightDistance (avoids a pop).
     float fadeStart = pc.maxLightDistance * 0.75;
     float fade = 1.0 - smoothstep(fadeStart, pc.maxLightDistance, dist);
 

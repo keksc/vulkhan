@@ -40,7 +40,30 @@ public:
   SmokeSys(EngineContext &context);
   ~SmokeSys();
 
-  void update();
+  // Records one fixed-timestep sim step (default dt = 1/30) into `cmd` - the
+  // caller's per-frame command buffer, NOT a private submit-and-wait one -
+  // if at least one dt has accumulated since the last step; otherwise does
+  // nothing and returns false. Must be called outside any rendering scope
+  // (it's compute + transfer only), before whatever reads the dye this
+  // frame (SmokeCompositeEffect's transmittance/composite passes).
+  //
+  // Why this replaced update(): the old version opened its own single-time
+  // command buffer and blocked the CPU on vkQueueWaitIdle every frame, so
+  // the GPU idled while the CPU recorded the rest of the frame, and it
+  // ran one step per RENDER frame regardless of frame rate (2.4x too fast
+  // at 144 fps, and 144 steps/s of GPU work). At most one step is taken
+  // per call: below the configured simulation rate the sim runs slower than real time, as before.
+  bool update(vk::CommandBuffer cmd, float frameTime);
+
+  // Total steps taken so far (for anything that wants to cache per-step).
+  uint64_t stepCount() const { return simStepCount; }
+  bool hasSmoke() const { return activeSmoke; }
+
+  // Red-black Gauss-Seidel sweeps per step (each is 2 dispatches + 2
+  // barriers). The pressure field is kept between steps, so it starts warm;
+  // 40 was the original value. Lower = cheaper, slightly more residual
+  // divergence (smoke compresses a little).
+  int pressureIterations = 12;
 
   // ============================== Tuning ==============================
   // All plain member variables now, so UI/settings can bind straight to
@@ -50,14 +73,14 @@ public:
   float brushDistance = 6.0f;  // how far in front of the camera smoke spawns
   float brushRadius = 3.0f;    // world units
   float brushStrength = 6.0f;  // velocity imparted along the camera's forward
-  float brushSmokeRate = 0.6f; // smoke density added per frame at brush center
+  float brushSmokeRate = 0.6f; // density per 60Hz reference step
 
   // Hard cap on velocity magnitude after ANY brush write (paint brush,
   // player push, or a laser sphere) - see BrushPushConstants::
   // maxSpeedAndPad for why this exists. Set well above brushStrength/
   // laserStrength's per-hit magnitude (they're multiplied by dt before
   // reaching applyBrush, so a single hit is tiny) but low enough that
-  // sustained/repeated hits can't drive advection past what a dt=1/60
+  // sustained/repeated hits can't drive advection past what the configured timestep
   // step on a 1-unit grid can stay stable at. 40 is a starting point -
   // if you still see the sim destabilize with heavy sustained laser use,
   // lower this before reaching for anything else.
@@ -131,7 +154,8 @@ public:
   float cellSize;
 
   const float density = 1.f;
-  const float dt = 1.f / 60.f;
+  // Tunable 30Hz default; dt also scales brush impulses and advection.
+  float dt = 1.f / 30.f;
 
   vk::DescriptorSetLayout dyeImageSetLayout;
   vk::DescriptorSet dyeImageSet;
@@ -498,6 +522,18 @@ private:
   // spurious velocity from an uninitialized/zero previous position.
   glm::vec3 previousPlayerPos{};
   bool havePreviousPlayerPos = false;
+
+  // Fixed-timestep accumulator - see update().
+  float simAccumulator = 0.f;
+  uint64_t simStepCount = 0;
+  bool activeSmoke = false;
+  bool activeFluid = false;
+
+  // The solid-map staging buffer recorded into a frame's command buffer has
+  // to outlive that frame's GPU execution. One slot per frame-in-flight;
+  // reassigning a slot is safe because the frame fence for that slot has
+  // already been waited on by beginFrame().
+  std::vector<std::unique_ptr<Buffer<uint8_t>>> pendingSolidStaging;
 };
 
 } // namespace vkh

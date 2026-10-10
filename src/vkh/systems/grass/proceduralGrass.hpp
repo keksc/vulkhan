@@ -3,12 +3,15 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.hpp>
 
+#include <array>
+#include <memory>
 #include <optional>
 #include <vector>
 
 #include "../../pipeline.hpp"
 #include "../../image.hpp"
 #include "../system.hpp"
+#include "grassField.hpp"
 
 namespace vkh {
 
@@ -39,7 +42,7 @@ public:
                         // tip + petal coloring in the fragment shader)
     glm::vec2 _pad2;
     glm::vec3 aabbMin;
-    float _pad0;
+    uint32_t _pad0; // packed biome RGB, populated by the generation shader
     glm::vec3 aabbMax;
     float _pad1;
   };
@@ -105,6 +108,11 @@ public:
     std::shared_ptr<Image2D> image;
     glm::vec2 worldMin;  // world-space XZ of the image's texel (0, 0)
     glm::vec2 worldSize; // world-space size the image covers
+    // Vertical bounds of the terrain the image covers. Only used by the
+    // infinite field's block frustum culling (see below); the defaults
+    // disable vertical culling, which is always safe.
+    float minY{-1.0e4f};
+    float maxY{1.0e4f};
   };
 
   static constexpr int SEGMENTS = 3;
@@ -119,18 +127,32 @@ public:
   // heightmap: optional terrain binding (see HeightmapBinding above) so
   // blades conform to non-flat ground and only spawn where the terrain's
   // suitability mask allows. Omit for flat ground at y=0 (old behavior).
+  //
+  // infiniteField: ignore `patches` and cover EVERYTHING around the camera
+  // out to maxDist. No field-sized tile list exists in this mode: tiles are
+  // enumerated around the camera each frame, in blocks that intersect the
+  // view frustum, so cost and memory depend only on maxDist (never on how
+  // far the camera has travelled). The heightmap is expected to be a window
+  // that follows the camera - hand fresh ones to setHeightmap() as it moves
+  // (see grassField.hpp's HeightWindow); it must cover at least
+  // maxDist + 4 tiles around the camera at all times.
   ProceduralGrassSys(EngineContext &context,
                      std::vector<GrassPatch> patches = {},
                      float tileSize = 1.0f, uint32_t bladesPerTileSide = 8,
-                     std::optional<HeightmapBinding> heightmap = std::nullopt);
+                     std::optional<HeightmapBinding> heightmap = std::nullopt,
+                     bool infiniteField = false);
   ~ProceduralGrassSys();
+
+  // Swaps the terrain heightmap. Render thread only; cheap (stores the new
+  // binding). Each frame-in-flight slot adopts it in its next updateBuffers()
+  // by rewriting its own descriptor, and keeps its previous image alive
+  // until then, so frames still in flight never see a destroyed image.
+  void setHeightmap(HeightmapBinding heightmap);
 
   void cull(vk::CommandBuffer cmd);
   void render();
   void updateBuffers(); // called once per frame; recomputes frustum + wind
 
-  float windStrength = 0.35f;
-  glm::vec2 windDir = glm::normalize(glm::vec2(1.f, 0.3f));
 
   // Distance-based behavior, read every frame so these ARE safe to tweak
   // live (unlike the patch layout / tile density above).
@@ -144,12 +166,49 @@ private:
   void createGeneratePipeline();
   void createFinalizePipeline();
   void buildTileOrigins(); // fills tileOrigins_ from patches_, deduplicated
+  void adoptHeightmap(int frameIndex); // see setHeightmap()
+  // Upper bound on how many tiles can be within maxDist of the camera (plus
+  // margin) at once, from the field's full tileOrigins_ - see its call
+  // site's comment. Used to size activeTileOriginBuffers and
+  // compactedInstanceBuffers instead of the whole field's tile/blade count.
+  uint32_t computeActiveTileCapacity() const;
 
   const std::vector<GrassPatch> patches_;
   const float tileSize_;
   const uint32_t bladesPerTileSide_;
   std::vector<glm::vec2> tileOrigins_; // world-space min-corner of each tile
-  std::unique_ptr<Buffer<glm::vec2>> tileOriginBuffer;
+                                       // in the WHOLE configured field - can
+                                       // be very large (main.cpp currently
+                                       // covers the entire mountain terrain
+                                       // with this); see
+                                       // computeActiveTileCapacity()'s
+                                       // comment for why this full list is
+                                       // no longer uploaded to the GPU
+                                       // wholesale.
+
+  // Sized once at construction from computeActiveTileCapacity(), using
+  // whatever maxDist was THEN; changing maxDist afterward does not resize
+  // these buffers (see that method's comment for what happens if you push
+  // maxDist well past this).
+  uint32_t activeTileCapacity_ = 0;
+  // The actual number of tiles uploaded to activeTileOriginBuffers[frame]
+  // THIS frame (<= activeTileCapacity_) - set by updateBuffers(), read back
+  // by cull() to size its dispatch. Only ever meaningfully current for
+  // whichever frameIndex updateBuffers() was most recently called with;
+  // fine in practice since main.cpp always calls updateBuffers() then
+  // cull() back to back for the same frame, same as every other system
+  // here.
+  uint32_t currentActiveTileCount_ = 0;
+  // Per-frame-in-flight, each capacity activeTileCapacity_ - NOT the whole
+  // field. updateBuffers() re-fills the front of this with whichever of
+  // tileOrigins_ currently fall within maxDist of the camera before every
+  // cull() dispatch; see updateBuffers()'s own comment for why a per-frame
+  // CPU-side distance filter is cheap enough to redo every frame compared
+  // to what it replaces.
+  std::vector<std::unique_ptr<Buffer<glm::vec2>>> activeTileOriginBuffers;
+  // Reused scratch space for the per-frame filter pass, to avoid
+  // reallocating a multi-thousand-entry vector every frame.
+  std::vector<glm::vec2> frameTileScratch_;
 
   // Heightmap binding (see HeightmapBinding above). heightmapImage_ is
   // null if no heightmap was supplied to the constructor, in which case
@@ -160,10 +219,21 @@ private:
   std::optional<HeightmapBinding> heightmap_;
   std::shared_ptr<Image2D> fallbackHeightmapImage_;
 
-  uint32_t maxBladeCount() const {
-    return static_cast<uint32_t>(tileOrigins_.size()) * bladesPerTileSide_ *
-           bladesPerTileSide_;
-  }
+  // What each frame-in-flight slot currently has bound (binding 5 + the
+  // origin/size written to that slot's UBO), so a swap never touches a
+  // descriptor a pending frame may still be reading.
+  struct HeightmapSlot {
+    std::shared_ptr<Image2D> image;
+    glm::vec2 origin{0.f};
+    glm::vec2 size{0.f};
+    uint64_t version{0};
+  };
+  std::vector<HeightmapSlot> heightmapSlots_;
+  uint64_t heightmapVersion_{1};
+
+  // Infinite-field mode, see the constructor's doc comment.
+  bool infinite_{false};
+  std::vector<grass::TileBlockRef> blockScratch_;
 
   std::unique_ptr<GraphicsPipeline> pipeline;
   vk::DescriptorSetLayout instanceSetLayout;

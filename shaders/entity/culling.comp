@@ -8,7 +8,7 @@
 // return value doubles as both the compacted slot index and the running
 // visible count for the group (read back in pass 2).
 //
-// `groupVisibleCounts` must be zeroed by the CPU before this dispatch runs.
+// `groupVisibleCounts` is zeroed by vkCmdFillBuffer before every dispatch.
 
 layout(local_size_x = 64) in;
 
@@ -26,7 +26,7 @@ struct GPUInstanceData {
   int groupIndex; // which entry in groupFirstInstance/groupVisibleCounts this instance belongs to
 };
 
-layout(set = 0, binding = 0) uniform CullingUbo {
+layout(push_constant) uniform CullingPush {
   vec4 frustumPlanes[6];
   uint totalInstances;
   uint totalCommands;

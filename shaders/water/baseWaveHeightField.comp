@@ -24,6 +24,7 @@ layout(std430, binding = 2) buffer WaveVectorsIn {
 };
 
 layout (constant_id = 0) const uint tileSize = 512;
+layout (constant_id = 1) const uint detailCascade = 0;
 
 // Was hardcoded (const vec2 windDir = vec2(1,0); const float windSpeed =
 // 20.f) - now driven from WSTessendorf::recordUpdateSpectrumIfWindChanged(),
@@ -65,6 +66,16 @@ const float g = 9.81;
 
 float jonswapSpectrum(vec2 unitWaveVec, float k) {
     if (k < 1e-6) return 0.0;
+    if (detailCascade != 0) {
+        // Short gravity/capillary tail, isolated from the long-wave cascade.
+        // Broad directionality gives crossing ripples rather than stripes.
+        float alignment = dot(unitWaveVec, wind.windDir);
+        float directional = 0.35 + 0.65 * alignment * alignment;
+        float windEnergy = clamp(wind.windSpeed / 6.0, 0.0, 2.0);
+        float band = smoothstep(12.0, 24.0, k);
+        return 3e-5 * windEnergy * directional * band *
+               exp(-k * k * 0.004 * 0.004) / (k * k * k);
+    }
     const float k2 = k * k;
     const float k4 = k2 * k2;
     float cosFact = dot(unitWaveVec, wind.windDir);
@@ -90,10 +101,13 @@ vec2 conj(vec2 c) {
 }
 
 float DispersionDeepWaves(float k) {
-  return sqrt(g * k);
+  // Surface tension / density for water: capillary waves accelerate as
+  // wavelength falls. Long waves retain the original gravity dispersion.
+  return sqrt(g * k + (detailCascade != 0 ? 7.2e-5 * k * k * k : 0.0));
 }
 
 float QDispersion(float k) {
+  if (detailCascade != 0) return DispersionDeepWaves(k);
   return floor(DispersionDeepWaves(k) / baseFreq) * baseFreq;
 }
 
@@ -105,9 +119,14 @@ void main() {
     const float k = length(kWaveVec.vec);
     BaseWaveHeight h0;
     if (k > 0.00001) {
-        vec2 gaussRandom = gaussian(id);
+        uvec2 salt = detailCascade != 0 ? uvec2(193, 719) : uvec2(0);
+        vec2 gaussRandom = gaussian(id + salt);
         h0.heightAmp = baseWaveHeightFT(gaussRandom, kWaveVec.unit, k);
-        h0.heightAmp_conj = conj(baseWaveHeightFT(gaussRandom, -kWaveVec.unit, k));
+        // h0*(-k) must come from the mirrored frequency's random seed.
+        // Reusing h0(k)'s seed makes each mode a standing cosine wave.
+        uvec2 mirrorId = (uvec2(tileSize) - id) % uvec2(tileSize);
+        h0.heightAmp_conj = conj(baseWaveHeightFT(
+            gaussian(mirrorId + salt), -kWaveVec.unit, k));
         h0.dispersion = QDispersion(k);
     } else {
         h0.heightAmp = vec2(0.0);
