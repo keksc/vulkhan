@@ -2,6 +2,9 @@
 
 layout(local_size_x = 64) in;
 
+// Matches the host output capacity and finalize.comp.
+const uint MAX_VISIBLE_BLADES = 250000u;
+
 #include "../consts.glsl"
 #define WORLD_BINDING 6
 #include "../biome.glsl"
@@ -54,7 +57,6 @@ layout(std430, set = 0, binding = 3) buffer VisibleCountBuffer {
 
 layout(set = 0, binding = 5) uniform sampler2D heightmapTex;
 
-// Thomas Wang hash + per-attribute stream derivation.
 uint hashU(uint n) {
   n = (n ^ 61u) ^ (n >> 16u);
   n *= 9u;
@@ -63,11 +65,13 @@ uint hashU(uint n) {
   n = n ^ (n >> 15u);
   return n;
 }
+
 float hash01(uint n) { return float(hashU(n)) * (1.0 / 4294967296.0); }
 
 uint hashAttr(uint seed, uint attrId) {
   return hashU(seed * (2654435761u + attrId * 0x85ebca6bu) + attrId);
 }
+
 float hash01Attr(uint seed, uint attrId) {
   return float(hashAttr(seed, attrId)) * (1.0 / 4294967296.0);
 }
@@ -186,9 +190,10 @@ void main() {
     vec2 maskJitter =
         (vec2(hash01Attr(seed, 30u), hash01Attr(seed, 31u)) - 0.5) *
         maskJitterMeters;
-    vec2 maskUv = clamp((basePos.xz + maskJitter - ubo.heightmapOrigin) /
-                            ubo.heightmapSize,
-                        vec2(0.0), vec2(1.0));
+    vec2 maskUv =
+        clamp((basePos.xz + maskJitter - ubo.heightmapOrigin) /
+                  ubo.heightmapSize,
+              vec2(0.0), vec2(1.0));
     float grassSuitability = textureLod(heightmapTex, maskUv, 0.0).g;
 
     // Fade an exhausted streaming window before its rectangular boundary.
@@ -204,7 +209,8 @@ void main() {
   float distToCam = length(basePos.xz - ubo.camPos);
   if (distToCam > ubo.maxDist) return;
 
-  float keepProbability = 1.0 - smoothstep(ubo.maxDist * 0.3, ubo.maxDist, distToCam);
+  float keepProbability =
+      1.0 - smoothstep(ubo.maxDist * 0.3, ubo.maxDist, distToCam);
   if (hash01Attr(seed, 22u) > keepProbability) return;
 
   // ---- Per-clump attributes ---------------------------------------------
@@ -251,7 +257,12 @@ void main() {
 
   if (!isInFrustum(aabbMin, aabbMax)) return;
 
+  // The output buffer is intentionally bounded.  atomicAdd still gives
+  // every passing blade a unique logical slot, but only the first
+  // MAX_VISIBLE_BLADES are allowed to write to the actual buffer.
   uint slot = atomicAdd(visibleCount, 1u);
+  if (slot >= MAX_VISIBLE_BLADES) return;
+
   compacted[slot] = BladeInstance(
       basePos, bendAngle, facingAngle, height, width, windPhase,
       bendAngle2, clumpColor, vec2(dryness, 0.0),

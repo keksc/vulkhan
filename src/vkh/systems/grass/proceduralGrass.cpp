@@ -10,11 +10,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <print>
 #include <unordered_set>
 
 #include "grassField.hpp"
 
 namespace vkh {
+
+namespace {
+constexpr uint32_t kMaxVisibleGrassBlades = 250000;
+}
 
 void ProceduralGrassSys::createSetLayouts() {
   std::vector<vk::DescriptorSetLayoutBinding> bindings = {
@@ -168,10 +173,9 @@ uint32_t ProceduralGrassSys::computeActiveTileCapacity() const {
     // square lies within that circle expanded by half a tile diagonal, so
     // its area bounds the count for any camera position. This saves memory
     // versus the square window without ever stopping midway through a row.
-    const double radius = static_cast<double>(maxDist) / tileSize_ +
-                          2.0 + std::sqrt(0.5);
-    return static_cast<uint32_t>(std::ceil(
-        std::acos(-1.0) * radius * radius));
+    const double radius =
+        static_cast<double>(maxDist) / tileSize_ + 2.0 + std::sqrt(0.5);
+    return static_cast<uint32_t>(std::ceil(std::acos(-1.0) * radius * radius));
   }
   // Can never need more capacity than the whole field actually has.
   capacity = std::min<uint64_t>(capacity, tileOrigins_.size());
@@ -214,8 +218,7 @@ ProceduralGrassSys::ProceduralGrassSys(
 
   uint32_t framesInFlight = context.vulkan.maxFramesInFlight;
   activeTileCapacity_ = computeActiveTileCapacity();
-  uint32_t maxBlades =
-      activeTileCapacity_ * bladesPerTileSide_ * bladesPerTileSide_;
+  const uint32_t maxVisibleBlades = kMaxVisibleGrassBlades;
   frameTileScratch_.reserve(activeTileCapacity_);
 
   compactedInstanceBuffers.resize(framesInFlight);
@@ -251,13 +254,11 @@ ProceduralGrassSys::ProceduralGrassSys(
             vk::MemoryPropertyFlagBits::eHostCoherent,
         std::max<uint32_t>(activeTileCapacity_, 1));
 
-    // Fixed-size for the lifetime of the system - worst case is every
-    // generated blade in the ACTIVE tile window (not the whole field)
-    // passing the frustum test.
+    // Bounded output; generation and indirect finalization clamp to this
+    // capacity even when the active tile window has more visible blades.
     compactedInstanceBuffers[i] = std::make_unique<Buffer<BladeInstance>>(
         context, vk::BufferUsageFlagBits::eStorageBuffer,
-        vk::MemoryPropertyFlagBits::eDeviceLocal,
-        std::max<uint32_t>(maxBlades, 1));
+        vk::MemoryPropertyFlagBits::eDeviceLocal, maxVisibleBlades);
 
     visibleCountBuffers[i] = std::make_unique<Buffer<uint32_t>>(
         context, vk::BufferUsageFlagBits::eStorageBuffer,
@@ -387,10 +388,9 @@ void ProceduralGrassSys::updateBuffers() {
     // ground behind and beside the camera.
     const float yMin = heightmap_ ? heightmap_->minY : -1.0e4f;
     const float yMax = heightmap_ ? heightmap_->maxY : 1.0e4f;
-    grass::collectVisibleTiles(camPosXZ, filterDist, tileSize_,
-                               ubo.frustumPlanes, yMin, yMax,
-                               activeTileCapacity_, blockScratch_,
-                               frameTileScratch_);
+    grass::collectVisibleTiles(
+        camPosXZ, filterDist, tileSize_, ubo.frustumPlanes, yMin, yMax,
+        activeTileCapacity_, blockScratch_, frameTileScratch_);
   } else {
     // CPU-side broad-phase: pick out just the tiles within maxDist (plus the
     // same margin computeActiveTileCapacity() budgeted for) of the camera,
@@ -500,6 +500,7 @@ void ProceduralGrassSys::cull(vk::CommandBuffer cmd) {
                       vk::DependencyFlags(), computeBarrier, nullptr, nullptr);
 
   finalizePipeline->bind(cmd);
+
   cmd.dispatch(1, 1, 1);
 
   indirectBarrier.srcAccessMask = vk::AccessFlagBits::eShaderWrite;
